@@ -90,10 +90,12 @@ pub struct GraphNodeId(pub usize);
 
 pub type GraphNode = GenericNode<GraphNodeId>;
 
-#[derive(Debug, Clone)]
+#[derive(derive_debug::Dbg, Clone)]
 pub struct Graph {
     nodes: StableVec<GraphNode>,
+
     /// a hashmap for de-duplication
+    #[dbg(skip)]
     node_to_id: HashMap<GraphNode, GraphNodeId>,
 }
 impl Graph {
