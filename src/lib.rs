@@ -1,39 +1,41 @@
+use std::collections::HashMap;
+
 use derive_more::From;
 use stable_vec::StableVec;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Imm(pub u64);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Var(pub u64);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BinOpKind {
     Add,
     Mul,
     And,
     Or,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BinOp<L> {
     pub kind: BinOpKind,
     pub lhs: L,
     pub rhs: L,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum UnOpKind {
     Neg,
     Not,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct UnOp<L> {
     pub kind: UnOpKind,
     pub operand: L,
 }
 
-#[derive(Debug, Clone, From)]
+#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
 pub enum GenericNode<L> {
     Imm(Imm),
     Var(Var),
@@ -83,7 +85,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct GraphNodeId(pub usize);
 
 pub type GraphNode = GenericNode<GraphNodeId>;
@@ -91,11 +93,14 @@ pub type GraphNode = GenericNode<GraphNodeId>;
 #[derive(Debug, Clone)]
 pub struct Graph {
     nodes: StableVec<GraphNode>,
+    /// a hashmap for de-duplication
+    node_to_id: HashMap<GraphNode, GraphNodeId>,
 }
 impl Graph {
     pub fn new() -> Self {
         Self {
             nodes: StableVec::new(),
+            node_to_id: HashMap::new(),
         }
     }
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
@@ -121,7 +126,12 @@ impl Graph {
         self.add_node(graph_node)
     }
     pub fn add_node(&mut self, node: GraphNode) -> GraphNodeId {
-        GraphNodeId(self.nodes.push(node))
+        if let Some(existing_id) = self.node_to_id.get(&node) {
+            return *existing_id;
+        }
+        let new_id = GraphNodeId(self.nodes.push(node.clone()));
+        self.node_to_id.insert(node, new_id);
+        new_id
     }
 }
 
@@ -153,5 +163,9 @@ mod tests {
             .into(),
         }
         .into();
+
+        let graph = Graph::from_rec_node(&rec_node);
+        dbg!(graph);
+        panic!();
     }
 }
