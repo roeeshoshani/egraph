@@ -48,19 +48,63 @@ impl<L> From<u64> for GenericNode<L> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct EClassId(pub usize);
 
 pub type ENode = GenericNode<EClassId>;
 
-#[derive(Debug, Clone)]
-pub struct EClass {
-    pub nodes: Vec<ENode>,
-}
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ENodeId(pub usize);
 
 #[derive(Debug, Clone)]
+pub struct EClass {
+    pub enode_ids: Vec<ENodeId>,
+}
+
+#[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
-    eclasses: StableVec<EClass>,
+    pub eclasses: StableVec<EClass>,
+    pub enodes: StableVec<ENode>,
+    pub enode_to_eclass: HashMap<ENode, EClassId>,
+}
+impl EGraph {
+    pub fn new() -> Self {
+        Self {
+            eclasses: StableVec::new(),
+            enodes: StableVec::new(),
+            enode_to_eclass: HashMap::new(),
+        }
+    }
+
+    /// adds an enode to the egraph and returns the id of the eclass which contains this enode.
+    pub fn add_enode(&mut self, enode: ENode) -> EClassId {
+        if let Some(existing_eclass) = self.enode_to_eclass.get(&enode) {
+            return *existing_eclass;
+        }
+        let new_enode_id = ENodeId(self.enodes.push(enode));
+        let new_eclass = EClass {
+            enode_ids: vec![new_enode_id],
+        };
+        EClassId(self.eclasses.push(new_eclass))
+    }
+
+    pub fn add_rec_node(&mut self, rec_node: &RecNode) -> EClassId {
+        // first, convert the recursive node into a graph node
+        let graph_node = match &rec_node.0 {
+            GenericNode::Imm(imm) => GenericNode::Imm(*imm),
+            GenericNode::Var(var) => GenericNode::Var(*var),
+            GenericNode::BinOp(bin_op) => GenericNode::BinOp(BinOp {
+                kind: bin_op.kind,
+                lhs: self.add_rec_node(&bin_op.lhs),
+                rhs: self.add_rec_node(&bin_op.rhs),
+            }),
+            GenericNode::UnOp(un_op) => GenericNode::UnOp(UnOp {
+                kind: un_op.kind,
+                operand: self.add_rec_node(&un_op.operand),
+            }),
+        };
+        self.add_enode(graph_node)
+    }
 }
 
 #[derive(Debug, Clone)]
