@@ -108,8 +108,16 @@ impl UnionFind {
         }
     }
     pub fn items_eq_to(&self, item: ItemId) -> impl Iterator<Item = ItemId> + '_ {
-        todo!();
-        std::iter::empty()
+        // TODO: make this efficient if needed
+        let root = self.root_of_item(item);
+        (1..self.next_item_id.get())
+            .map(|i| {
+                ItemId(
+                    // SAFETY: our iteration starts from 1, so the value can't be 0
+                    unsafe { NonZeroUsize::new_unchecked(i) },
+                )
+            })
+            .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
     }
     pub fn are_eq(&self, item_a: ItemId, item_b: ItemId) -> bool {
         if item_a == item_b {
