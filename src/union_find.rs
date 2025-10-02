@@ -9,6 +9,7 @@ impl ItemId {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct UnionFind {
     next_item_id: NonZeroUsize,
     parent_of_item: Vec<Option<ItemId>>,
@@ -22,13 +23,20 @@ impl UnionFind {
     }
     pub fn create_new_item(&mut self) -> ItemId {
         let res = self.next_item_id;
-        self.next_item_id.checked_add(1).unwrap();
+        self.next_item_id = self.next_item_id.checked_add(1).unwrap();
         ItemId(res)
     }
     fn get_parent_of_item(&self, item: ItemId) -> Option<ItemId> {
         self.parent_of_item.get(item.0.get()).copied()?
     }
     fn set_parent_of_item(&mut self, item: ItemId, parent: Option<ItemId>) {
+        // a node can't be the parent of itself.
+        //
+        // this is a very low effort loop detection logic, just to catch some stupid cases.
+        //
+        // we rely on our code to never create any loops in the tree, but this check is added just in case, since it is very easy to add.
+        debug_assert!(parent != Some(item));
+
         let item_index = item.index();
 
         // the array is lazily extended. so, it is possible that an item exists even though the array is too small to hold its index.
