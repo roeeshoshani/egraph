@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+mod union_find;
+
 use derive_more::From;
 use stable_vec::StableVec;
 
