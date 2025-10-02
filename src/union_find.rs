@@ -130,6 +130,52 @@ mod tests {
         iterator.collect()
     }
 
+    fn chk_groups(union_find: &UnionFind, all_items: &[ItemId], groups: &[&[ItemId]]) {
+        // make sure that the provided groups contain all items
+        let groups_len_sum: usize = groups.iter().map(|group| group.len()).sum();
+        assert_eq!(all_items.len(), groups_len_sum);
+
+        for &group in groups {
+            // all items in the group should be equal to each other
+            for &item1 in group {
+                for &item2 in group {
+                    assert!(union_find.are_eq(item1, item2));
+                }
+            }
+
+            // make sure that when iterating over each item in the group, we get all other items in the group, except for the item
+            // itself.
+            for &item in group {
+                let group_items_other_than = {
+                    let mut tmp = collect_to_vec(group.iter().copied());
+                    // keep all items other than the current item
+                    tmp.retain(|x| *x != item);
+                    tmp
+                };
+                assert_eq!(
+                    group_items_other_than,
+                    collect_to_vec(union_find.items_eq_to(item))
+                );
+            }
+
+            // make sure that each item that is not in the group is not equal to all of the items that are in the group,
+            // since it is not with them in the group.
+            for &item in all_items {
+                // we only want to check items that are not in the group.
+                if group.contains(&item) {
+                    continue;
+                }
+
+                let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
+
+                for &group_item in group {
+                    assert!(!union_find.are_eq(item, group_item));
+                    assert!(!items_eq_to_item.contains(&group_item));
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_eq_self_single_item() {
         let mut union_find = UnionFind::new();
@@ -183,58 +229,17 @@ mod tests {
         let b = union_find.create_new_item();
         let c = union_find.create_new_item();
 
+        let all_items = [a, b, c];
+
+        chk_groups(&union_find, &all_items, &[&[a], &[b], &[c]]);
+
         union_find.union(a, b);
+
+        chk_groups(&union_find, &all_items, &[&[a, b], &[c]]);
+
         union_find.union(b, c);
 
-        assert!(union_find.are_eq(a, c));
-
-        assert_eq!(collect_to_vec(union_find.items_eq_to(a)), &[b, c]);
-    }
-
-    fn chk_groups(union_find: &UnionFind, all_items: &[ItemId], groups: &[&[ItemId]]) {
-        // make sure that the provided groups contain all items
-        let groups_len_sum: usize = groups.iter().map(|group| group.len()).sum();
-        assert_eq!(all_items.len(), groups_len_sum);
-
-        for &group in groups {
-            // all items in the group should be equal to each other
-            for &item1 in group {
-                for &item2 in group {
-                    assert!(union_find.are_eq(item1, item2));
-                }
-            }
-
-            // make sure that when iterating over each item in the group, we get all other items in the group, except for the item
-            // itself.
-            for &item in group {
-                let group_items_other_than = {
-                    let mut tmp = collect_to_vec(group.iter().copied());
-                    // keep all items other than the current item
-                    tmp.retain(|x| *x != item);
-                    tmp
-                };
-                assert_eq!(
-                    group_items_other_than,
-                    collect_to_vec(union_find.items_eq_to(item))
-                );
-            }
-
-            // make sure that each item that is not in the group is not equal to all of the items that are in the group,
-            // since it is not with them in the group.
-            for &item in all_items {
-                // we only want to check items that are not in the group.
-                if group.contains(&item) {
-                    continue;
-                }
-
-                let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
-
-                for &group_item in group {
-                    assert!(!union_find.are_eq(item, group_item));
-                    assert!(!items_eq_to_item.contains(&group_item));
-                }
-            }
-        }
+        chk_groups(&union_find, &all_items, &[&all_items]);
     }
 
     #[test]
