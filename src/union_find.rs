@@ -95,7 +95,7 @@ impl UnionFind {
     fn root_of_item(&self, item: ItemId) -> ItemId {
         let mut cur_item = item;
         loop {
-            match self.get_parent_of_item(item) {
+            match self.get_parent_of_item(cur_item) {
                 Some(parent) => {
                     // advance to the parent
                     cur_item = parent;
