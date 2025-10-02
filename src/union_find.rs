@@ -160,9 +160,11 @@ mod tests {
                     tmp.retain(|x| *x != item);
                     tmp
                 };
+                let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
                 assert_eq!(
-                    group_items_other_than,
-                    collect_to_vec(union_find.items_eq_to(item))
+                    group_items_other_than, items_eq_to_item,
+                    "item {:?} in group {:?} was expected to have items eq to of {:?} but instead has {:?}",
+                    item, group, group_items_other_than, items_eq_to_item
                 );
             }
 
