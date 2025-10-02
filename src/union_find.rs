@@ -1,21 +1,88 @@
+use std::num::NonZeroUsize;
+
 #[must_use]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ItemId(pub usize);
+pub struct ItemId(pub NonZeroUsize);
+impl ItemId {
+    pub fn index(&self) -> usize {
+        self.0.get()
+    }
+}
 
 pub struct UnionFind {
-    next_item_id: usize,
+    next_item_id: NonZeroUsize,
+    parent_of_item: Vec<Option<ItemId>>,
 }
 impl UnionFind {
     pub fn new() -> Self {
-        Self { next_item_id: 0 }
+        Self {
+            next_item_id: unsafe { NonZeroUsize::new_unchecked(1) },
+            parent_of_item: Vec::new(),
+        }
     }
     pub fn create_new_item(&mut self) -> ItemId {
         let res = self.next_item_id;
-        self.next_item_id += 1;
+        self.next_item_id.checked_add(1).unwrap();
         ItemId(res)
     }
+    fn get_parent_of_item(&self, item: ItemId) -> Option<ItemId> {
+        self.parent_of_item.get(item.0.get()).copied()?
+    }
+    fn set_parent_of_item(&mut self, item: ItemId, parent: Option<ItemId>) {
+        let item_index = item.index();
+
+        // the array is lazily extended. so, it is possible that an item exists even though the array is too small to hold its index.
+        // in that case, resize the array.
+        if !(item_index < self.parent_of_item.len()) {
+            if parent.is_none() {
+                // in this case, the parent is already none, so we don't need to do anything.
+                return;
+            }
+            // resize the array such that it can hold the currently highest item id, which is one less than than the next item id.
+            self.parent_of_item.resize(self.next_item_id.get(), None);
+        }
+
+        self.parent_of_item[item_index] = parent;
+    }
     pub fn union(&mut self, item_a: ItemId, item_b: ItemId) {
-        todo!()
+        // we use a loop here since we may need to climb up the parents if both items already have a parent.
+        let mut cur_item_a = item_a;
+        let mut cur_item_b = item_b;
+        loop {
+            match (
+                self.get_parent_of_item(cur_item_a),
+                self.get_parent_of_item(cur_item_b),
+            ) {
+                (None, None) => {
+                    // none of the items have a parent, create a new parent which is the union of both of them.
+                    let parent = self.create_new_item();
+                    self.set_parent_of_item(cur_item_a, Some(parent));
+                    self.set_parent_of_item(cur_item_b, Some(parent));
+
+                    // we're done
+                    break;
+                }
+                (None, Some(parent_b)) => {
+                    // add item a to the group of b by settings its parent to parent b
+                    self.set_parent_of_item(cur_item_a, Some(parent_b));
+
+                    // we're done
+                    break;
+                }
+                (Some(parent_a), None) => {
+                    // add item b to the group of a by settings its parent to parent a
+                    self.set_parent_of_item(cur_item_b, Some(parent_a));
+
+                    // we're done
+                    break;
+                }
+                (Some(parent_a), Some(parent_b)) => {
+                    // both items already have a parent, union their parents.
+                    cur_item_a = parent_a;
+                    cur_item_b = parent_b;
+                }
+            }
+        }
     }
     pub fn items_eq_to(&self, item: ItemId) -> impl Iterator<Item = ItemId> + '_ {
         todo!();
