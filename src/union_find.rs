@@ -84,6 +84,21 @@ impl UnionFind {
             }
         }
     }
+    fn root_of_item(&self, item: ItemId) -> ItemId {
+        let mut cur_item = item;
+        loop {
+            match self.get_parent_of_item(item) {
+                Some(parent) => {
+                    // advance to the parent
+                    cur_item = parent;
+                }
+                None => {
+                    // no more parents, we reached the root
+                    break cur_item;
+                }
+            }
+        }
+    }
     pub fn items_eq_to(&self, item: ItemId) -> impl Iterator<Item = ItemId> + '_ {
         todo!();
         std::iter::empty()
@@ -92,7 +107,7 @@ impl UnionFind {
         if item_a == item_b {
             return true;
         }
-        todo!()
+        self.root_of_item(item_a) == self.root_of_item(item_b)
     }
 }
 
