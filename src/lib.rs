@@ -214,6 +214,11 @@ impl EGraph {
         };
         self.add_enode(graph_node)
     }
+    pub fn from_rec_node(rec_node: &RecNode) -> Self {
+        let mut egraph = Self::new();
+        egraph.add_rec_node(rec_node);
+        egraph
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -319,8 +324,8 @@ mod tests {
         }
         .into();
 
-        let graph = Graph::from_rec_node(&rec_node);
-        dbg!(graph);
+        let egraph = EGraph::from_rec_node(&rec_node);
+        dbg!(egraph);
         panic!();
     }
 }
