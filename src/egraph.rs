@@ -139,9 +139,9 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    pub fn apply_rule(&mut self, rule: &RewriteRule) {
+    pub fn apply_rule(&mut self, rule: &mut RewriteRuleRunner) {
         let hash = self.hasher.hash_node(&rule.query);
-        for item in self.enodes_hash_table.iter_hash_mut(hash) {
+        for entry in self.enodes_hash_table.iter_hash_mut(hash) {
             todo!();
         }
         todo!()
