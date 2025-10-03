@@ -194,7 +194,13 @@ mod tests {
             // all items in the group should be equal to each other
             for &item1 in group {
                 for &item2 in group {
-                    assert!(union_find.are_eq(item1, item2));
+                    assert!(
+                        union_find.are_eq(item1, item2),
+                        "items {:?} and {:?} were expected to be equal, since they are in the same group of {:?}, but they are not equal",
+                        item1,
+                        item2,
+                        group
+                    );
                 }
             }
 
