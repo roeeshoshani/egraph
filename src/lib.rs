@@ -113,6 +113,11 @@ pub struct EClassIdNoHash(pub EClassId);
 impl std::hash::Hash for EClassIdNoHash {
     fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
 }
+impl EClassIdNoHash {
+    pub fn from_eclass_id(eclass_id: &EClassId) -> Self {
+        Self(*eclass_id)
+    }
+}
 
 /// an enode which ignores the eclass id when hashed.
 pub type ENodeNoHashEClassId = GenericNode<EClassIdNoHash>;
@@ -122,25 +127,33 @@ pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
 
 /// TODO: explain this
 struct ENodeQuery<'a> {
-    converted_enode: ENodeEffectiveEClassId,
+    /// used for calculating the hash for this enode query
+    enode_no_hash_eclass_id: ENodeNoHashEClassId,
+
+    /// used for comparing against other enodes
+    enode_effective_eclass_id: ENodeEffectiveEClassId,
+
     union_find: &'a UnionFind<ENode>,
 }
 impl<'a> ENodeQuery<'a> {
     fn new(enode: &'a ENode, union_find: &'a UnionFind<ENode>) -> Self {
         Self {
-            converted_enode: enode.convert_link(|eclass_id| eclass_id.to_effective(union_find)),
+            enode_no_hash_eclass_id: enode.convert_link(EClassIdNoHash::from_eclass_id),
+            enode_effective_eclass_id: enode
+                .convert_link(|eclass_id| eclass_id.to_effective(union_find)),
             union_find,
         }
     }
 }
 impl<'a> std::hash::Hash for ENodeQuery<'a> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.converted_enode.hash(state);
+        self.enode_no_hash_eclass_id.hash(state);
     }
 }
 impl<'a> Equivalent<ENodeNoHashEClassId> for ENodeQuery<'a> {
     fn equivalent(&self, key: &ENodeNoHashEClassId) -> bool {
-        todo!()
+        let converted_key = key.convert_link(|eclass_id| eclass_id.0.to_effective(self.union_find));
+        converted_key == self.enode_effective_eclass_id
     }
 }
 
@@ -176,10 +189,7 @@ impl EGraph {
             RawEntryMut::Occupied(entry) => *entry.get(),
             RawEntryMut::Vacant(entry) => {
                 let enode_id = ENodeId(self.enodes.create_new_item(enode.clone()));
-                entry.insert(
-                    enode.convert_link(|eclass_id| EClassIdNoHash(*eclass_id)),
-                    enode_id,
-                );
+                entry.insert(enode.convert_link(EClassIdNoHash::from_eclass_id), enode_id);
                 enode_id
             }
         };
