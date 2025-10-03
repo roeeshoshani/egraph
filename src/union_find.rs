@@ -39,16 +39,16 @@ impl IdToParentMap {
         self.parent_of_id[index] = new_parent;
     }
 }
-impl<T> Index<ItemId> for UnionFind<T> {
+impl<T> Index<UnionFindItemId> for UnionFind<T> {
     type Output = T;
 
-    fn index(&self, index: ItemId) -> &Self::Output {
+    fn index(&self, index: UnionFindItemId) -> &Self::Output {
         &self.items[index.0.get() - 1]
     }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ItemId(pub NonZeroUsize);
+pub struct UnionFindItemId(pub NonZeroUsize);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 struct ParentId(NonZeroUsize);
@@ -56,7 +56,7 @@ struct ParentId(NonZeroUsize);
 /// an id of any kind, either an item id or a parent id.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum AnyId {
-    Item(ItemId),
+    Item(UnionFindItemId),
     Parent(ParentId),
 }
 
@@ -75,11 +75,11 @@ impl<T> UnionFind<T> {
         }
     }
     #[must_use]
-    pub fn create_new_item(&mut self, item: T) -> ItemId {
+    pub fn create_new_item(&mut self, item: T) -> UnionFindItemId {
         self.items.push(item);
 
         // allocate an id for it
-        let id = ItemId(self.item_to_parent_map.alloc_id());
+        let id = UnionFindItemId(self.item_to_parent_map.alloc_id());
 
         // the id should be 1 more than the index in the items vec.
         // sanity check this assumption.
@@ -91,13 +91,13 @@ impl<T> UnionFind<T> {
     fn create_new_parent(&mut self) -> ParentId {
         ParentId(self.parent_to_parent_map.alloc_id())
     }
-    fn get_parent_of_item(&self, item: ItemId) -> Option<ParentId> {
+    fn get_parent_of_item(&self, item: UnionFindItemId) -> Option<ParentId> {
         self.item_to_parent_map.get_parent_of(item.0).map(ParentId)
     }
     fn get_parent_of_parent(&self, id: ParentId) -> Option<ParentId> {
         self.parent_to_parent_map.get_parent_of(id.0).map(ParentId)
     }
-    fn set_parent_of_item(&mut self, item: ItemId, new_parent: Option<ParentId>) {
+    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<ParentId>) {
         self.item_to_parent_map
             .set_parent(item.0, new_parent.map(|x| x.0));
     }
@@ -117,7 +117,7 @@ impl<T> UnionFind<T> {
             AnyId::Parent(id) => self.set_parent_of_parent(id, new_parent),
         }
     }
-    pub fn union(&mut self, item_a: ItemId, item_b: ItemId) {
+    pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) {
         // we use a loop here since we may need to climb up the parents if both items already have a parent.
         let mut cur_item_a = AnyId::Item(item_a);
         let mut cur_item_b = AnyId::Item(item_b);
@@ -157,7 +157,7 @@ impl<T> UnionFind<T> {
             }
         }
     }
-    fn root_of_item(&self, item: ItemId) -> AnyId {
+    fn root_of_item(&self, item: UnionFindItemId) -> AnyId {
         let mut cur_item = AnyId::Item(item);
         loop {
             match self.get_parent_of_any(cur_item) {
@@ -172,19 +172,19 @@ impl<T> UnionFind<T> {
             }
         }
     }
-    pub fn items_eq_to(&self, item: ItemId) -> impl Iterator<Item = ItemId> + '_ {
+    pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
         // TODO: make this efficient if needed
         let root = self.root_of_item(item);
         (1..self.item_to_parent_map.next_id.get())
             .map(|i| {
-                ItemId(
+                UnionFindItemId(
                     // SAFETY: our iteration starts from 1, so the value can't be 0
                     unsafe { NonZeroUsize::new_unchecked(i) },
                 )
             })
             .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
     }
-    pub fn are_eq(&self, item_a: ItemId, item_b: ItemId) -> bool {
+    pub fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
         if item_a == item_b {
             return true;
         }
@@ -203,7 +203,11 @@ mod tests {
         iterator.collect()
     }
 
-    fn chk_groups<T>(union_find: &UnionFind<T>, all_items: &[ItemId], groups: &[&[ItemId]]) {
+    fn chk_groups<T>(
+        union_find: &UnionFind<T>,
+        all_items: &[UnionFindItemId],
+        groups: &[&[UnionFindItemId]],
+    ) {
         // make sure that the provided groups contain all items
         let groups_len_sum: usize = groups.iter().map(|group| group.len()).sum();
         assert_eq!(all_items.len(), groups_len_sum);
