@@ -225,6 +225,7 @@ impl EGraph {
         };
         self.add_enode(graph_node)
     }
+
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
         let mut egraph = Self::new();
         egraph.add_rec_node(rec_node);
