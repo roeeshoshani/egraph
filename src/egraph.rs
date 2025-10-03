@@ -139,12 +139,18 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    pub fn apply_rule(&mut self, rule: &mut RewriteRuleRunner) {
+    pub fn apply_rule(&mut self, rule: &RewriteRule) {
         let hash = self.hasher.hash_node(&rule.query);
+        let mut rule_storage = RewriteRuleStorage::new(rule);
         for entry in self.enodes_hash_table.iter_hash_mut(hash) {
-            todo!();
+            rule_storage.reset();
+            apply_rule_to_enode_if_match(
+                &entry.enode,
+                rule,
+                &mut rule_storage,
+                &self.enodes_union_find,
+            );
         }
-        todo!()
     }
 
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
@@ -152,6 +158,89 @@ impl EGraph {
         egraph.add_rec_node(rec_node);
         egraph
     }
+}
+
+fn apply_rule_to_enode_if_match(
+    enode: &ENode,
+    rule: &RewriteRule,
+    rule_storage: &mut RewriteRuleStorage,
+    union_find: &UnionFind<ENode>,
+) {
+    // this is intentionally written as nested match statements and not as a match on a tuple in order to avoid having a wildcard (`_`)
+    // case. that's because if we have a wildcard, when we add more variants in the future, we won't get a compiler error here, and we
+    // might forget to update this.
+    match &rule.query {
+        GenericNode::Imm(imm1) => {
+            let GenericNode::Imm(imm2) = enode else {
+                return;
+            };
+            if imm1 != imm2 {
+                return;
+            }
+            todo!()
+        }
+        GenericNode::Var(var1) => {
+            let GenericNode::Var(var2) = enode else {
+                return;
+            };
+            if var1 != var2 {
+                return;
+            }
+            todo!("apply it");
+        }
+        GenericNode::BinOp(bin_op_query) => {
+            let GenericNode::BinOp(bin_op_enode) = enode else {
+                return;
+            };
+            if bin_op_query.kind != bin_op_enode.kind {
+                return;
+            }
+            if !template_link_is_match_eclass(&bin_op_query.lhs, bin_op_enode.lhs, union_find) {
+                return;
+            }
+            if !template_link_is_match_eclass(&bin_op_query.rhs, bin_op_enode.rhs, union_find) {
+                return;
+            }
+            todo!("apply it");
+        }
+        GenericNode::UnOp(un_op_query) => {
+            let GenericNode::UnOp(un_op_enode) = enode else {
+                return;
+            };
+            if un_op_query.kind != un_op_enode.kind {
+                return;
+            }
+            if !template_link_is_match_eclass(&un_op_query.operand, un_op_enode.operand, union_find)
+            {
+                return;
+            }
+            todo!("apply it");
+        }
+    }
+}
+
+fn template_link_is_match_eclass(
+    template_link: &TemplateLink,
+    enode_link: EClassId,
+    union_find: &UnionFind<ENode>,
+) -> bool {
+    // iterate all enodes in the eclass
+    for enode_item_id in union_find.items_eq_to(enode_link.enode_id.0) {
+        let enode = &union_find[enode_item_id];
+    }
+    todo!()
+}
+
+fn template_link_is_match_enode(
+    template_link: &TemplateLink,
+    enode_link: EClassId,
+    union_find: &UnionFind<ENode>,
+) -> bool {
+    // iterate all enodes in the eclass
+    for enode_item_id in union_find.items_eq_to(enode_link.enode_id.0) {
+        let enode = &union_find[enode_item_id];
+    }
+    todo!()
 }
 
 #[cfg(test)]

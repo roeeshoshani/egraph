@@ -42,20 +42,18 @@ pub struct RewriteRule {
     pub rewrite: ENodeTemplate,
 }
 
-pub struct RewriteRuleRunner {
-    pub query: ENodeTemplate,
-    pub rewrite: ENodeTemplate,
+pub struct RewriteRuleStorage {
     pub template_var_values: Vec<Option<EffectiveEClassId>>,
 }
-impl RewriteRuleRunner {
-    pub fn new(params: RewriteRule) -> Self {
-        let template_var_values = match params.query.max_template_var_id() {
+impl RewriteRuleStorage {
+    pub fn new(rule: &RewriteRule) -> Self {
+        let template_var_values = match rule.query.max_template_var_id() {
             Some(max_var_id) => {
                 // the query uses some variables
 
                 // make sure that there are no gaps in the variable ids
                 for i in 1..=max_var_id.get() {
-                    let does_use_var = params.query.does_use_template_var(TemplateVar {
+                    let does_use_var = rule.query.does_use_template_var(TemplateVar {
                         id: unsafe {
                             // SAFETY: we start iterating from 1
                             NonZeroUsize::new_unchecked(i)
@@ -65,7 +63,7 @@ impl RewriteRuleRunner {
                 }
 
                 // make sure that the re-write doesn't use variables that don't exist in the query
-                if let Some(rewrite_max_var_id) = params.rewrite.max_template_var_id() {
+                if let Some(rewrite_max_var_id) = rule.rewrite.max_template_var_id() {
                     assert!(rewrite_max_var_id <= max_var_id)
                 }
 
@@ -78,7 +76,7 @@ impl RewriteRuleRunner {
                 // the query doesn't use any values
 
                 // make sure that the re-write also doesn't use any variables
-                assert_eq!(params.rewrite.max_template_var_id(), None);
+                assert_eq!(rule.rewrite.max_template_var_id(), None);
 
                 Vec::new()
             }
@@ -86,8 +84,10 @@ impl RewriteRuleRunner {
 
         Self {
             template_var_values,
-            query: params.query,
-            rewrite: params.rewrite,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.template_var_values.fill(None);
     }
 }
