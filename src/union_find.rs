@@ -1,104 +1,151 @@
 use std::num::NonZeroUsize;
 
-#[must_use]
+/// a mapping between ids to their parent ids.
+#[derive(Debug, Clone)]
+struct IdToParentMap {
+    next_id: NonZeroUsize,
+    parent_of_id: Vec<Option<NonZeroUsize>>,
+}
+impl IdToParentMap {
+    fn new() -> Self {
+        Self {
+            next_id: NonZeroUsize::new(1).unwrap(),
+            parent_of_id: Vec::new(),
+        }
+    }
+    #[must_use]
+    fn alloc_id(&mut self) -> NonZeroUsize {
+        let res = self.next_id;
+        self.next_id = self.next_id.checked_add(1).unwrap();
+        res
+    }
+    fn get_parent_of(&self, id: NonZeroUsize) -> Option<NonZeroUsize> {
+        self.parent_of_id.get(id.get()).copied()?
+    }
+    fn set_parent(&mut self, id: NonZeroUsize, new_parent: Option<NonZeroUsize>) {
+        let index = id.get();
+
+        // the array is lazily extended. so, it is possible that an id exists even though the array is too small to hold its index.
+        // in that case, resize the array.
+        if !(index < self.parent_of_id.len()) {
+            if new_parent.is_none() {
+                // in this case, the parent is already none, so we don't need to do anything.
+                return;
+            }
+            // resize the array such that it can hold the currently highest id, which is one less than than the next id.
+            self.parent_of_id.resize(self.next_id.get(), None);
+        }
+
+        self.parent_of_id[index] = new_parent;
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ItemId(pub NonZeroUsize);
-impl ItemId {
-    pub fn index(&self) -> usize {
-        self.0.get()
-    }
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+struct ParentId(NonZeroUsize);
+
+/// an id of any kind, either an item id or a parent id.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum AnyId {
+    Item(ItemId),
+    Parent(ParentId),
 }
 
 #[derive(Debug, Clone)]
 pub struct UnionFind {
-    next_item_id: NonZeroUsize,
-    parent_of_item: Vec<Option<ItemId>>,
+    item_to_parent_map: IdToParentMap,
+    parent_to_parent_map: IdToParentMap,
 }
 impl UnionFind {
     pub fn new() -> Self {
         Self {
-            next_item_id: unsafe { NonZeroUsize::new_unchecked(1) },
-            parent_of_item: Vec::new(),
+            item_to_parent_map: IdToParentMap::new(),
+            parent_to_parent_map: IdToParentMap::new(),
         }
     }
+    #[must_use]
     pub fn create_new_item(&mut self) -> ItemId {
-        let res = self.next_item_id;
-        self.next_item_id = self.next_item_id.checked_add(1).unwrap();
-        ItemId(res)
+        ItemId(self.item_to_parent_map.alloc_id())
     }
-    fn get_parent_of_item(&self, item: ItemId) -> Option<ItemId> {
-        self.parent_of_item.get(item.0.get()).copied()?
+    #[must_use]
+    fn create_new_parent(&mut self) -> ParentId {
+        ParentId(self.parent_to_parent_map.alloc_id())
     }
-    fn set_parent_of_item(&mut self, item: ItemId, parent: Option<ItemId>) {
-        // a node can't be the parent of itself.
-        //
-        // this is a very low effort loop detection logic, just to catch some stupid cases.
-        //
-        // we rely on our code to never create any loops in the tree, but this check is added just in case, since it is very easy to add.
-        debug_assert!(parent != Some(item));
-
-        let item_index = item.index();
-
-        // the array is lazily extended. so, it is possible that an item exists even though the array is too small to hold its index.
-        // in that case, resize the array.
-        if !(item_index < self.parent_of_item.len()) {
-            if parent.is_none() {
-                // in this case, the parent is already none, so we don't need to do anything.
-                return;
-            }
-            // resize the array such that it can hold the currently highest item id, which is one less than than the next item id.
-            self.parent_of_item.resize(self.next_item_id.get(), None);
+    fn get_parent_of_item(&self, item: ItemId) -> Option<ParentId> {
+        self.item_to_parent_map.get_parent_of(item.0).map(ParentId)
+    }
+    fn get_parent_of_parent(&self, id: ParentId) -> Option<ParentId> {
+        self.parent_to_parent_map.get_parent_of(id.0).map(ParentId)
+    }
+    fn set_parent_of_item(&mut self, item: ItemId, new_parent: Option<ParentId>) {
+        self.item_to_parent_map
+            .set_parent(item.0, new_parent.map(|x| x.0));
+    }
+    fn set_parent_of_parent(&mut self, id: ParentId, new_parent: Option<ParentId>) {
+        self.item_to_parent_map
+            .set_parent(id.0, new_parent.map(|x| x.0));
+    }
+    fn get_parent_of_any(&self, id: AnyId) -> Option<ParentId> {
+        match id {
+            AnyId::Item(item_id) => self.get_parent_of_item(item_id),
+            AnyId::Parent(parent_id) => self.get_parent_of_parent(parent_id),
         }
-
-        self.parent_of_item[item_index] = parent;
+    }
+    fn set_parent_of_any(&mut self, id: AnyId, new_parent: Option<ParentId>) {
+        match id {
+            AnyId::Item(id) => self.set_parent_of_item(id, new_parent),
+            AnyId::Parent(id) => self.set_parent_of_parent(id, new_parent),
+        }
     }
     pub fn union(&mut self, item_a: ItemId, item_b: ItemId) {
         // we use a loop here since we may need to climb up the parents if both items already have a parent.
-        let mut cur_item_a = item_a;
-        let mut cur_item_b = item_b;
+        let mut cur_item_a = AnyId::Item(item_a);
+        let mut cur_item_b = AnyId::Item(item_b);
         loop {
             match (
-                self.get_parent_of_item(cur_item_a),
-                self.get_parent_of_item(cur_item_b),
+                self.get_parent_of_any(cur_item_a),
+                self.get_parent_of_any(cur_item_b),
             ) {
                 (None, None) => {
                     // none of the items have a parent, create a new parent which is the union of both of them.
-                    let parent = self.create_new_item();
-                    self.set_parent_of_item(cur_item_a, Some(parent));
-                    self.set_parent_of_item(cur_item_b, Some(parent));
+                    let parent = self.create_new_parent();
+                    self.set_parent_of_any(cur_item_a, Some(parent));
+                    self.set_parent_of_any(cur_item_b, Some(parent));
 
                     // we're done
                     break;
                 }
                 (None, Some(parent_b)) => {
                     // add item a to the group of b by settings its parent to parent b
-                    self.set_parent_of_item(cur_item_a, Some(parent_b));
+                    self.set_parent_of_any(cur_item_a, Some(parent_b));
 
                     // we're done
                     break;
                 }
                 (Some(parent_a), None) => {
                     // add item b to the group of a by settings its parent to parent a
-                    self.set_parent_of_item(cur_item_b, Some(parent_a));
+                    self.set_parent_of_any(cur_item_b, Some(parent_a));
 
                     // we're done
                     break;
                 }
                 (Some(parent_a), Some(parent_b)) => {
                     // both items already have a parent, union their parents.
-                    cur_item_a = parent_a;
-                    cur_item_b = parent_b;
+                    cur_item_a = AnyId::Parent(parent_a);
+                    cur_item_b = AnyId::Parent(parent_b);
                 }
             }
         }
     }
-    fn root_of_item(&self, item: ItemId) -> ItemId {
-        let mut cur_item = item;
+    fn root_of_item(&self, item: ItemId) -> AnyId {
+        let mut cur_item = AnyId::Item(item);
         loop {
-            match self.get_parent_of_item(cur_item) {
+            match self.get_parent_of_any(cur_item) {
                 Some(parent) => {
                     // advance to the parent
-                    cur_item = parent;
+                    cur_item = AnyId::Parent(parent);
                 }
                 None => {
                     // no more parents, we reached the root
@@ -110,7 +157,7 @@ impl UnionFind {
     pub fn items_eq_to(&self, item: ItemId) -> impl Iterator<Item = ItemId> + '_ {
         // TODO: make this efficient if needed
         let root = self.root_of_item(item);
-        (1..self.next_item_id.get())
+        (1..self.item_to_parent_map.next_id.get())
             .map(|i| {
                 ItemId(
                     // SAFETY: our iteration starts from 1, so the value can't be 0
