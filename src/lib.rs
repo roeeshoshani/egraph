@@ -107,7 +107,10 @@ pub type ENode = GenericNode<EClassId>;
 
 /// an eclass id which has no effect when hashed, such that its hash value is ignored when embedded into a struct.
 ///
-/// TODO: explain why this is useful.
+/// this is needed because the eclass id contains information whose meaning may change depending on the state of the union find tree.
+///
+/// but, when the enode is used as a hashmap key, we need its value to be stable, so we want to ignore the eclass id when calculating
+/// the hash.
 #[derive(Debug, Clone, Copy)]
 pub struct EClassIdNoHash(pub EClassId);
 impl std::hash::Hash for EClassIdNoHash {
@@ -125,8 +128,13 @@ pub type ENodeNoHashEClassId = GenericNode<EClassIdNoHash>;
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
 pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
 
-/// TODO: explain this
-struct ENodeQuery<'a> {
+/// a query for an enode in the de-duplication hashmap.
+///
+/// due to how the enode is stored in memory, we can't just use it directly, since it contains information that is lazily resolved.
+///
+/// so, this query object allows querying the hashmap in a way that correctly hashes the enode, and correctly compares it to other
+/// enodes after resolving the lazily resolved information.
+struct ENodeHashMapQuery<'a> {
     /// used for calculating the hash for this enode query
     enode_no_hash_eclass_id: ENodeNoHashEClassId,
 
@@ -135,7 +143,7 @@ struct ENodeQuery<'a> {
 
     union_find: &'a UnionFind<ENode>,
 }
-impl<'a> ENodeQuery<'a> {
+impl<'a> ENodeHashMapQuery<'a> {
     fn new(enode: &'a ENode, union_find: &'a UnionFind<ENode>) -> Self {
         Self {
             enode_no_hash_eclass_id: enode.convert_link(EClassIdNoHash::from_eclass_id),
@@ -145,12 +153,12 @@ impl<'a> ENodeQuery<'a> {
         }
     }
 }
-impl<'a> std::hash::Hash for ENodeQuery<'a> {
+impl<'a> std::hash::Hash for ENodeHashMapQuery<'a> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.enode_no_hash_eclass_id.hash(state);
     }
 }
-impl<'a> Equivalent<ENodeNoHashEClassId> for ENodeQuery<'a> {
+impl<'a> Equivalent<ENodeNoHashEClassId> for ENodeHashMapQuery<'a> {
     fn equivalent(&self, key: &ENodeNoHashEClassId) -> bool {
         let converted_key = key.convert_link(|eclass_id| eclass_id.0.to_effective(self.union_find));
         converted_key == self.enode_effective_eclass_id
@@ -184,7 +192,7 @@ impl EGraph {
 
     /// adds an enode to the egraph and returns the eclass id which contains it.
     pub fn add_enode(&mut self, enode: ENode) -> EClassId {
-        let query = ENodeQuery::new(&enode, &self.enodes);
+        let query = ENodeHashMapQuery::new(&enode, &self.enodes);
         let enode_id = match self.enode_to_id.raw_entry_mut().from_key(&query) {
             RawEntryMut::Occupied(entry) => *entry.get(),
             RawEntryMut::Vacant(entry) => {
