@@ -5,6 +5,8 @@ mod union_find;
 use derive_more::From;
 use stable_vec::StableVec;
 
+use crate::union_find::{UnionFind, UnionFindItemId};
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Imm(pub u64);
 
@@ -50,44 +52,39 @@ impl<L> From<u64> for GenericNode<L> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct EClassId(pub usize);
+// NOTE: this should NOT implement `PartialEq` and `Eq` due to how it is implemented.
+// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
+// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
+//
+// checking if 2 instances of this type are equal requires accessing the union find tree.
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct EClassId {
+    /// an id of some enode which is part of this eclass.
+    /// this can be used to iterate over all
+    pub enode_id: ENodeId,
+}
 
 pub type ENode = GenericNode<EClassId>;
 
+/// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ENodeId(pub usize);
-
-#[derive(Debug, Clone)]
-pub struct EClass {
-    pub enode_ids: Vec<ENodeId>,
-}
+pub struct ENodeId(pub UnionFindItemId);
 
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
-    pub eclasses: StableVec<EClass>,
-    pub enodes: StableVec<ENode>,
-    pub enode_to_eclass: HashMap<ENode, EClassId>,
+    pub enodes: UnionFind<ENode>,
 }
 impl EGraph {
     pub fn new() -> Self {
         Self {
-            eclasses: StableVec::new(),
-            enodes: StableVec::new(),
-            enode_to_eclass: HashMap::new(),
+            enodes: UnionFind::new(),
         }
     }
 
-    /// adds an enode to the egraph and returns the id of the eclass which contains this enode.
+    /// adds an enode to the egraph and returns the eclass id which contains it.
     pub fn add_enode(&mut self, enode: ENode) -> EClassId {
-        if let Some(existing_eclass) = self.enode_to_eclass.get(&enode) {
-            return *existing_eclass;
-        }
-        let new_enode_id = ENodeId(self.enodes.push(enode));
-        let new_eclass = EClass {
-            enode_ids: vec![new_enode_id],
-        };
-        EClassId(self.eclasses.push(new_eclass))
+        let enode_id = ENodeId(self.enodes.create_new_item(enode));
+        EClassId { enode_id }
     }
 
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> EClassId {
