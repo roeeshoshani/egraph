@@ -74,6 +74,9 @@ impl<T> UnionFind<T> {
             items: Vec::new(),
         }
     }
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
     #[must_use]
     pub fn create_new_item(&mut self, item: T) -> UnionFindItemId {
         self.items.push(item);

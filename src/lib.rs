@@ -300,6 +300,41 @@ mod tests {
     use crate::*;
 
     #[test]
+    fn test_dedup_basic() {
+        let mut egraph = EGraph::new();
+        let enode = ENode::Var(Var(5));
+        let id1 = egraph.add_enode(enode.clone());
+        let id2 = egraph.add_enode(enode.clone());
+        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(egraph.enodes.len(), 1);
+    }
+
+    #[test]
+    fn test_dedup_nested() {
+        let mut egraph = EGraph::new();
+        let var1 = egraph.add_enode(ENode::Var(Var(1)));
+        let var2 = egraph.add_enode(ENode::Var(Var(2)));
+
+        let enode = ENode::BinOp(BinOp {
+            kind: BinOpKind::Add,
+            lhs: var1,
+            rhs: var2,
+        });
+
+        let id1 = egraph.add_enode(enode.clone());
+
+        // add something in between just to add some noise
+        let _ = egraph.add_enode(ENode::Var(Var(3)));
+
+        // re-add the same enode
+        let id2 = egraph.add_enode(enode.clone());
+
+        // make sure that it got de-duplicated
+        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(egraph.enodes.len(), 4);
+    }
+
+    #[test]
     fn test_basic() {
         // 0xff & ((x & 0xff00) || (x & 0xff0000))
         let rec_node: RecNode = RecBinOp {
