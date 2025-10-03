@@ -186,16 +186,18 @@ impl<T> UnionFind<T> {
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindAnyId {
         self.root_of_any(UnionFindAnyId::Item(item))
     }
+    pub fn all_item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
+        (1..self.item_to_parent_map.next_id.get()).map(|i| {
+            UnionFindItemId(
+                // SAFETY: our iteration starts from 1, so the value can't be 0
+                unsafe { NonZeroUsize::new_unchecked(i) },
+            )
+        })
+    }
     pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
         // TODO: make this efficient if needed
         let root = self.root_of_item(item);
-        (1..self.item_to_parent_map.next_id.get())
-            .map(|i| {
-                UnionFindItemId(
-                    // SAFETY: our iteration starts from 1, so the value can't be 0
-                    unsafe { NonZeroUsize::new_unchecked(i) },
-                )
-            })
+        self.all_item_ids()
             .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
     }
     pub fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
@@ -205,7 +207,13 @@ impl<T> UnionFind<T> {
         self.root_of_item(item_a) == self.root_of_item(item_b)
     }
     pub fn flatten(&mut self) {
-        todo!()
+        for item in self.all_item_ids() {
+            let root = self.root_of_item(item);
+            // if the item has a root other than itself, then make it point to its root
+            if let UnionFindAnyId::Parent(parent) = root {
+                self.set_parent_of_item(item, Some(parent));
+            }
+        }
     }
 }
 
