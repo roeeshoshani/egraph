@@ -203,7 +203,7 @@ mod tests {
         iterator.collect()
     }
 
-    fn chk_groups(union_find: &UnionFind<()>, all_items: &[ItemId], groups: &[&[ItemId]]) {
+    fn chk_groups<T>(union_find: &UnionFind<T>, all_items: &[ItemId], groups: &[&[ItemId]]) {
         // make sure that the provided groups contain all items
         let groups_len_sum: usize = groups.iter().map(|group| group.len()).sum();
         assert_eq!(all_items.len(), groups_len_sum);
@@ -360,5 +360,57 @@ mod tests {
         union_find.union(a, c);
 
         chk_groups(&union_find, &all_items, &[&all_items]);
+    }
+
+    #[test]
+    fn test_index_gives_correct_value() {
+        let mut union_find = UnionFind::new();
+
+        let a_val = 57;
+        let b_val = 254;
+        let c_val = 125125;
+        let d_val = 929;
+        let e_val = 4;
+        let f_val = 0;
+        let g_val = 14526;
+
+        let all_vals = [a_val, b_val, c_val, d_val, e_val, f_val, g_val];
+
+        let a = union_find.create_new_item(a_val);
+        let b = union_find.create_new_item(b_val);
+        let c = union_find.create_new_item(c_val);
+        let d = union_find.create_new_item(d_val);
+        let e = union_find.create_new_item(e_val);
+        let f = union_find.create_new_item(f_val);
+        let g = union_find.create_new_item(g_val);
+
+        let all_items = [a, b, c, d, e, f, g];
+
+        // make sure that we can fetch back the values and get the correct values.
+        for (item, val) in all_items.iter().copied().zip(all_vals.iter().copied()) {
+            assert_eq!(union_find[item], val)
+        }
+
+        // make sure that even after unioning, we still get the correct values
+        union_find.union(a, b);
+        union_find.union(c, d);
+        union_find.union(e, f);
+        union_find.union(e, g);
+
+        for (item, val) in all_items.iter().copied().zip(all_vals.iter().copied()) {
+            assert_eq!(union_find[item], val)
+        }
+
+        union_find.union(b, g);
+
+        for (item, val) in all_items.iter().copied().zip(all_vals.iter().copied()) {
+            assert_eq!(union_find[item], val)
+        }
+
+        union_find.union(a, c);
+
+        for (item, val) in all_items.iter().copied().zip(all_vals.iter().copied()) {
+            assert_eq!(union_find[item], val)
+        }
     }
 }
