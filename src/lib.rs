@@ -112,18 +112,18 @@ pub type ENode = GenericNode<EClassId>;
 /// but, when the enode is used as a hashmap key, we need its value to be stable, so we want to ignore the eclass id when calculating
 /// the hash.
 #[derive(Debug, Clone, Copy)]
-pub struct EClassIdNoHash(pub EClassId);
-impl std::hash::Hash for EClassIdNoHash {
+pub struct EClassIdIgnoreHash(pub EClassId);
+impl std::hash::Hash for EClassIdIgnoreHash {
     fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
 }
-impl EClassIdNoHash {
+impl EClassIdIgnoreHash {
     pub fn from_eclass_id(eclass_id: &EClassId) -> Self {
         Self(*eclass_id)
     }
 }
 
 /// an enode which ignores the eclass id when hashed.
-pub type ENodeNoHashEClassId = GenericNode<EClassIdNoHash>;
+pub type ENodeIgnoreEClassIdHash = GenericNode<EClassIdIgnoreHash>;
 
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
 pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
@@ -136,7 +136,7 @@ pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
 /// enodes after resolving the lazily resolved information.
 struct ENodeHashMapQuery<'a> {
     /// used for calculating the hash for this enode query
-    enode_no_hash_eclass_id: ENodeNoHashEClassId,
+    enode_ignore_eclass_id_hash: ENodeIgnoreEClassIdHash,
 
     /// used for comparing against other enodes
     enode_effective_eclass_id: ENodeEffectiveEClassId,
@@ -146,7 +146,7 @@ struct ENodeHashMapQuery<'a> {
 impl<'a> ENodeHashMapQuery<'a> {
     fn new(enode: &'a ENode, union_find: &'a UnionFind<ENode>) -> Self {
         Self {
-            enode_no_hash_eclass_id: enode.convert_link(EClassIdNoHash::from_eclass_id),
+            enode_ignore_eclass_id_hash: enode.convert_link(EClassIdIgnoreHash::from_eclass_id),
             enode_effective_eclass_id: enode
                 .convert_link(|eclass_id| eclass_id.to_effective(union_find)),
             union_find,
@@ -155,11 +155,11 @@ impl<'a> ENodeHashMapQuery<'a> {
 }
 impl<'a> std::hash::Hash for ENodeHashMapQuery<'a> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.enode_no_hash_eclass_id.hash(state);
+        self.enode_ignore_eclass_id_hash.hash(state);
     }
 }
-impl<'a> Equivalent<ENodeNoHashEClassId> for ENodeHashMapQuery<'a> {
-    fn equivalent(&self, key: &ENodeNoHashEClassId) -> bool {
+impl<'a> Equivalent<ENodeIgnoreEClassIdHash> for ENodeHashMapQuery<'a> {
+    fn equivalent(&self, key: &ENodeIgnoreEClassIdHash) -> bool {
         let converted_key = key.convert_link(|eclass_id| eclass_id.0.to_effective(self.union_find));
         converted_key == self.enode_effective_eclass_id
     }
@@ -180,7 +180,7 @@ pub struct EGraph {
     ///
     /// hashmap keys need to be stable, and must not change, so we must exclude the eclass id from the hash.
     #[dbg(skip)]
-    enode_to_id: HashMap<ENodeNoHashEClassId, ENodeId>,
+    enode_to_id: HashMap<ENodeIgnoreEClassIdHash, ENodeId>,
 }
 impl EGraph {
     pub fn new() -> Self {
@@ -197,7 +197,10 @@ impl EGraph {
             RawEntryMut::Occupied(entry) => *entry.get(),
             RawEntryMut::Vacant(entry) => {
                 let enode_id = ENodeId(self.enodes.create_new_item(enode.clone()));
-                entry.insert(enode.convert_link(EClassIdNoHash::from_eclass_id), enode_id);
+                entry.insert(
+                    enode.convert_link(EClassIdIgnoreHash::from_eclass_id),
+                    enode_id,
+                );
                 enode_id
             }
         };
