@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use hashbrown::{Equivalent, HashMap, hash_map::RawEntryMut};
 
 use crate::{union_find::*, *};
@@ -47,6 +49,10 @@ impl std::hash::Hash for EClassIdIgnoreHash {
     fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
 }
 impl EClassIdIgnoreHash {
+    pub const DUMMY: Self = Self(EClassId {
+        enode_id: ENodeId(UnionFindItemId(NonZeroUsize::new(1).unwrap())),
+    });
+
     pub fn from_eclass_id(eclass_id: &EClassId) -> Self {
         Self(*eclass_id)
     }
@@ -76,7 +82,11 @@ struct ENodeHashMapQuery<'a> {
 impl<'a> ENodeHashMapQuery<'a> {
     fn new(enode: &'a ENode, union_find: &'a UnionFind<ENode>) -> Self {
         Self {
-            enode_ignore_eclass_id_hash: enode.convert_link(EClassIdIgnoreHash::from_eclass_id),
+            enode_ignore_eclass_id_hash: enode.convert_link(|_| {
+                // we use the dummy value since the value doesn't matter. we only use this for hashing, and the eclass id is ignored
+                // when hashing, so it doesn't matter what we put here.
+                EClassIdIgnoreHash::DUMMY
+            }),
             enode_effective_eclass_id: enode
                 .convert_link(|eclass_id| eclass_id.to_effective(union_find)),
             union_find,
@@ -95,6 +105,17 @@ impl<'a> Equivalent<ENodeIgnoreEClassIdHash> for ENodeHashMapQuery<'a> {
     }
 }
 
+/// compute the hash of the given value using the given hash builder.
+fn compute_hash<K: std::hash::Hash + ?Sized, S: std::hash::BuildHasher>(
+    hash_builder: &S,
+    key: &K,
+) -> u64 {
+    use core::hash::Hasher;
+    let mut state = hash_builder.build_hasher();
+    key.hash(&mut state);
+    state.finish()
+}
+
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ENodeId(pub UnionFindItemId);
@@ -109,6 +130,8 @@ pub struct EGraph {
     /// to the state of the union find tree. and, when the tree changes, the meaning of the eclass id can change.
     ///
     /// hashmap keys need to be stable, and must not change, so we must exclude the eclass id from the hash.
+    ///
+    /// TODO: re-write the docs to explain that this is also used for querying.
     #[dbg(skip)]
     enode_to_id: HashMap<ENodeIgnoreEClassIdHash, ENodeId>,
 }
@@ -154,6 +177,17 @@ impl EGraph {
             }),
         };
         self.add_enode(graph_node)
+    }
+
+    pub fn tmp_query(&self, query: &ENodeQuery) {
+        let enode_ignore_eclass_id_hash = query.convert_link(|_| {
+            // we use the dummy value since the value doesn't matter. we only use this for hashing, and the eclass id is ignored
+            // when hashing, so it doesn't matter what we put here.
+            EClassIdIgnoreHash::DUMMY
+        });
+        let hash = compute_hash(self.enode_to_id.hasher(), &enode_ignore_eclass_id_hash);
+        self.enode_to_id.raw_entry().from_hash(hash, |item| {});
+        todo!()
     }
 
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
