@@ -54,20 +54,31 @@ enum AnyId {
 }
 
 #[derive(Debug, Clone)]
-pub struct UnionFind {
+pub struct UnionFind<T> {
     item_to_parent_map: IdToParentMap,
     parent_to_parent_map: IdToParentMap,
+    items: Vec<T>,
 }
-impl UnionFind {
+impl<T> UnionFind<T> {
     pub fn new() -> Self {
         Self {
             item_to_parent_map: IdToParentMap::new(),
             parent_to_parent_map: IdToParentMap::new(),
+            items: Vec::new(),
         }
     }
     #[must_use]
-    pub fn create_new_item(&mut self) -> ItemId {
-        ItemId(self.item_to_parent_map.alloc_id())
+    pub fn create_new_item(&mut self, item: T) -> ItemId {
+        self.items.push(item);
+
+        // allocate an id for it
+        let id = ItemId(self.item_to_parent_map.alloc_id());
+
+        // the id should be 1 more than the index in the items vec.
+        // sanity check this assumption.
+        debug_assert_eq!(id.0.get(), self.items.len());
+
+        id
     }
     #[must_use]
     fn create_new_parent(&mut self) -> ParentId {
@@ -185,7 +196,7 @@ mod tests {
         iterator.collect()
     }
 
-    fn chk_groups(union_find: &UnionFind, all_items: &[ItemId], groups: &[&[ItemId]]) {
+    fn chk_groups(union_find: &UnionFind<()>, all_items: &[ItemId], groups: &[&[ItemId]]) {
         // make sure that the provided groups contain all items
         let groups_len_sum: usize = groups.iter().map(|group| group.len()).sum();
         assert_eq!(all_items.len(), groups_len_sum);
@@ -245,7 +256,7 @@ mod tests {
     fn test_eq_self_single_item() {
         let mut union_find = UnionFind::new();
 
-        let a = union_find.create_new_item();
+        let a = union_find.create_new_item(());
 
         assert!(union_find.are_eq(a, a));
     }
@@ -254,11 +265,11 @@ mod tests {
     fn test_eq_self_multiple_item() {
         let mut union_find = UnionFind::new();
 
-        let a = union_find.create_new_item();
+        let a = union_find.create_new_item(());
 
         // create some more items just to add some noise
         for _ in 0..20 {
-            let _ = union_find.create_new_item();
+            let _ = union_find.create_new_item(());
         }
 
         assert!(union_find.are_eq(a, a));
@@ -268,8 +279,8 @@ mod tests {
     fn test_not_eq_before_union() {
         let mut union_find = UnionFind::new();
 
-        let a = union_find.create_new_item();
-        let b = union_find.create_new_item();
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
 
         assert!(!union_find.are_eq(a, b));
     }
@@ -278,8 +289,8 @@ mod tests {
     fn test_eq_after_union() {
         let mut union_find = UnionFind::new();
 
-        let a = union_find.create_new_item();
-        let b = union_find.create_new_item();
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
 
         union_find.union(a, b);
 
@@ -290,9 +301,9 @@ mod tests {
     fn test_union_transitive() {
         let mut union_find = UnionFind::new();
 
-        let a = union_find.create_new_item();
-        let b = union_find.create_new_item();
-        let c = union_find.create_new_item();
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
+        let c = union_find.create_new_item(());
 
         let all_items = [a, b, c];
 
@@ -311,13 +322,13 @@ mod tests {
     fn test_union_transitive_eq_multilayer() {
         let mut union_find = UnionFind::new();
 
-        let a = union_find.create_new_item();
-        let b = union_find.create_new_item();
-        let c = union_find.create_new_item();
-        let d = union_find.create_new_item();
-        let e = union_find.create_new_item();
-        let f = union_find.create_new_item();
-        let g = union_find.create_new_item();
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
+        let c = union_find.create_new_item(());
+        let d = union_find.create_new_item(());
+        let e = union_find.create_new_item(());
+        let f = union_find.create_new_item(());
+        let g = union_find.create_new_item(());
 
         let all_items = [a, b, c, d, e, f, g];
 
