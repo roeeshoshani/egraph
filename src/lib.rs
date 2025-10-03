@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use hashbrown::{Equivalent, HashMap, hash_map::RawEntryMut};
 
 mod union_find;
 
@@ -66,24 +66,56 @@ pub struct EClassId {
 
 pub type ENode = GenericNode<EClassId>;
 
+struct ENodeQuery<'a> {
+    enode: &'a ENode,
+    union_find: &'a UnionFind<ENode>,
+}
+impl<'a> std::hash::Hash for ENodeQuery<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.enode.hash(state);
+    }
+}
+impl<'a> Equivalent<ENode> for ENodeQuery<'a> {
+    fn equivalent(&self, key: &ENode) -> bool {
+        todo!()
+    }
+}
+
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ENodeId(pub UnionFindItemId);
 
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
-    pub enodes: UnionFind<ENode>,
+    enodes: UnionFind<ENode>,
+
+    /// a hashmap for de-duplication
+    #[dbg(skip)]
+    enode_to_id: HashMap<ENode, ENodeId>,
 }
 impl EGraph {
     pub fn new() -> Self {
         Self {
             enodes: UnionFind::new(),
+            enode_to_id: HashMap::new(),
         }
     }
 
     /// adds an enode to the egraph and returns the eclass id which contains it.
     pub fn add_enode(&mut self, enode: ENode) -> EClassId {
-        let enode_id = ENodeId(self.enodes.create_new_item(enode));
+        let query = ENodeQuery {
+            enode: &enode,
+            union_find: &self.enodes,
+        };
+        let enode_id = match self.enode_to_id.raw_entry_mut().from_key(&query) {
+            RawEntryMut::Occupied(entry) => *entry.get(),
+            RawEntryMut::Vacant(entry) => {
+                let enode_id = ENodeId(self.enodes.create_new_item(enode.clone()));
+                entry.insert(enode, enode_id);
+                enode_id
+            }
+        };
+
         EClassId { enode_id }
     }
 
