@@ -196,10 +196,7 @@ mod tests {
                 for &item2 in group {
                     assert!(
                         union_find.are_eq(item1, item2),
-                        "items {:?} and {:?} were expected to be equal, since they are in the same group of {:?}, but they are not equal",
-                        item1,
-                        item2,
-                        group
+                        "items {item1:?} and {item2:?} were expected to be eq, since they are in the same group of {group:?}, but they are not eq",
                     );
                 }
             }
@@ -216,8 +213,7 @@ mod tests {
                 let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
                 assert_eq!(
                     group_items_other_than, items_eq_to_item,
-                    "item {:?} in group {:?} was expected to have items eq to of {:?} but instead has {:?}",
-                    item, group, group_items_other_than, items_eq_to_item
+                    "item {item:?} in group {group:?} was expected to have items eq to of {group_items_other_than:?} but instead has {items_eq_to_item:?}",
                 );
             }
 
@@ -232,8 +228,14 @@ mod tests {
                 let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
 
                 for &group_item in group {
-                    assert!(!union_find.are_eq(item, group_item));
-                    assert!(!items_eq_to_item.contains(&group_item));
+                    assert!(
+                        !union_find.are_eq(item, group_item),
+                        "expected item {item:?} to not be eq to group item {group_item:?} since item {item:?} is not part of the group {group:?}",
+                    );
+                    assert!(
+                        !items_eq_to_item.contains(&group_item),
+                        "expected group item {group:?} to NOT appear in the list of items eq to {item:?}, which contains items {items_eq_to_item:?}, since item {item:?} is not part of the group {group:?}",
+                    );
                 }
             }
         }
