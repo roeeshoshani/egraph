@@ -55,7 +55,7 @@ pub struct UnionFindParentId(pub NonZeroUsize);
 
 /// an id of any kind, either an item id or a parent id.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum UnionFindAnyId {
+pub enum UnionFindAnyId {
     Item(UnionFindItemId),
     Parent(UnionFindParentId),
 }

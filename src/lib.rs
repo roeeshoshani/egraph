@@ -5,7 +5,7 @@ mod union_find;
 use derive_more::From;
 use stable_vec::StableVec;
 
-use crate::union_find::{UnionFind, UnionFindItemId};
+use crate::union_find::{UnionFind, UnionFindAnyId, UnionFindItemId};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Imm(pub u64);
@@ -51,28 +51,79 @@ impl<L> From<u64> for GenericNode<L> {
         Imm(value).into()
     }
 }
+impl<L> GenericNode<L> {
+    pub fn convert_link<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        match self {
+            GenericNode::Imm(imm) => GenericNode::Imm(*imm),
+            GenericNode::Var(var) => GenericNode::Var(*var),
+            GenericNode::BinOp(BinOp { kind, lhs, rhs }) => GenericNode::BinOp(BinOp {
+                kind: *kind,
+                lhs: conversion(lhs),
+                rhs: conversion(rhs),
+            }),
+            GenericNode::UnOp(UnOp { kind, operand }) => GenericNode::UnOp(UnOp {
+                kind: *kind,
+                operand: conversion(operand),
+            }),
+        }
+    }
+}
 
-// NOTE: this should NOT implement `PartialEq` and `Eq` due to how it is implemented.
+// NOTE: this should NOT implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
 // we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
 // equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
 //
 // checking if 2 instances of this type are equal requires accessing the union find tree.
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub struct EClassId {
     /// an id of some enode which is part of this eclass.
     /// this can be used to iterate over all
     pub enode_id: ENodeId,
 }
+impl EClassId {
+    /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree.
+    pub fn to_effective<T>(&self, union_find: &UnionFind<T>) -> EffectiveEClassId {
+        EffectiveEClassId(union_find.root_of_item(self.enode_id.0))
+    }
+}
+
+/// an effective eclass id.
+///
+/// usually, the eclass id is represented as an id to any enode in that eclass. this is problematic since it means that we can't
+/// compare eclass ids, which means that we can't compare enodes.
+///
+/// this type represents an actual eclass id which can be compared to other eclass id. this is resolved by taking the root of the enode
+/// id in the union find tree.
+///
+/// this id is only true for a snapshot of the union find tree. once the tree is modified, it is no longer up to date, since the root
+/// may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EffectiveEClassId(pub UnionFindAnyId);
 
 pub type ENode = GenericNode<EClassId>;
 
+/// an `Eq`able enode. usually, enode's can't be compared to one another since they contain data that is lazily resolved.
+/// so, before comparison, this data must be evaluated so that the enodes can be
+pub type ENodeEqAble = GenericNode<EClassId>;
+
 struct ENodeQuery<'a> {
-    enode: &'a ENode,
+    converted_enode: GenericNode<EffectiveEClassId>,
     union_find: &'a UnionFind<ENode>,
+}
+impl<'a> ENodeQuery<'a> {
+    fn new(enode: &'a ENode, union_find: &'a UnionFind<ENode>) -> Self {
+        Self {
+            converted_enode: enode.convert_link(|eclass_id| eclass_id.to_effective(union_find)),
+            union_find,
+        }
+    }
 }
 impl<'a> std::hash::Hash for ENodeQuery<'a> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.enode.hash(state);
+        self.converted_enode.hash(state);
     }
 }
 impl<'a> Equivalent<ENode> for ENodeQuery<'a> {
