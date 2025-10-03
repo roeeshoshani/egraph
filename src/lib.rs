@@ -357,6 +357,20 @@ mod tests {
         // make sure that it got de-duplicated
         assert_eq!(id1.enode_id, id2.enode_id);
         assert_eq!(egraph.enodes.len(), 5);
+
+        // even more
+        let enode = ENode::BinOp(BinOp {
+            kind: BinOpKind::Mul,
+            lhs: var3,
+            rhs: var2,
+        });
+
+        let id1 = egraph.add_enode(enode.clone());
+        let id2 = egraph.add_enode(enode.clone());
+
+        // make sure that it got de-duplicated
+        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(egraph.enodes.len(), 6);
     }
 
     #[test]
