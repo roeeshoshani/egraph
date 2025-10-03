@@ -51,13 +51,13 @@ impl<T> Index<UnionFindItemId> for UnionFind<T> {
 pub struct UnionFindItemId(pub NonZeroUsize);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-struct ParentId(NonZeroUsize);
+pub struct UnionFindParentId(pub NonZeroUsize);
 
 /// an id of any kind, either an item id or a parent id.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum AnyId {
+enum UnionFindAnyId {
     Item(UnionFindItemId),
-    Parent(ParentId),
+    Parent(UnionFindParentId),
 }
 
 #[derive(Debug, Clone)]
@@ -88,39 +88,47 @@ impl<T> UnionFind<T> {
         id
     }
     #[must_use]
-    fn create_new_parent(&mut self) -> ParentId {
-        ParentId(self.parent_to_parent_map.alloc_id())
+    fn create_new_parent(&mut self) -> UnionFindParentId {
+        UnionFindParentId(self.parent_to_parent_map.alloc_id())
     }
-    fn get_parent_of_item(&self, item: UnionFindItemId) -> Option<ParentId> {
-        self.item_to_parent_map.get_parent_of(item.0).map(ParentId)
+    fn get_parent_of_item(&self, item: UnionFindItemId) -> Option<UnionFindParentId> {
+        self.item_to_parent_map
+            .get_parent_of(item.0)
+            .map(UnionFindParentId)
     }
-    fn get_parent_of_parent(&self, id: ParentId) -> Option<ParentId> {
-        self.parent_to_parent_map.get_parent_of(id.0).map(ParentId)
+    fn get_parent_of_parent(&self, id: UnionFindParentId) -> Option<UnionFindParentId> {
+        self.parent_to_parent_map
+            .get_parent_of(id.0)
+            .map(UnionFindParentId)
     }
-    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<ParentId>) {
+    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<UnionFindParentId>) {
         self.item_to_parent_map
             .set_parent(item.0, new_parent.map(|x| x.0));
     }
-    fn set_parent_of_parent(&mut self, id: ParentId, new_parent: Option<ParentId>) {
+    fn set_parent_of_parent(
+        &mut self,
+        id: UnionFindParentId,
+        new_parent: Option<UnionFindParentId>,
+    ) {
         self.parent_to_parent_map
             .set_parent(id.0, new_parent.map(|x| x.0));
     }
-    fn get_parent_of_any(&self, id: AnyId) -> Option<ParentId> {
+    fn get_parent_of_any(&self, id: UnionFindAnyId) -> Option<UnionFindParentId> {
         match id {
-            AnyId::Item(item_id) => self.get_parent_of_item(item_id),
-            AnyId::Parent(parent_id) => self.get_parent_of_parent(parent_id),
+            UnionFindAnyId::Item(item_id) => self.get_parent_of_item(item_id),
+            UnionFindAnyId::Parent(parent_id) => self.get_parent_of_parent(parent_id),
         }
     }
-    fn set_parent_of_any(&mut self, id: AnyId, new_parent: Option<ParentId>) {
+    fn set_parent_of_any(&mut self, id: UnionFindAnyId, new_parent: Option<UnionFindParentId>) {
         match id {
-            AnyId::Item(id) => self.set_parent_of_item(id, new_parent),
-            AnyId::Parent(id) => self.set_parent_of_parent(id, new_parent),
+            UnionFindAnyId::Item(id) => self.set_parent_of_item(id, new_parent),
+            UnionFindAnyId::Parent(id) => self.set_parent_of_parent(id, new_parent),
         }
     }
     pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) {
         // we use a loop here since we may need to climb up the parents if both items already have a parent.
-        let mut cur_item_a = AnyId::Item(item_a);
-        let mut cur_item_b = AnyId::Item(item_b);
+        let mut cur_item_a = UnionFindAnyId::Item(item_a);
+        let mut cur_item_b = UnionFindAnyId::Item(item_b);
         loop {
             match (
                 self.get_parent_of_any(cur_item_a),
@@ -151,19 +159,19 @@ impl<T> UnionFind<T> {
                 }
                 (Some(parent_a), Some(parent_b)) => {
                     // both items already have a parent, union their parents.
-                    cur_item_a = AnyId::Parent(parent_a);
-                    cur_item_b = AnyId::Parent(parent_b);
+                    cur_item_a = UnionFindAnyId::Parent(parent_a);
+                    cur_item_b = UnionFindAnyId::Parent(parent_b);
                 }
             }
         }
     }
-    fn root_of_item(&self, item: UnionFindItemId) -> AnyId {
-        let mut cur_item = AnyId::Item(item);
+    pub fn root_of_any(&self, id: UnionFindAnyId) -> UnionFindAnyId {
+        let mut cur_item = id;
         loop {
             match self.get_parent_of_any(cur_item) {
                 Some(parent) => {
                     // advance to the parent
-                    cur_item = AnyId::Parent(parent);
+                    cur_item = UnionFindAnyId::Parent(parent);
                 }
                 None => {
                     // no more parents, we reached the root
@@ -171,6 +179,9 @@ impl<T> UnionFind<T> {
                 }
             }
         }
+    }
+    pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindAnyId {
+        self.root_of_any(UnionFindAnyId::Item(item))
     }
     pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
         // TODO: make this efficient if needed
