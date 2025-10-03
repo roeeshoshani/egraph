@@ -1,8 +1,13 @@
 use std::num::NonZeroUsize;
 
-use hashbrown::{Equivalent, HashMap, hash_map::RawEntryMut};
+use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
+use std::hash::BuildHasher;
 
 use crate::{union_find::*, *};
+
+/// the id of an enode.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ENodeId(pub UnionFindItemId);
 
 // NOTE: this should NOT implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
 // we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
@@ -17,10 +22,13 @@ pub struct EClassId {
 }
 impl EClassId {
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree.
-    pub fn to_effective<T>(&self, union_find: &UnionFind<T>) -> EffectiveEClassId {
+    pub fn to_effective(&self, union_find: &UnionFind<ENode>) -> EffectiveEClassId {
         EffectiveEClassId(union_find.root_of_item(self.enode_id.0))
     }
 }
+
+/// an enode.
+pub type ENode = GenericNode<EClassId>;
 
 /// an effective eclass id.
 ///
@@ -35,94 +43,34 @@ impl EClassId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EffectiveEClassId(pub UnionFindAnyId);
 
-pub type ENode = GenericNode<EClassId>;
-
-/// an eclass id which has no effect when hashed, such that its hash value is ignored when embedded into a struct.
-///
-/// this is needed because the eclass id contains information whose meaning may change depending on the state of the union find tree.
-///
-/// but, when the enode is used as a hashmap key, we need its value to be stable, so we want to ignore the eclass id when calculating
-/// the hash.
-#[derive(Debug, Clone, Copy)]
-pub struct EClassIdIgnoreHash(pub EClassId);
-impl std::hash::Hash for EClassIdIgnoreHash {
-    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
-}
-impl EClassIdIgnoreHash {
-    pub const DUMMY: Self = Self(EClassId {
-        enode_id: ENodeId(UnionFindItemId(NonZeroUsize::new(1).unwrap())),
-    });
-
-    pub fn from_eclass_id(eclass_id: &EClassId) -> Self {
-        Self(*eclass_id)
-    }
-}
-
-/// an enode which ignores the eclass id when hashed.
-pub type ENodeIgnoreEClassIdHash = GenericNode<EClassIdIgnoreHash>;
-
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
 pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
 
-/// a query for an enode in the de-duplication hashmap.
-///
-/// due to how the enode is stored in memory, we can't just use it directly, since it contains information that is lazily resolved.
-///
-/// so, this query object allows querying the hashmap in a way that correctly hashes the enode, and correctly compares it to other
-/// enodes after resolving the lazily resolved information.
-struct ENodeHashMapQuery<'a> {
-    /// used for calculating the hash for this enode query
-    enode_ignore_eclass_id_hash: ENodeIgnoreEClassIdHash,
-
-    /// used for comparing against other enodes
-    enode_effective_eclass_id: ENodeEffectiveEClassId,
-
-    union_find: &'a UnionFind<ENode>,
-}
-impl<'a> ENodeHashMapQuery<'a> {
-    fn new(enode: &'a ENode, union_find: &'a UnionFind<ENode>) -> Self {
-        Self {
-            enode_ignore_eclass_id_hash: enode.convert_link(|_| {
-                // we use the dummy value since the value doesn't matter. we only use this for hashing, and the eclass id is ignored
-                // when hashing, so it doesn't matter what we put here.
-                EClassIdIgnoreHash::DUMMY
-            }),
-            enode_effective_eclass_id: enode
-                .convert_link(|eclass_id| eclass_id.to_effective(union_find)),
-            union_find,
-        }
-    }
-}
-impl<'a> std::hash::Hash for ENodeHashMapQuery<'a> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.enode_ignore_eclass_id_hash.hash(state);
-    }
-}
-impl<'a> Equivalent<ENodeIgnoreEClassIdHash> for ENodeHashMapQuery<'a> {
-    fn equivalent(&self, key: &ENodeIgnoreEClassIdHash) -> bool {
-        let converted_key = key.convert_link(|eclass_id| eclass_id.0.to_effective(self.union_find));
-        converted_key == self.enode_effective_eclass_id
+impl ENode {
+    /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree.
+    pub fn to_effective_eclass_id(&self, union_find: &UnionFind<ENode>) -> ENodeEffectiveEClassId {
+        self.convert_link(|eclass_id| eclass_id.to_effective(union_find))
     }
 }
 
-/// compute the hash of the given value using the given hash builder.
-fn compute_hash<K: std::hash::Hash + ?Sized, S: std::hash::BuildHasher>(
-    hash_builder: &S,
-    key: &K,
-) -> u64 {
-    use core::hash::Hasher;
-    let mut state = hash_builder.build_hasher();
-    key.hash(&mut state);
-    state.finish()
+#[derive(Debug, Clone)]
+struct ENodeHashTableEntry {
+    enode: ENode,
+    id: ENodeId,
 }
 
-/// the id of an enode.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ENodeId(pub UnionFindItemId);
+#[derive(Debug, Default, Clone)]
+struct NodeHasher(DefaultHashBuilder);
+impl NodeHasher {
+    fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
+        // hash the enode, but ignore the links. only take its structure into account.
+        self.0.hash_one(node.convert_link(|_| ()))
+    }
+}
 
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
-    enodes: UnionFind<ENode>,
+    enodes_union_find: UnionFind<ENode>,
 
     /// a hashmap for de-duplication
     ///
@@ -133,27 +81,41 @@ pub struct EGraph {
     ///
     /// TODO: re-write the docs to explain that this is also used for querying.
     #[dbg(skip)]
-    enode_to_id: HashMap<ENodeIgnoreEClassIdHash, ENodeId>,
+    enodes_hash_table: HashTable<ENodeHashTableEntry>,
+
+    /// a hasher for the hashmap
+    hasher: NodeHasher,
 }
 impl EGraph {
     pub fn new() -> Self {
         Self {
-            enodes: UnionFind::new(),
-            enode_to_id: HashMap::new(),
+            enodes_union_find: UnionFind::new(),
+            enodes_hash_table: HashTable::new(),
+            hasher: NodeHasher::default(),
         }
     }
 
     /// adds an enode to the egraph and returns the eclass id which contains it.
     pub fn add_enode(&mut self, enode: ENode) -> EClassId {
-        let query = ENodeHashMapQuery::new(&enode, &self.enodes);
-        let enode_id = match self.enode_to_id.raw_entry_mut().from_key(&query) {
-            RawEntryMut::Occupied(entry) => *entry.get(),
-            RawEntryMut::Vacant(entry) => {
-                let enode_id = ENodeId(self.enodes.create_new_item(enode.clone()));
-                entry.insert(
-                    enode.convert_link(EClassIdIgnoreHash::from_eclass_id),
-                    enode_id,
-                );
+        let enode_effective_eclass_id = enode.to_effective_eclass_id(&self.enodes_union_find);
+        let eq_fn = |entry: &ENodeHashTableEntry| {
+            entry.enode.to_effective_eclass_id(&self.enodes_union_find) == enode_effective_eclass_id
+        };
+
+        let hash_fn = |entry: &ENodeHashTableEntry| self.hasher.hash_node(&entry.enode);
+
+        let entry = self
+            .enodes_hash_table
+            .entry(self.hasher.hash_node(&enode), eq_fn, hash_fn);
+
+        let enode_id = match entry {
+            Entry::Occupied(entry) => entry.get().id,
+            Entry::Vacant(entry) => {
+                let enode_id = ENodeId(self.enodes_union_find.create_new_item(enode.clone()));
+                entry.insert(ENodeHashTableEntry {
+                    enode,
+                    id: enode_id,
+                });
                 enode_id
             }
         };
@@ -180,13 +142,6 @@ impl EGraph {
     }
 
     pub fn tmp_query(&self, query: &ENodeQuery) {
-        let enode_ignore_eclass_id_hash = query.convert_link(|_| {
-            // we use the dummy value since the value doesn't matter. we only use this for hashing, and the eclass id is ignored
-            // when hashing, so it doesn't matter what we put here.
-            EClassIdIgnoreHash::DUMMY
-        });
-        let hash = compute_hash(self.enode_to_id.hasher(), &enode_ignore_eclass_id_hash);
-        self.enode_to_id.raw_entry().from_hash(hash, |item| {});
         todo!()
     }
 
@@ -208,7 +163,7 @@ mod tests {
         let id1 = egraph.add_enode(enode.clone());
         let id2 = egraph.add_enode(enode.clone());
         assert_eq!(id1.enode_id, id2.enode_id);
-        assert_eq!(egraph.enodes.len(), 1);
+        assert_eq!(egraph.enodes_union_find.len(), 1);
     }
 
     #[test]
@@ -233,7 +188,7 @@ mod tests {
 
         // make sure that it got de-duplicated
         assert_eq!(id1.enode_id, id2.enode_id);
-        assert_eq!(egraph.enodes.len(), 4);
+        assert_eq!(egraph.enodes_union_find.len(), 4);
 
         // now do some more
         let enode = ENode::UnOp(UnOp {
@@ -246,7 +201,7 @@ mod tests {
 
         // make sure that it got de-duplicated
         assert_eq!(id1.enode_id, id2.enode_id);
-        assert_eq!(egraph.enodes.len(), 5);
+        assert_eq!(egraph.enodes_union_find.len(), 5);
 
         // even more
         let enode = ENode::BinOp(BinOp {
@@ -260,7 +215,7 @@ mod tests {
 
         // make sure that it got de-duplicated
         assert_eq!(id1.enode_id, id2.enode_id);
-        assert_eq!(egraph.enodes.len(), 6);
+        assert_eq!(egraph.enodes_union_find.len(), 6);
     }
 
     #[test]
