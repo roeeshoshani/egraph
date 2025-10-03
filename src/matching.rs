@@ -1,11 +1,13 @@
 use crate::*;
 
 /// a variable in a node query
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct QueryVariable {
     pub id: usize,
 }
 
 /// a link in a node query
+#[derive(Debug)]
 pub enum QueryLink {
     Specific(EClassId),
     Variable(QueryVariable),
