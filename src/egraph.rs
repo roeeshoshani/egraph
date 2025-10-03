@@ -1,6 +1,6 @@
 use hashbrown::{Equivalent, HashMap, hash_map::RawEntryMut};
 
-use crate::{node::*, rec_node::*, union_find::*};
+use crate::{union_find::*, *};
 
 // NOTE: this should NOT implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
 // we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not

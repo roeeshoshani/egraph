@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use stable_vec::StableVec;
 
-use crate::{node::*, rec_node::*};
+use crate::*;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct GraphNodeId(pub usize);
