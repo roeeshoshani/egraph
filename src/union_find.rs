@@ -84,7 +84,7 @@ impl UnionFind {
             .set_parent(item.0, new_parent.map(|x| x.0));
     }
     fn set_parent_of_parent(&mut self, id: ParentId, new_parent: Option<ParentId>) {
-        self.item_to_parent_map
+        self.parent_to_parent_map
             .set_parent(id.0, new_parent.map(|x| x.0));
     }
     fn get_parent_of_any(&self, id: AnyId) -> Option<ParentId> {
