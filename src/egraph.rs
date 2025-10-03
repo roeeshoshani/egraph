@@ -1,5 +1,3 @@
-use std::num::NonZeroUsize;
-
 use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
 use std::hash::BuildHasher;
 
@@ -104,9 +102,9 @@ impl EGraph {
 
         let hash_fn = |entry: &ENodeHashTableEntry| self.hasher.hash_node(&entry.enode);
 
-        let entry = self
-            .enodes_hash_table
-            .entry(self.hasher.hash_node(&enode), eq_fn, hash_fn);
+        let hash = self.hasher.hash_node(&enode);
+
+        let entry = self.enodes_hash_table.entry(hash, eq_fn, hash_fn);
 
         let enode_id = match entry {
             Entry::Occupied(entry) => entry.get().id,
@@ -141,7 +139,11 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    pub fn tmp_query(&self, query: &ENodeQuery) {
+    pub fn apply_rule(&mut self, rule: &RewriteRule) {
+        let hash = self.hasher.hash_node(&rule.query);
+        for item in self.enodes_hash_table.iter_hash_mut(hash) {
+            todo!();
+        }
         todo!()
     }
 

@@ -4,6 +4,7 @@ mod matching;
 mod node;
 mod rec_node;
 pub mod union_find;
+mod utils;
 
 pub use egraph::*;
 pub use matching::*;

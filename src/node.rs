@@ -1,4 +1,10 @@
+use arrayvec::ArrayVec;
 use derive_more::From;
+
+use crate::array_vec;
+
+pub const NODE_MAX_LINKS: usize = 2;
+pub type NodeLinks<'a, L> = ArrayVec<&'a L, NODE_MAX_LINKS>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Imm(pub u64);
@@ -61,6 +67,13 @@ impl<L> GenericNode<L> {
                 kind: *kind,
                 operand: conversion(operand),
             }),
+        }
+    }
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        match self {
+            GenericNode::BinOp(bin_op) => array_vec![&bin_op.lhs, &bin_op.rhs],
+            GenericNode::UnOp(un_op) => array_vec![&un_op.operand],
+            _ => array_vec![],
         }
     }
 }
