@@ -105,12 +105,24 @@ pub struct EffectiveEClassId(pub UnionFindAnyId);
 
 pub type ENode = GenericNode<EClassId>;
 
-/// an `Eq`able enode. usually, enode's can't be compared to one another since they contain data that is lazily resolved.
-/// so, before comparison, this data must be evaluated so that the enodes can be
-pub type ENodeEqAble = GenericNode<EClassId>;
+/// an eclass id which has no effect when hashed, such that its hash value is ignored when embedded into a struct.
+///
+/// TODO: explain why this is useful.
+#[derive(Debug, Clone, Copy)]
+pub struct EClassIdNoHash(pub EClassId);
+impl std::hash::Hash for EClassIdNoHash {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+}
 
+/// an enode which ignores the eclass id when hashed.
+pub type ENodeNoHashEClassId = GenericNode<EClassIdNoHash>;
+
+/// an enode with an effective eclass id. this allows comparing the enode to other enodes.
+pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
+
+/// TODO: explain this
 struct ENodeQuery<'a> {
-    converted_enode: GenericNode<EffectiveEClassId>,
+    converted_enode: ENodeEffectiveEClassId,
     union_find: &'a UnionFind<ENode>,
 }
 impl<'a> ENodeQuery<'a> {
@@ -126,8 +138,8 @@ impl<'a> std::hash::Hash for ENodeQuery<'a> {
         self.converted_enode.hash(state);
     }
 }
-impl<'a> Equivalent<ENode> for ENodeQuery<'a> {
-    fn equivalent(&self, key: &ENode) -> bool {
+impl<'a> Equivalent<ENodeNoHashEClassId> for ENodeQuery<'a> {
+    fn equivalent(&self, key: &ENodeNoHashEClassId) -> bool {
         todo!()
     }
 }
@@ -141,8 +153,13 @@ pub struct EGraph {
     enodes: UnionFind<ENode>,
 
     /// a hashmap for de-duplication
+    ///
+    /// NOTE: we exclude the eclass id when hashing since the eclass id contains lazy data which needs to be resolved according
+    /// to the state of the union find tree. and, when the tree changes, the meaning of the eclass id can change.
+    ///
+    /// hashmap keys need to be stable, and must not change, so we must exclude the eclass id from the hash.
     #[dbg(skip)]
-    enode_to_id: HashMap<ENode, ENodeId>,
+    enode_to_id: HashMap<ENodeNoHashEClassId, ENodeId>,
 }
 impl EGraph {
     pub fn new() -> Self {
@@ -154,15 +171,15 @@ impl EGraph {
 
     /// adds an enode to the egraph and returns the eclass id which contains it.
     pub fn add_enode(&mut self, enode: ENode) -> EClassId {
-        let query = ENodeQuery {
-            enode: &enode,
-            union_find: &self.enodes,
-        };
+        let query = ENodeQuery::new(&enode, &self.enodes);
         let enode_id = match self.enode_to_id.raw_entry_mut().from_key(&query) {
             RawEntryMut::Occupied(entry) => *entry.get(),
             RawEntryMut::Vacant(entry) => {
                 let enode_id = ENodeId(self.enodes.create_new_item(enode.clone()));
-                entry.insert(enode, enode_id);
+                entry.insert(
+                    enode.convert_link(|eclass_id| EClassIdNoHash(*eclass_id)),
+                    enode_id,
+                );
                 enode_id
             }
         };
