@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, ops::Index};
 
 /// a mapping between ids to their parent ids.
 #[derive(Debug, Clone)]
@@ -37,6 +37,13 @@ impl IdToParentMap {
         }
 
         self.parent_of_id[index] = new_parent;
+    }
+}
+impl<T> Index<ItemId> for UnionFind<T> {
+    type Output = T;
+
+    fn index(&self, index: ItemId) -> &Self::Output {
+        &self.items[index.0.get() - 1]
     }
 }
 
