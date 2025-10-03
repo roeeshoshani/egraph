@@ -324,7 +324,7 @@ mod tests {
         let id1 = egraph.add_enode(enode.clone());
 
         // add something in between just to add some noise
-        let _ = egraph.add_enode(ENode::Var(Var(3)));
+        let var3 = egraph.add_enode(ENode::Var(Var(3)));
 
         // re-add the same enode
         let id2 = egraph.add_enode(enode.clone());
@@ -332,6 +332,19 @@ mod tests {
         // make sure that it got de-duplicated
         assert_eq!(id1.enode_id, id2.enode_id);
         assert_eq!(egraph.enodes.len(), 4);
+
+        // now do some more
+        let enode = ENode::UnOp(UnOp {
+            kind: UnOpKind::Neg,
+            operand: var1,
+        });
+
+        let id1 = egraph.add_enode(enode.clone());
+        let id2 = egraph.add_enode(enode.clone());
+
+        // make sure that it got de-duplicated
+        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(egraph.enodes.len(), 5);
     }
 
     #[test]
