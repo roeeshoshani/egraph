@@ -29,20 +29,7 @@ impl Graph {
         graph
     }
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> GraphNodeId {
-        // first, convert the recursive node into a graph node
-        let graph_node = match &rec_node.0 {
-            GenericNode::Imm(imm) => GenericNode::Imm(*imm),
-            GenericNode::Var(var) => GenericNode::Var(*var),
-            GenericNode::BinOp(bin_op) => GenericNode::BinOp(BinOp {
-                kind: bin_op.kind,
-                lhs: self.add_rec_node(&bin_op.lhs),
-                rhs: self.add_rec_node(&bin_op.rhs),
-            }),
-            GenericNode::UnOp(un_op) => GenericNode::UnOp(UnOp {
-                kind: un_op.kind,
-                operand: self.add_rec_node(&un_op.operand),
-            }),
-        };
+        let graph_node = rec_node.0.convert_link(|link| self.add_rec_node(link));
         self.add_node(graph_node)
     }
     pub fn add_node(&mut self, node: GraphNode) -> GraphNodeId {
