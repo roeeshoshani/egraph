@@ -410,7 +410,7 @@ mod tests {
         assert_eq!(egraph.enodes_union_find.len(), 6);
     }
 
-    #[test]
+    // #[test]
     fn test_basic() {
         // 0xff & ((x & 0xff00) || (x & 0xff0000))
         let rec_node: RecNode = RecBinOp {
@@ -437,6 +437,42 @@ mod tests {
 
         let egraph = EGraph::from_rec_node(&rec_node);
         dbg!(egraph);
-        panic!();
+    }
+
+    #[test]
+    fn test_basic_rewrite() {
+        // 0xff & ((x & 0xff00) || (x & 0x0))
+        let rec_node: RecNode = RecBinOp {
+            kind: BinOpKind::And,
+            lhs: 0xff.into(),
+            rhs: RecBinOp {
+                kind: BinOpKind::Or,
+                lhs: RecBinOp {
+                    kind: BinOpKind::And,
+                    lhs: Var(0).into(),
+                    rhs: 0xff00.into(),
+                }
+                .into(),
+                rhs: RecBinOp {
+                    kind: BinOpKind::And,
+                    lhs: Var(0).into(),
+                    rhs: 0.into(),
+                }
+                .into(),
+            }
+            .into(),
+        }
+        .into();
+
+        let mut egraph = EGraph::from_rec_node(&rec_node);
+        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: 0.into(),
+            }
+            .into(),
+            rewrite: 0.into(),
+        }));
     }
 }

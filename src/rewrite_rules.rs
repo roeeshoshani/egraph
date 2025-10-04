@@ -8,6 +8,11 @@ pub struct TemplateVar {
     pub id: NonZeroUsize,
 }
 impl TemplateVar {
+    pub fn new(id: usize) -> Self {
+        Self {
+            id: NonZeroUsize::new(id).unwrap(),
+        }
+    }
     /// the index of the variable in a variables vector
     fn index(&self) -> usize {
         self.id.get() - 1
@@ -20,6 +25,22 @@ pub enum TemplateLink {
     Specific(Box<ENodeTemplate>),
     Var(TemplateVar),
 }
+impl From<TemplateVar> for TemplateLink {
+    fn from(x: TemplateVar) -> Self {
+        Self::Var(x)
+    }
+}
+impl<T> From<T> for TemplateLink
+where
+    ENodeTemplate: From<T>,
+{
+    fn from(x: T) -> Self {
+        Self::Specific(Box::new(x.into()))
+    }
+}
+
+pub type BinOpTemplate = BinOp<TemplateLink>;
+pub type UnOpTemplate = UnOp<TemplateLink>;
 
 /// an enode template.
 pub type ENodeTemplate = GenericNode<TemplateLink>;
