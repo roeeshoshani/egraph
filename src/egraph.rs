@@ -162,7 +162,7 @@ impl EGraph {
             }
             TemplateLink::Var(template_var) => {
                 let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
-                todo!()
+                var_value.eclass
             }
         });
         self.add_enode(enode)
