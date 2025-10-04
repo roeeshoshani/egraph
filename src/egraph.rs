@@ -430,7 +430,7 @@ mod tests {
 
     // #[test]
     fn test_basic() {
-        // 0xff & ((x & 0xff00) || (x & 0xff0000))
+        // 0xff & ((x & 0xff00) | (x & 0xff0000))
         let rec_node: RecNode = RecBinOp {
             kind: BinOpKind::And,
             lhs: 0xff.into(),
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_basic_rewrite() {
-        // 0xff & ((x & 0xff00) || (x & 0x0))
+        // 0xff & ((x & 0xff00) | (x & 0x0))
         let rec_node: RecNode = RecBinOp {
             kind: BinOpKind::And,
             lhs: 0xff.into(),
