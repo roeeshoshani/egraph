@@ -146,8 +146,8 @@ impl EGraph {
 
         match entry {
             Entry::Occupied(entry) => {
-                //
-                // entry.get().id
+                // the new enode is a duplicate of an enode which already exists.
+                // so, we just want to get rid of the original enode, both in the union find tree, and in the hash table.
                 todo!()
             }
             Entry::Vacant(entry) => {
@@ -161,10 +161,19 @@ impl EGraph {
                 });
 
                 // overwrite the original enode in the union find tree with the new enode
-                self.enodes_union_find[enode_id_to_replace.0] = replace_with;
+                let orig_enode = std::mem::replace(
+                    &mut self.enodes_union_find[enode_id_to_replace.0],
+                    replace_with,
+                );
 
                 // now remove the hash table entry of the old enode
-                todo!()
+                let Entry::Occupied(orig_entry) = self
+                    .enodes_hash_table
+                    .entry(&orig_enode, &self.enodes_union_find)
+                else {
+                    panic!("orig enode not found in hash table");
+                };
+                orig_entry.remove();
             }
         };
     }
