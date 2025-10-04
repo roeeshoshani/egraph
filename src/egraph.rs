@@ -141,11 +141,9 @@ impl EGraph {
                 &rule.params().query,
                 &mut matching_state.get_state(),
             );
-            todo!(
-                "do something with the matches: {:?}",
-                matching_state.matches
-            );
+            dbg!(&matching_state.matches);
         }
+        todo!("do something with the matches");
     }
 
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
