@@ -68,6 +68,9 @@ impl ENodeTemplate {
 pub struct RewriteRuleParams {
     pub query: ENodeTemplate,
     pub rewrite: ENodeTemplate,
+
+    /// should we keep the original enode after the rule has been applied to it?
+    pub keep_original: bool,
 }
 impl RewriteRuleParams {
     fn check(&self) {

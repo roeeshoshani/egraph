@@ -127,39 +127,35 @@ impl EGraph {
     }
 
     pub fn apply_rule(&mut self, rule: &RewriteRule) {
-        let mut enode_matches = vec![];
-
         let matcher = Matcher {
             union_find: &self.enodes_union_find,
         };
         let mut matching_state_storage = MatchingStateStorage::new();
 
         let hash = self.hasher.hash_node(&rule.params().query);
-        for entry in self.enodes_hash_table.iter_hash_mut(hash) {
+
+        // find the first enode that matches the rule.
+        let Some(matched_entry) = self.enodes_hash_table.iter_hash_mut(hash).find(|entry| {
             // match the current enode
             matcher.match_enode_to_enode_template(
                 &entry.enode,
                 &rule.params().query,
                 &mut matching_state_storage.get_state(),
             );
+            !matching_state_storage.matches.is_empty()
+        }) else {
+            return;
+        };
 
-            // convert the match objects to enode match objects so that we can later tell which enode they were associated with.
-            enode_matches.extend(matching_state_storage.matches.drain(..).map(|match_obj| {
-                ENodeMatch {
-                    match_obj,
-                    enode_id: entry.id,
-                }
-            }));
-        }
+        let matched_enode_id = matched_entry.id;
 
-        for enode_match in enode_matches {
-            // instantiate the rewrite
-            let rewrite_result = self.instantiate_enode_template(
-                &rule.params().rewrite,
-                &enode_match.match_obj.rule_storage,
-            );
+        // for each match, add the rerwrite result to the egraph
+        for match_obj in matching_state_storage.matches {
+            let new_enode =
+                self.instantiate_enode_template(&rule.params().rewrite, &match_obj.rule_storage);
+            let new_eclass_id = self.add_enode(new_enode);
             self.enodes_union_find
-                .union(rewrite_result.enode_id.0, enode_match.enode_id.0);
+                .union(new_eclass_id.enode_id.0, matched_enode_id.0);
         }
     }
 
@@ -167,17 +163,17 @@ impl EGraph {
         &mut self,
         template: &ENodeTemplate,
         rule_storage: &RewriteRuleStorage,
-    ) -> EClassId {
-        let enode = template.convert_link(|template_link| match template_link {
+    ) -> ENode {
+        template.convert_link(|template_link| match template_link {
             TemplateLink::Specific(inner_template) => {
-                self.instantiate_enode_template(inner_template, rule_storage)
+                let enode = self.instantiate_enode_template(inner_template, rule_storage);
+                self.add_enode(enode)
             }
             TemplateLink::Var(template_var) => {
                 let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
                 var_value.eclass
             }
-        });
-        self.add_enode(enode)
+        })
     }
 
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
@@ -190,12 +186,6 @@ impl EGraph {
 #[derive(Debug, Clone)]
 struct Match {
     pub rule_storage: RewriteRuleStorage,
-}
-
-#[derive(Debug, Clone)]
-struct ENodeMatch {
-    pub match_obj: Match,
-    pub enode_id: ENodeId,
 }
 
 struct MatchingStateStorage {
@@ -533,6 +523,7 @@ mod tests {
             }
             .into(),
             rewrite: 0.into(),
+            keep_original: false,
         }));
         dbg!(&egraph);
         panic!();
