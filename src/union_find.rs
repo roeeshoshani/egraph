@@ -235,6 +235,10 @@ impl<T> UnionFind<T> {
             }
         }
     }
+    /// orphans the given item, detaching it from its parent.
+    pub fn orphan(&mut self, item: UnionFindItemId) {
+        self.set_parent_of_item(item, None);
+    }
 }
 impl<T> Index<UnionFindItemId> for UnionFind<T> {
     type Output = T;
