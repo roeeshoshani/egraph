@@ -122,20 +122,7 @@ impl EGraph {
     }
 
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> EClassId {
-        // first, convert the recursive node into a graph node
-        let graph_node = match &rec_node.0 {
-            GenericNode::Imm(imm) => GenericNode::Imm(*imm),
-            GenericNode::Var(var) => GenericNode::Var(*var),
-            GenericNode::BinOp(bin_op) => GenericNode::BinOp(BinOp {
-                kind: bin_op.kind,
-                lhs: self.add_rec_node(&bin_op.lhs),
-                rhs: self.add_rec_node(&bin_op.rhs),
-            }),
-            GenericNode::UnOp(un_op) => GenericNode::UnOp(UnOp {
-                kind: un_op.kind,
-                operand: self.add_rec_node(&un_op.operand),
-            }),
-        };
+        let graph_node = rec_node.0.convert_link(|link| self.add_rec_node(link));
         self.add_enode(graph_node)
     }
 
@@ -144,9 +131,9 @@ impl EGraph {
         let mut rule_storage = RewriteRuleStorage::new(rule);
         for entry in self.enodes_hash_table.iter_hash_mut(hash) {
             rule_storage.reset();
-            apply_rule_to_enode_if_match(
+            apply_rule_match_enode_to_enode_template(
                 &entry.enode,
-                rule,
+                &rule.query,
                 &mut rule_storage,
                 &self.enodes_union_find,
             );
@@ -160,87 +147,99 @@ impl EGraph {
     }
 }
 
-fn apply_rule_to_enode_if_match(
-    enode: &ENode,
-    rule: &RewriteRule,
-    rule_storage: &mut RewriteRuleStorage,
-    union_find: &UnionFind<ENode>,
-) {
-    // this is intentionally written as nested match statements and not as a match on a tuple in order to avoid having a wildcard (`_`)
-    // case. that's because if we have a wildcard, when we add more variants in the future, we won't get a compiler error here, and we
-    // might forget to update this.
-    match &rule.query {
-        GenericNode::Imm(imm1) => {
-            let GenericNode::Imm(imm2) = enode else {
-                return;
-            };
-            if imm1 != imm2 {
-                return;
-            }
-            todo!()
-        }
-        GenericNode::Var(var1) => {
-            let GenericNode::Var(var2) = enode else {
-                return;
-            };
-            if var1 != var2 {
-                return;
-            }
-            todo!("apply it");
-        }
-        GenericNode::BinOp(bin_op_query) => {
-            let GenericNode::BinOp(bin_op_enode) = enode else {
-                return;
-            };
-            if bin_op_query.kind != bin_op_enode.kind {
-                return;
-            }
-            if !template_link_is_match_eclass(&bin_op_query.lhs, bin_op_enode.lhs, union_find) {
-                return;
-            }
-            if !template_link_is_match_eclass(&bin_op_query.rhs, bin_op_enode.rhs, union_find) {
-                return;
-            }
-            todo!("apply it");
-        }
-        GenericNode::UnOp(un_op_query) => {
-            let GenericNode::UnOp(un_op_enode) = enode else {
-                return;
-            };
-            if un_op_query.kind != un_op_enode.kind {
-                return;
-            }
-            if !template_link_is_match_eclass(&un_op_query.operand, un_op_enode.operand, union_find)
-            {
-                return;
-            }
-            todo!("apply it");
-        }
-    }
+struct Match {
+    pub rule_storage: RewriteRuleStorage,
 }
 
-fn template_link_is_match_eclass(
-    template_link: &TemplateLink,
-    enode_link: EClassId,
-    union_find: &UnionFind<ENode>,
-) -> bool {
-    // iterate all enodes in the eclass
-    for enode_item_id in union_find.items_eq_to(enode_link.enode_id.0) {
-        let enode = &union_find[enode_item_id];
-    }
-    todo!()
+struct ENodeRuleMatcher<'a> {
+    union_find: &'a UnionFind<ENode>,
+    matched_enode_id: ENodeId,
 }
+impl<'a> ENodeRuleMatcher<'a> {
+    fn match_enode_to_enode_template(
+        &mut self,
+        enode: &ENode,
+        template: &ENodeTemplate,
+        rule_storage: &RewriteRuleStorage,
+        matches: &mut Vec<Match>,
+    ) {
+        // first, perform structural comparison on everything other than the link
+        if enode.convert_link(|_| ()) != template.convert_link(|_| ()) {
+            // no match
+            return;
+        }
 
-fn template_link_is_match_enode(
-    template_link: &TemplateLink,
-    enode_link: EClassId,
-    union_find: &UnionFind<ENode>,
-) -> bool {
-    // iterate all enodes in the eclass
-    for enode_item_id in union_find.items_eq_to(enode_link.enode_id.0) {
-        let enode = &union_find[enode_item_id];
+        // now compare the links
+        let enode_links = enode.links();
+        let template_links = template.links();
+
+        if enode_links.len() != template_links.len() {
+            // no match
+            return;
+        }
+
+        let links_amount = enode_links.len();
+
+        if links_amount == 0 {
+            // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
+            matches.push(Match {
+                rule_storage: rule_storage.clone(),
+            });
+            return;
+        }
+
+        // match the links
+        let mut cur_matches: Vec<Match> = Vec::new();
+        let mut new_matches: Vec<Match> = Vec::new();
+        for cur_link_idx in 0..links_amount {
+            let template_link = &template_links[cur_link_idx];
+
+            new_matches.clear();
+            for cur_match in &cur_matches {
+                match template_link {
+                    TemplateLink::Specific(generic_node) => {
+                        self.match_enode_to_enode_template(
+                            enode,
+                            template,
+                            &cur_match.rule_storage,
+                            &mut new_matches,
+                        );
+                    }
+                    TemplateLink::Var(template_var) => todo!(),
+                }
+            }
+            std::mem::swap(&mut cur_matches, &mut new_matches);
+        }
+        todo!()
     }
-    todo!()
+
+    fn template_link_is_match_eclass(
+        &mut self,
+        template_link: &TemplateLink,
+        eclass: EClassId,
+        union_find: &UnionFind<ENode>,
+    ) -> bool {
+        // iterate all enodes in the eclass
+        for enode_item_id in union_find.items_eq_to(eclass.enode_id.0) {
+            let enode = &union_find[enode_item_id];
+            if self.template_link_is_match_enode(template_link, eclass, enode) {
+                todo!("collect the match")
+            }
+        }
+        todo!()
+    }
+
+    fn template_link_is_match_enode(
+        &mut self,
+        template_link: &TemplateLink,
+        eclass: EClassId,
+        enode: &ENode,
+    ) -> bool {
+        match template_link {
+            TemplateLink::Specific(generic_node) => todo!(),
+            TemplateLink::Var(template_var) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]

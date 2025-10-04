@@ -9,7 +9,7 @@ pub struct TemplateVar {
 }
 
 /// a link in a template enode.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TemplateLink {
     Specific(Box<ENodeTemplate>),
     Var(TemplateVar),
@@ -37,11 +37,13 @@ impl ENodeTemplate {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RewriteRule {
     pub query: ENodeTemplate,
     pub rewrite: ENodeTemplate,
 }
 
+#[derive(Debug, Clone)]
 pub struct RewriteRuleStorage {
     pub template_var_values: Vec<Option<EffectiveEClassId>>,
 }
