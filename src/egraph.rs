@@ -226,17 +226,16 @@ impl<'a> ENodeRuleMatcher<'a> {
         }];
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
-            let template_link = &template_links[cur_link_idx];
-            let enode_link = &enode_links[cur_link_idx];
+            let template_link = template_links[cur_link_idx];
+            let enode_link = *enode_links[cur_link_idx];
 
             // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {
                 match template_link {
                     TemplateLink::Specific(enode_template) => {
-                        todo!("fix this code");
-                        self.match_enode_to_enode_template(
-                            enode,
-                            template,
+                        self.match_specific_template_link(
+                            enode_template,
+                            enode_link,
                             &cur_match.rule_storage,
                             &mut new_matches,
                         );
@@ -244,7 +243,7 @@ impl<'a> ENodeRuleMatcher<'a> {
                     TemplateLink::Var(template_var) => {
                         self.match_template_var(
                             *template_var,
-                            **enode_link,
+                            enode_link,
                             &cur_match.rule_storage,
                             &mut new_matches,
                         );
@@ -307,31 +306,17 @@ impl<'a> ENodeRuleMatcher<'a> {
         }
     }
 
-    fn template_link_is_match_eclass(
+    fn match_specific_template_link(
         &self,
-        template_link: &TemplateLink,
+        template: &ENodeTemplate,
         eclass: EClassId,
-        union_find: &UnionFind<ENode>,
-    ) -> bool {
+        rule_storage: &RewriteRuleStorage,
+        new_matches: &mut Vec<Match>,
+    ) {
         // iterate all enodes in the eclass
-        for enode_item_id in union_find.items_eq_to(eclass.enode_id.0) {
-            let enode = &union_find[enode_item_id];
-            if self.template_link_is_match_enode(template_link, eclass, enode) {
-                todo!("collect the match")
-            }
-        }
-        todo!()
-    }
-
-    fn template_link_is_match_enode(
-        &self,
-        template_link: &TemplateLink,
-        eclass: EClassId,
-        enode: &ENode,
-    ) -> bool {
-        match template_link {
-            TemplateLink::Specific(generic_node) => todo!(),
-            TemplateLink::Var(template_var) => todo!(),
+        for enode_item_id in self.union_find.items_eq_to(eclass.enode_id.0) {
+            let enode = &self.union_find[enode_item_id];
+            self.match_enode_to_enode_template(enode, template, rule_storage, new_matches);
         }
     }
 }

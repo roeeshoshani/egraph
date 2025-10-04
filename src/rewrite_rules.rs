@@ -121,7 +121,7 @@ pub struct RewriteRuleStorage {
 impl RewriteRuleStorage {
     pub fn new() -> Self {
         Self {
-            template_var_values: Vec::new(),
+            template_var_values: TemplateVarValues::new(),
         }
     }
 }
