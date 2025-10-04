@@ -150,12 +150,23 @@ impl EGraph {
         let matched_enode_id = matched_entry.id;
 
         // for each match, add the rerwrite result to the egraph
-        for match_obj in matching_state_storage.matches {
+        let matches_amount = matching_state_storage.matches.len();
+        for (i, match_obj) in matching_state_storage.matches.into_iter().enumerate() {
+            let is_last_match_obj = i + 1 == matches_amount;
+
             let new_enode =
                 self.instantiate_enode_template(&rule.params().rewrite, &match_obj.rule_storage);
-            let new_eclass_id = self.add_enode(new_enode);
-            self.enodes_union_find
-                .union(new_eclass_id.enode_id.0, matched_enode_id.0);
+
+            if is_last_match_obj && !rule.params().keep_original {
+                // if we are the last match, and the rule doesn't want to keep the original, then we should overwrite the
+                // original enode.
+                todo!()
+            } else {
+                // just add the new enode and union it with the original enode
+                let new_eclass_id = self.add_enode(new_enode);
+                self.enodes_union_find
+                    .union(new_eclass_id.enode_id.0, matched_enode_id.0);
+            }
         }
     }
 
