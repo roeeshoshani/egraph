@@ -180,6 +180,7 @@ impl MatchingStateStorage {
     }
 }
 
+#[derive(Debug)]
 struct MatchingState<'a> {
     rule_storage: &'a RewriteRuleStorage,
     matches: &'a mut Vec<Match>,
