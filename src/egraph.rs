@@ -352,7 +352,10 @@ impl<'a> Matcher<'a> {
         state: &mut MatchingState,
     ) {
         // iterate all enodes in the eclass
-        for enode_item_id in self.union_find.items_eq_to(eclass.enode_id.0) {
+        for enode_item_id in self
+            .union_find
+            .items_eq_to_including_self(eclass.enode_id.0)
+        {
             let enode = &self.union_find[enode_item_id];
             self.match_enode_to_enode_template(enode, template, state);
         }
