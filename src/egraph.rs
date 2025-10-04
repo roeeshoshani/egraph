@@ -527,6 +527,7 @@ mod tests {
         .into();
 
         let mut egraph = EGraph::from_rec_node(&rec_node);
+        dbg!(&egraph);
         egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
             query: BinOpTemplate {
                 kind: BinOpKind::And,
@@ -536,5 +537,7 @@ mod tests {
             .into(),
             rewrite: 0.into(),
         }));
+        dbg!(&egraph);
+        panic!();
     }
 }
