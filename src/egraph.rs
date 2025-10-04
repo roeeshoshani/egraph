@@ -254,8 +254,11 @@ impl<'a> Matcher<'a> {
         }];
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
+            // the current template link
             let template_link = template_links[cur_link_idx];
-            let enode_link = *enode_links[cur_link_idx];
+
+            // the eclass that the current enode link points to
+            let enode_link_eclass = *enode_links[cur_link_idx];
 
             // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {
@@ -263,7 +266,11 @@ impl<'a> Matcher<'a> {
                     rule_storage: &cur_match.rule_storage,
                     matches: &mut new_matches,
                 };
-                self.match_template_link(template_link, enode_link, &mut new_matching_state);
+                self.match_eclass_to_template_link(
+                    enode_link_eclass,
+                    template_link,
+                    &mut new_matching_state,
+                );
             }
 
             // new matches now contains the new cartesian product over the current link with all of its previous link.
@@ -291,29 +298,29 @@ impl<'a> Matcher<'a> {
         *state.matches = new_matches;
     }
 
-    fn match_template_link(
+    fn match_eclass_to_template_link(
         &self,
+        eclass: EClassId,
         template_link: &TemplateLink,
-        enode_link: EClassId,
         state: &mut MatchingState,
     ) {
         match template_link {
             TemplateLink::Specific(enode_template) => {
-                self.match_specific_template_link(enode_template, enode_link, state);
+                self.match_eclass_to_specific_template_link(eclass, enode_template, state);
             }
             TemplateLink::Var(template_var) => {
-                self.match_template_var(*template_var, enode_link, state);
+                self.match_eclass_to_template_var(eclass, *template_var, state);
             }
         }
     }
 
-    fn match_template_var(
+    fn match_eclass_to_template_var(
         &self,
+        eclass: EClassId,
         template_var: TemplateVar,
-        enode_link: EClassId,
         state: &mut MatchingState,
     ) {
-        let effective_eclass_id = enode_link.to_effective(self.union_find);
+        let effective_eclass_id = eclass.to_effective(self.union_find);
         match state.rule_storage.template_var_values.get(template_var) {
             Some(existing_var_value) => {
                 if effective_eclass_id != existing_var_value {
@@ -339,10 +346,10 @@ impl<'a> Matcher<'a> {
         }
     }
 
-    fn match_specific_template_link(
+    fn match_eclass_to_specific_template_link(
         &self,
-        template: &ENodeTemplate,
         eclass: EClassId,
+        template: &ENodeTemplate,
         state: &mut MatchingState,
     ) {
         // iterate all enodes in the eclass
