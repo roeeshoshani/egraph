@@ -116,16 +116,22 @@ impl RewriteRule {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TemplateVarValue {
+    pub eclass: EClassId,
+    pub effective_eclass_id: EffectiveEClassId,
+}
+
 #[derive(Debug, Clone)]
-pub struct TemplateVarValues(Vec<Option<EffectiveEClassId>>);
+pub struct TemplateVarValues(Vec<Option<TemplateVarValue>>);
 impl TemplateVarValues {
     pub fn new() -> Self {
         Self(Vec::new())
     }
-    pub fn get(&self, var: TemplateVar) -> Option<EffectiveEClassId> {
+    pub fn get(&self, var: TemplateVar) -> Option<TemplateVarValue> {
         self.0.get(var.index()).copied()?
     }
-    pub fn set(&mut self, var: TemplateVar, value: EffectiveEClassId) {
+    pub fn set(&mut self, var: TemplateVar, value: TemplateVarValue) {
         let index = var.index();
         if !(index < self.0.len()) {
             // the vector is not large enough

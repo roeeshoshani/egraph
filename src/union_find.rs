@@ -186,6 +186,9 @@ impl<T> UnionFind<T> {
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindAnyId {
         self.root_of_any(UnionFindAnyId::Item(item))
     }
+    pub fn root_of_parent(&self, id: UnionFindParentId) -> UnionFindAnyId {
+        self.root_of_any(UnionFindAnyId::Parent(id))
+    }
     pub fn all_item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
         (1..self.item_to_parent_map.next_id.get()).map(|i| {
             UnionFindItemId(
@@ -196,7 +199,7 @@ impl<T> UnionFind<T> {
     }
     /// returns an iterator over all items equal to the given item, excluding the item itself
     pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
-        // TODO: make this efficient if needed
+        // TODO: make this efficient if needed. we iterate over all of the nodes here, which may not be the most efficient thing.
         let root = self.root_of_item(item);
         self.all_item_ids()
             .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
@@ -206,7 +209,6 @@ impl<T> UnionFind<T> {
         &self,
         item: UnionFindItemId,
     ) -> impl Iterator<Item = UnionFindItemId> + '_ {
-        // TODO: make this efficient if needed
         let root = self.root_of_item(item);
         self.all_item_ids()
             .filter(move |&cur_item| cur_item == item || self.root_of_item(cur_item) == root)

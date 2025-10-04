@@ -142,7 +142,30 @@ impl EGraph {
                 &mut matching_state.get_state(),
             );
         }
-        todo!("do something with the matches");
+
+        for found_match in matching_state.matches {
+            // instantiate the rewrite
+            let rewrite_result =
+                self.instantiate_enode_template(&rule.params().rewrite, &found_match.rule_storage);
+            todo!("union it with the original enode");
+        }
+    }
+
+    fn instantiate_enode_template(
+        &mut self,
+        template: &ENodeTemplate,
+        rule_storage: &RewriteRuleStorage,
+    ) -> EClassId {
+        let enode = template.convert_link(|template_link| match template_link {
+            TemplateLink::Specific(inner_template) => {
+                self.instantiate_enode_template(inner_template, rule_storage)
+            }
+            TemplateLink::Var(template_var) => {
+                let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
+                todo!()
+            }
+        });
+        self.add_enode(enode)
     }
 
     pub fn from_rec_node(rec_node: &RecNode) -> Self {
@@ -321,7 +344,7 @@ impl<'a> Matcher<'a> {
         let effective_eclass_id = eclass.to_effective(self.union_find);
         match state.rule_storage.template_var_values.get(template_var) {
             Some(existing_var_value) => {
-                if effective_eclass_id != existing_var_value {
+                if effective_eclass_id != existing_var_value.effective_eclass_id {
                     // no match
                     return;
                 }
@@ -334,9 +357,13 @@ impl<'a> Matcher<'a> {
             None => {
                 // the variable currently doesn't have any value, so we can bind it and consider it a match.
                 let mut new_rule_storage = state.rule_storage.clone();
-                new_rule_storage
-                    .template_var_values
-                    .set(template_var, effective_eclass_id);
+                new_rule_storage.template_var_values.set(
+                    template_var,
+                    TemplateVarValue {
+                        eclass,
+                        effective_eclass_id,
+                    },
+                );
                 state.matches.push(Match {
                     rule_storage: new_rule_storage,
                 });
