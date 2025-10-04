@@ -194,11 +194,22 @@ impl<T> UnionFind<T> {
             )
         })
     }
+    /// returns an iterator over all items equal to the given item, excluding the item itself
     pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
         // TODO: make this efficient if needed
         let root = self.root_of_item(item);
         self.all_item_ids()
             .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
+    }
+    /// returns an iterator over all items equal to the given item, including the item itself
+    pub fn items_eq_to_including_self(
+        &self,
+        item: UnionFindItemId,
+    ) -> impl Iterator<Item = UnionFindItemId> + '_ {
+        // TODO: make this efficient if needed
+        let root = self.root_of_item(item);
+        self.all_item_ids()
+            .filter(move |&cur_item| cur_item == item || self.root_of_item(cur_item) == root)
     }
     pub fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
         if item_a == item_b {
