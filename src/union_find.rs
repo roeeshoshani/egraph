@@ -1,4 +1,7 @@
-use std::{num::NonZeroUsize, ops::Index};
+use std::{
+    num::NonZeroUsize,
+    ops::{Index, IndexMut},
+};
 
 /// a mapping between ids to their parent ids.
 #[derive(Debug, Clone)]
@@ -44,16 +47,15 @@ impl IdToParentMap {
         self.parent_of_id[index] = new_parent;
     }
 }
-impl<T> Index<UnionFindItemId> for UnionFind<T> {
-    type Output = T;
-
-    fn index(&self, index: UnionFindItemId) -> &Self::Output {
-        &self.items[index.0.get() - 1]
-    }
-}
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct UnionFindItemId(pub NonZeroUsize);
+impl UnionFindItemId {
+    /// the index of the item in the items array
+    fn index(&self) -> usize {
+        self.0.get() - 1
+    }
+}
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct UnionFindParentId(pub NonZeroUsize);
@@ -232,6 +234,18 @@ impl<T> UnionFind<T> {
                 self.set_parent_of_item(item, Some(parent));
             }
         }
+    }
+}
+impl<T> Index<UnionFindItemId> for UnionFind<T> {
+    type Output = T;
+
+    fn index(&self, id: UnionFindItemId) -> &Self::Output {
+        &self.items[id.index()]
+    }
+}
+impl<T> IndexMut<UnionFindItemId> for UnionFind<T> {
+    fn index_mut(&mut self, id: UnionFindItemId) -> &mut Self::Output {
+        &mut self.items[id.index()]
     }
 }
 
