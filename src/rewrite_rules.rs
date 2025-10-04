@@ -7,6 +7,12 @@ use crate::*;
 pub struct TemplateVar {
     pub id: NonZeroUsize,
 }
+impl TemplateVar {
+    /// the index of the variable in a variables vector
+    fn index(&self) -> usize {
+        self.id.get() - 1
+    }
+}
 
 /// a link in a template enode.
 #[derive(Debug, Clone)]
@@ -90,8 +96,27 @@ impl RewriteRule {
 }
 
 #[derive(Debug, Clone)]
+pub struct TemplateVarValues(Vec<Option<EffectiveEClassId>>);
+impl TemplateVarValues {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+    pub fn get(&self, var: TemplateVar) -> Option<EffectiveEClassId> {
+        self.0.get(var.index()).copied()?
+    }
+    pub fn set(&mut self, var: TemplateVar, value: EffectiveEClassId) {
+        let index = var.index();
+        if !(index < self.0.len()) {
+            // the vector is not large enough
+            self.0.resize(index + 1, None);
+        }
+        self.0[index] = Some(value);
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RewriteRuleStorage {
-    pub template_var_values: Vec<Option<EffectiveEClassId>>,
+    pub template_var_values: TemplateVarValues,
 }
 impl RewriteRuleStorage {
     pub fn new() -> Self {

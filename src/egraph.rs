@@ -227,11 +227,13 @@ impl<'a> ENodeRuleMatcher<'a> {
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
             let template_link = &template_links[cur_link_idx];
+            let enode_link = &enode_links[cur_link_idx];
 
             // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {
                 match template_link {
-                    TemplateLink::Specific(generic_node) => {
+                    TemplateLink::Specific(enode_template) => {
+                        todo!("fix this code");
                         self.match_enode_to_enode_template(
                             enode,
                             template,
@@ -239,7 +241,14 @@ impl<'a> ENodeRuleMatcher<'a> {
                             &mut new_matches,
                         );
                     }
-                    TemplateLink::Var(template_var) => todo!(),
+                    TemplateLink::Var(template_var) => {
+                        self.match_template_var(
+                            template_var,
+                            enode_link,
+                            &cur_match.rule_storage,
+                            &mut new_matches,
+                        );
+                    }
                 }
             }
 
@@ -263,6 +272,29 @@ impl<'a> ENodeRuleMatcher<'a> {
             new_matches.clear();
         }
         todo!()
+    }
+
+    fn match_template_var(
+        &self,
+        template_var: &TemplateVar,
+        enode_link: &EClassId,
+        rule_storage: &RewriteRuleStorage,
+        new_matches: &mut Vec<Match>,
+    ) {
+        match rule_storage.template_var_values.get(*template_var) {
+            Some(_) => todo!(),
+            None => {
+                // the variable currently doesn't have any value, so we can bind it and consider it a match.
+                let mut new_rule_storage = rule_storage.clone();
+                let effective_eclass_id = enode_link.to_effective(self.union_find);
+                new_rule_storage
+                    .template_var_values
+                    .set(*template_var, effective_eclass_id);
+                new_matches.push(Match {
+                    rule_storage: new_rule_storage,
+                });
+            }
+        }
     }
 
     fn template_link_is_match_eclass(
