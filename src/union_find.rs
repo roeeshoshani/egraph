@@ -273,6 +273,13 @@ mod tests {
                     group_items_other_than, items_eq_to_item,
                     "item {item:?} in group {group:?} was expected to have items eq to of {group_items_other_than:?} but instead has {items_eq_to_item:?}",
                 );
+
+                let items_eq_to_item_including_self =
+                    collect_to_vec(union_find.items_eq_to_including_self(item));
+                assert_eq!(
+                    group, items_eq_to_item_including_self,
+                    "item {item:?} in group {group:?} was expected to have items eq including self to of {group:?} but instead has {items_eq_to_item_including_self:?}",
+                );
             }
 
             // make sure that each item that is not in the group is not equal to all of the items that are in the group,
@@ -284,6 +291,8 @@ mod tests {
                 }
 
                 let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
+                let items_eq_to_item_including_self =
+                    collect_to_vec(union_find.items_eq_to_including_self(item));
 
                 for &group_item in group {
                     assert!(
@@ -293,6 +302,10 @@ mod tests {
                     assert!(
                         !items_eq_to_item.contains(&group_item),
                         "expected group item {group:?} to NOT appear in the list of items eq to {item:?}, which contains items {items_eq_to_item:?}, since item {item:?} is not part of the group {group:?}",
+                    );
+                    assert!(
+                        !items_eq_to_item_including_self.contains(&group_item),
+                        "expected group item {group:?} to NOT appear in the list of items eq to {item:?} including self, which contains items {items_eq_to_item_including_self:?}, since item {item:?} is not part of the group {group:?}",
                     );
                 }
             }
