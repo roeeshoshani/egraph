@@ -215,9 +215,6 @@ impl MatchingStateStorage {
             matches: &mut self.matches,
         }
     }
-    fn reset(&mut self) {
-        self.matches.clear();
-    }
 }
 
 #[derive(Debug)]
