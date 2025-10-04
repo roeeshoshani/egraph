@@ -263,18 +263,7 @@ impl<'a> Matcher<'a> {
                     rule_storage: &cur_match.rule_storage,
                     matches: &mut new_matches,
                 };
-                match template_link {
-                    TemplateLink::Specific(enode_template) => {
-                        self.match_specific_template_link(
-                            enode_template,
-                            enode_link,
-                            &mut new_matching_state,
-                        );
-                    }
-                    TemplateLink::Var(template_var) => {
-                        self.match_template_var(*template_var, enode_link, &mut new_matching_state);
-                    }
-                }
+                self.match_template_link(template_link, enode_link, &mut new_matching_state);
             }
 
             // new matches now contains the new cartesian product over the current link with all of its previous link.
@@ -300,6 +289,22 @@ impl<'a> Matcher<'a> {
         // the final value of `new_matches` contains the final cartesian product of matches, which is what we want to return.
         // so, copy it out.
         *state.matches = new_matches;
+    }
+
+    fn match_template_link(
+        &self,
+        template_link: &TemplateLink,
+        enode_link: EClassId,
+        state: &mut MatchingState,
+    ) {
+        match template_link {
+            TemplateLink::Specific(enode_template) => {
+                self.match_specific_template_link(enode_template, enode_link, state);
+            }
+            TemplateLink::Var(template_var) => {
+                self.match_template_var(*template_var, enode_link, state);
+            }
+        }
     }
 
     fn match_template_var(
