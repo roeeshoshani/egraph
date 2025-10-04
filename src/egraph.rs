@@ -148,7 +148,36 @@ impl EGraph {
             Entry::Occupied(entry) => {
                 // the new enode is a duplicate of an enode which already exists.
                 // so, we just want to get rid of the original enode, both in the union find tree, and in the hash table.
-                todo!()
+                //
+                // the union find tree doesn't support removing items, but it supports orphaning items.
+                //
+                // when we query enodes, we first start from the hash table, and then descend by looking at items in the same
+                // eclass as the enode that each link points to.
+                //
+                // so, if we make sure that no existing node points to the original enode, and then we orphan it, then it will
+                // become practically inaccessible, which is equivalent to removing it.
+                let new_id = entry.get().id;
+                for item in self.enodes_union_find.items_mut() {
+                    *item = item.convert_link(|link| {
+                        if link.enode_id == enode_id_to_replace {
+                            // if this link points to the enode that we want to replace, make it point to the new id instead
+                            EClassId { enode_id: new_id }
+                        } else {
+                            *link
+                        }
+                    })
+                }
+                self.enodes_union_find.orphan(enode_id_to_replace.0);
+
+                // remove it from the hash table
+                let orig_enode = &self.enodes_union_find[enode_id_to_replace.0];
+                let Entry::Occupied(orig_entry) = self
+                    .enodes_hash_table
+                    .entry(&orig_enode, &self.enodes_union_find)
+                else {
+                    unreachable!();
+                };
+                orig_entry.remove();
             }
             Entry::Vacant(entry) => {
                 // the new enode is not a duplicate of an existing node. in this case, we can just re-use the enode id of the original
@@ -171,7 +200,7 @@ impl EGraph {
                     .enodes_hash_table
                     .entry(&orig_enode, &self.enodes_union_find)
                 else {
-                    panic!("orig enode not found in hash table");
+                    unreachable!();
                 };
                 orig_entry.remove();
             }
@@ -225,7 +254,7 @@ impl EGraph {
             if is_last_match_obj && !rule.params().keep_original {
                 // if we are the last match, and the rule doesn't want to keep the original, then we should overwrite the
                 // original enode.
-                todo!()
+                self.replace_enode(matched_enode_id, new_enode);
             } else {
                 // just add the new enode and union it with the original enode
                 let new_eclass_id = self.add_enode(new_enode);

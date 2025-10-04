@@ -239,6 +239,9 @@ impl<T> UnionFind<T> {
     pub fn orphan(&mut self, item: UnionFindItemId) {
         self.set_parent_of_item(item, None);
     }
+    pub fn items_mut(&mut self) -> &mut [T] {
+        &mut self.items
+    }
 }
 impl<T> Index<UnionFindItemId> for UnionFind<T> {
     type Output = T;
