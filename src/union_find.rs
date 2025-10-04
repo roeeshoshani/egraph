@@ -13,6 +13,9 @@ impl IdToParentMap {
             parent_of_id: Vec::new(),
         }
     }
+    fn id_to_index(id: NonZeroUsize) -> usize {
+        id.get() - 1
+    }
     #[must_use]
     fn alloc_id(&mut self) -> NonZeroUsize {
         let res = self.next_id;
@@ -20,10 +23,10 @@ impl IdToParentMap {
         res
     }
     fn get_parent_of(&self, id: NonZeroUsize) -> Option<NonZeroUsize> {
-        self.parent_of_id.get(id.get()).copied()?
+        self.parent_of_id.get(Self::id_to_index(id)).copied()?
     }
     fn set_parent(&mut self, id: NonZeroUsize, new_parent: Option<NonZeroUsize>) {
-        let index = id.get();
+        let index = Self::id_to_index(id);
 
         // the array is lazily extended. so, it is possible that an id exists even though the array is too small to hold its index.
         // in that case, resize the array.
@@ -33,7 +36,9 @@ impl IdToParentMap {
                 return;
             }
             // resize the array such that it can hold the currently highest id, which is one less than than the next id.
-            self.parent_of_id.resize(self.next_id.get(), None);
+            // note that the ids are 1-based and not 0-based, so we don't need an extra ` - 1` here, only one ` - 1` to get from the
+            // next id to the currently highest id.
+            self.parent_of_id.resize(self.next_id.get() - 1, None);
         }
 
         self.parent_of_id[index] = new_parent;
