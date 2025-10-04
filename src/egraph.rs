@@ -127,27 +127,39 @@ impl EGraph {
     }
 
     pub fn apply_rule(&mut self, rule: &RewriteRule) {
+        let mut enode_matches = vec![];
+
         let matcher = Matcher {
             union_find: &self.enodes_union_find,
         };
-
-        let mut matching_state = MatchingStateStorage::new();
+        let mut matching_state_storage = MatchingStateStorage::new();
 
         let hash = self.hasher.hash_node(&rule.params().query);
         for entry in self.enodes_hash_table.iter_hash_mut(hash) {
-            matching_state.reset();
+            // match the current enode
             matcher.match_enode_to_enode_template(
                 &entry.enode,
                 &rule.params().query,
-                &mut matching_state.get_state(),
+                &mut matching_state_storage.get_state(),
             );
+
+            // convert the match objects to enode match objects so that we can later tell which enode they were associated with.
+            enode_matches.extend(matching_state_storage.matches.drain(..).map(|match_obj| {
+                ENodeMatch {
+                    match_obj,
+                    enode_id: entry.id,
+                }
+            }));
         }
 
-        for found_match in matching_state.matches {
+        for enode_match in enode_matches {
             // instantiate the rewrite
-            let rewrite_result =
-                self.instantiate_enode_template(&rule.params().rewrite, &found_match.rule_storage);
-            todo!("union it with the original enode");
+            let rewrite_result = self.instantiate_enode_template(
+                &rule.params().rewrite,
+                &enode_match.match_obj.rule_storage,
+            );
+            self.enodes_union_find
+                .union(rewrite_result.enode_id.0, enode_match.enode_id.0);
         }
     }
 
@@ -178,6 +190,12 @@ impl EGraph {
 #[derive(Debug, Clone)]
 struct Match {
     pub rule_storage: RewriteRuleStorage,
+}
+
+#[derive(Debug, Clone)]
+struct ENodeMatch {
+    pub match_obj: Match,
+    pub enode_id: ENodeId,
 }
 
 struct MatchingStateStorage {
