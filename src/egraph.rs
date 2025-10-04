@@ -42,11 +42,14 @@ pub type ENode = GenericNode<EClassId>;
 pub struct EffectiveEClassId(pub UnionFindAnyId);
 
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
-pub type ENodeEffectiveEClassId = GenericNode<EffectiveEClassId>;
+pub type ENodeWithEffectiveEClassId = GenericNode<EffectiveEClassId>;
 
 impl ENode {
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree.
-    pub fn to_effective_eclass_id(&self, union_find: &UnionFind<ENode>) -> ENodeEffectiveEClassId {
+    pub fn to_enode_with_effective_eclass_id(
+        &self,
+        union_find: &UnionFind<ENode>,
+    ) -> ENodeWithEffectiveEClassId {
         self.convert_link(|eclass_id| eclass_id.to_effective(union_find))
     }
 }
@@ -66,45 +69,59 @@ impl NodeHasher {
     }
 }
 
-#[derive(derive_debug::Dbg, Clone)]
-pub struct EGraph {
-    enodes_union_find: UnionFind<ENode>,
-
-    /// a hashmap for de-duplication
-    ///
-    /// NOTE: we exclude the eclass id when hashing since the eclass id contains lazy data which needs to be resolved according
-    /// to the state of the union find tree. and, when the tree changes, the meaning of the eclass id can change.
-    ///
-    /// hashmap keys need to be stable, and must not change, so we must exclude the eclass id from the hash.
-    ///
-    /// TODO: re-write the docs to explain that this is also used for querying.
-    #[dbg(skip)]
-    enodes_hash_table: HashTable<ENodeHashTableEntry>,
-
-    /// a hasher for the hashmap
+#[derive(Clone)]
+struct ENodeHashTable {
+    table: HashTable<ENodeHashTableEntry>,
     hasher: NodeHasher,
 }
-impl EGraph {
-    pub fn new() -> Self {
-        Self {
-            enodes_union_find: UnionFind::new(),
-            enodes_hash_table: HashTable::new(),
-            hasher: NodeHasher::default(),
-        }
-    }
-
-    /// adds an enode to the egraph and returns the eclass id which contains it.
-    pub fn add_enode(&mut self, enode: ENode) -> EClassId {
-        let enode_effective_eclass_id = enode.to_effective_eclass_id(&self.enodes_union_find);
+impl ENodeHashTable {
+    fn entry(
+        &mut self,
+        enode: &ENode,
+        enodes_union_find: &UnionFind<ENode>,
+    ) -> hashbrown::hash_table::Entry<'_, ENodeHashTableEntry> {
+        let enode_with_effective_eclass_id =
+            enode.to_enode_with_effective_eclass_id(enodes_union_find);
         let eq_fn = |entry: &ENodeHashTableEntry| {
-            entry.enode.to_effective_eclass_id(&self.enodes_union_find) == enode_effective_eclass_id
+            entry
+                .enode
+                .to_enode_with_effective_eclass_id(enodes_union_find)
+                == enode_with_effective_eclass_id
         };
 
         let hash_fn = |entry: &ENodeHashTableEntry| self.hasher.hash_node(&entry.enode);
 
         let hash = self.hasher.hash_node(&enode);
 
-        let entry = self.enodes_hash_table.entry(hash, eq_fn, hash_fn);
+        let entry = self.table.entry(hash, eq_fn, hash_fn);
+
+        entry
+    }
+}
+
+#[derive(derive_debug::Dbg, Clone)]
+pub struct EGraph {
+    enodes_union_find: UnionFind<ENode>,
+
+    #[dbg(skip)]
+    enodes_hash_table: ENodeHashTable,
+}
+impl EGraph {
+    pub fn new() -> Self {
+        Self {
+            enodes_union_find: UnionFind::new(),
+            enodes_hash_table: ENodeHashTable {
+                table: HashTable::new(),
+                hasher: NodeHasher::default(),
+            },
+        }
+    }
+
+    /// adds an enode to the egraph and returns the eclass id which contains it.
+    pub fn add_enode(&mut self, enode: ENode) -> EClassId {
+        let entry = self
+            .enodes_hash_table
+            .entry(&enode, &self.enodes_union_find);
 
         let enode_id = match entry {
             Entry::Occupied(entry) => entry.get().id,
@@ -121,6 +138,37 @@ impl EGraph {
         EClassId { enode_id }
     }
 
+    /// replaces the enode with the given enode id with the given new enode.
+    pub fn replace_enode(&mut self, enode_id_to_replace: ENodeId, replace_with: ENode) {
+        let entry = self
+            .enodes_hash_table
+            .entry(&replace_with, &self.enodes_union_find);
+
+        match entry {
+            Entry::Occupied(entry) => {
+                //
+                // entry.get().id
+                todo!()
+            }
+            Entry::Vacant(entry) => {
+                // the new enode is not a duplicate of an existing node. in this case, we can just re-use the enode id of the original
+                // node to store the new node, and we must make sure to also update the hash table.
+
+                // first, insert the new enode into the hash table
+                entry.insert(ENodeHashTableEntry {
+                    enode: replace_with.clone(),
+                    id: enode_id_to_replace,
+                });
+
+                // overwrite the original enode in the union find tree with the new enode
+                self.enodes_union_find[enode_id_to_replace.0] = replace_with;
+
+                // now remove the hash table entry of the old enode
+                todo!()
+            }
+        };
+    }
+
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> EClassId {
         let graph_node = rec_node.0.convert_link(|link| self.add_rec_node(link));
         self.add_enode(graph_node)
@@ -132,18 +180,26 @@ impl EGraph {
         };
         let mut matching_state_storage = MatchingStateStorage::new();
 
-        let hash = self.hasher.hash_node(&rule.params().query);
+        let hash = self
+            .enodes_hash_table
+            .hasher
+            .hash_node(&rule.params().query);
 
         // find the first enode that matches the rule.
-        let Some(matched_entry) = self.enodes_hash_table.iter_hash_mut(hash).find(|entry| {
-            // match the current enode
-            matcher.match_enode_to_enode_template(
-                &entry.enode,
-                &rule.params().query,
-                &mut matching_state_storage.get_state(),
-            );
-            !matching_state_storage.matches.is_empty()
-        }) else {
+        let Some(matched_entry) = self
+            .enodes_hash_table
+            .table
+            .iter_hash_mut(hash)
+            .find(|entry| {
+                // match the current enode
+                matcher.match_enode_to_enode_template(
+                    &entry.enode,
+                    &rule.params().query,
+                    &mut matching_state_storage.get_state(),
+                );
+                !matching_state_storage.matches.is_empty()
+            })
+        else {
             return;
         };
 
