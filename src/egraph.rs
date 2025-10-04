@@ -127,20 +127,24 @@ impl EGraph {
     }
 
     pub fn apply_rule(&mut self, rule: &RewriteRule) {
-        let hash = self.hasher.hash_node(&rule.params().query);
-        let matcher = RuleMatcher {
+        let matcher = Matcher {
             union_find: &self.enodes_union_find,
         };
+
+        let mut matching_state = MatchingStateStorage::new();
+
+        let hash = self.hasher.hash_node(&rule.params().query);
         for entry in self.enodes_hash_table.iter_hash_mut(hash) {
-            let rule_storage = RewriteRuleStorage::new();
-            let mut matches = Vec::new();
+            matching_state.reset();
             matcher.match_enode_to_enode_template(
                 &entry.enode,
                 &rule.params().query,
-                &rule_storage,
-                &mut matches,
+                &mut matching_state.get_state(),
             );
-            todo!("do something with the matches: {:?}", matches)
+            todo!(
+                "do something with the matches: {:?}",
+                matching_state.matches
+            );
         }
     }
 
@@ -156,16 +160,42 @@ struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
 
-struct RuleMatcher<'a> {
+struct MatchingStateStorage {
+    rule_storage: RewriteRuleStorage,
+    matches: Vec<Match>,
+}
+impl MatchingStateStorage {
+    fn new() -> Self {
+        Self {
+            rule_storage: RewriteRuleStorage::new(),
+            matches: Vec::new(),
+        }
+    }
+    fn get_state(&mut self) -> MatchingState<'_> {
+        MatchingState {
+            rule_storage: &self.rule_storage,
+            matches: &mut self.matches,
+        }
+    }
+    fn reset(&mut self) {
+        self.matches.clear();
+    }
+}
+
+struct MatchingState<'a> {
+    rule_storage: &'a RewriteRuleStorage,
+    matches: &'a mut Vec<Match>,
+}
+
+struct Matcher<'a> {
     union_find: &'a UnionFind<ENode>,
 }
-impl<'a> RuleMatcher<'a> {
+impl<'a> Matcher<'a> {
     fn match_enode_to_enode_template(
         &self,
         enode: &ENode,
         template: &ENodeTemplate,
-        rule_storage: &RewriteRuleStorage,
-        matches: &mut Vec<Match>,
+        state: &mut MatchingState,
     ) {
         // first, perform structural comparison on everything other than the link
         if enode.convert_link(|_| ()) != template.convert_link(|_| ()) {
@@ -186,8 +216,8 @@ impl<'a> RuleMatcher<'a> {
 
         if links_amount == 0 {
             // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
-            matches.push(Match {
-                rule_storage: rule_storage.clone(),
+            state.matches.push(Match {
+                rule_storage: state.rule_storage.clone(),
             });
             return;
         }
@@ -220,7 +250,7 @@ impl<'a> RuleMatcher<'a> {
         //
         // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
         let mut cur_matches: Vec<Match> = vec![Match {
-            rule_storage: rule_storage.clone(),
+            rule_storage: state.rule_storage.clone(),
         }];
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
@@ -229,22 +259,20 @@ impl<'a> RuleMatcher<'a> {
 
             // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {
+                let mut new_matching_state = MatchingState {
+                    rule_storage: &cur_match.rule_storage,
+                    matches: &mut new_matches,
+                };
                 match template_link {
                     TemplateLink::Specific(enode_template) => {
                         self.match_specific_template_link(
                             enode_template,
                             enode_link,
-                            &cur_match.rule_storage,
-                            &mut new_matches,
+                            &mut new_matching_state,
                         );
                     }
                     TemplateLink::Var(template_var) => {
-                        self.match_template_var(
-                            *template_var,
-                            enode_link,
-                            &cur_match.rule_storage,
-                            &mut new_matches,
-                        );
+                        self.match_template_var(*template_var, enode_link, &mut new_matching_state);
                     }
                 }
             }
@@ -268,18 +296,16 @@ impl<'a> RuleMatcher<'a> {
             // of the iteration, so clear the vector.
             new_matches.clear();
         }
-        todo!()
     }
 
     fn match_template_var(
         &self,
         template_var: TemplateVar,
         enode_link: EClassId,
-        rule_storage: &RewriteRuleStorage,
-        new_matches: &mut Vec<Match>,
+        state: &mut MatchingState,
     ) {
         let effective_eclass_id = enode_link.to_effective(self.union_find);
-        match rule_storage.template_var_values.get(template_var) {
+        match state.rule_storage.template_var_values.get(template_var) {
             Some(existing_var_value) => {
                 if effective_eclass_id != existing_var_value {
                     // no match
@@ -287,17 +313,17 @@ impl<'a> RuleMatcher<'a> {
                 }
 
                 // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
-                new_matches.push(Match {
-                    rule_storage: rule_storage.clone(),
+                state.matches.push(Match {
+                    rule_storage: state.rule_storage.clone(),
                 });
             }
             None => {
                 // the variable currently doesn't have any value, so we can bind it and consider it a match.
-                let mut new_rule_storage = rule_storage.clone();
+                let mut new_rule_storage = state.rule_storage.clone();
                 new_rule_storage
                     .template_var_values
                     .set(template_var, effective_eclass_id);
-                new_matches.push(Match {
+                state.matches.push(Match {
                     rule_storage: new_rule_storage,
                 });
             }
@@ -308,13 +334,12 @@ impl<'a> RuleMatcher<'a> {
         &self,
         template: &ENodeTemplate,
         eclass: EClassId,
-        rule_storage: &RewriteRuleStorage,
-        new_matches: &mut Vec<Match>,
+        state: &mut MatchingState,
     ) {
         // iterate all enodes in the eclass
         for enode_item_id in self.union_find.items_eq_to(eclass.enode_id.0) {
             let enode = &self.union_find[enode_item_id];
-            self.match_enode_to_enode_template(enode, template, rule_storage, new_matches);
+            self.match_enode_to_enode_template(enode, template, state);
         }
     }
 }
