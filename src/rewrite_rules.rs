@@ -38,24 +38,19 @@ impl ENodeTemplate {
 }
 
 #[derive(Debug, Clone)]
-pub struct RewriteRule {
+pub struct RewriteRuleParams {
     pub query: ENodeTemplate,
     pub rewrite: ENodeTemplate,
 }
-
-#[derive(Debug, Clone)]
-pub struct RewriteRuleStorage {
-    pub template_var_values: Vec<Option<EffectiveEClassId>>,
-}
-impl RewriteRuleStorage {
-    pub fn new(rule: &RewriteRule) -> Self {
-        let template_var_values = match rule.query.max_template_var_id() {
+impl RewriteRuleParams {
+    fn check(&self) {
+        match self.query.max_template_var_id() {
             Some(max_var_id) => {
                 // the query uses some variables
 
                 // make sure that there are no gaps in the variable ids
                 for i in 1..=max_var_id.get() {
-                    let does_use_var = rule.query.does_use_template_var(TemplateVar {
+                    let does_use_var = self.query.does_use_template_var(TemplateVar {
                         id: unsafe {
                             // SAFETY: we start iterating from 1
                             NonZeroUsize::new_unchecked(i)
@@ -65,31 +60,43 @@ impl RewriteRuleStorage {
                 }
 
                 // make sure that the re-write doesn't use variables that don't exist in the query
-                if let Some(rewrite_max_var_id) = rule.rewrite.max_template_var_id() {
+                if let Some(rewrite_max_var_id) = self.rewrite.max_template_var_id() {
                     assert!(rewrite_max_var_id <= max_var_id)
                 }
-
-                // the max var id starts from 1 (since it is non-zero).
-                // so, when indexing, we subtract one from the id to get the index.
-                // so, the length of the vector which supports indexing all of those vars is just the max var id.
-                vec![None; max_var_id.get()]
             }
             None => {
                 // the query doesn't use any values
 
                 // make sure that the re-write also doesn't use any variables
-                assert_eq!(rule.rewrite.max_template_var_id(), None);
-
-                Vec::new()
+                assert_eq!(self.rewrite.max_template_var_id(), None);
             }
-        };
-
-        Self {
-            template_var_values,
         }
     }
+}
 
-    pub fn reset(&mut self) {
-        self.template_var_values.fill(None);
+#[derive(Debug, Clone)]
+pub struct RewriteRule {
+    params: RewriteRuleParams,
+}
+impl RewriteRule {
+    pub fn new(params: RewriteRuleParams) -> Self {
+        params.check();
+        Self { params }
+    }
+
+    pub fn params(&self) -> &RewriteRuleParams {
+        &self.params
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RewriteRuleStorage {
+    pub template_var_values: Vec<Option<EffectiveEClassId>>,
+}
+impl RewriteRuleStorage {
+    pub fn new() -> Self {
+        Self {
+            template_var_values: Vec::new(),
+        }
     }
 }

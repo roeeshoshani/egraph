@@ -127,16 +127,21 @@ impl EGraph {
     }
 
     pub fn apply_rule(&mut self, rule: &RewriteRule) {
-        let hash = self.hasher.hash_node(&rule.query);
-        let mut rule_storage = RewriteRuleStorage::new(rule);
+        let hash = self.hasher.hash_node(&rule.params().query);
         for entry in self.enodes_hash_table.iter_hash_mut(hash) {
-            rule_storage.reset();
-            apply_rule_match_enode_to_enode_template(
+            let matcher = ENodeRuleMatcher {
+                union_find: &self.enodes_union_find,
+                matched_enode_id: entry.id,
+            };
+            let rule_storage = RewriteRuleStorage::new();
+            let mut matches = Vec::new();
+            matcher.match_enode_to_enode_template(
                 &entry.enode,
-                &rule.query,
-                &mut rule_storage,
-                &self.enodes_union_find,
+                &rule.params().query,
+                &rule_storage,
+                &mut matches,
             );
+            todo!("do something with the matches: {:?}", matches)
         }
     }
 
@@ -147,6 +152,7 @@ impl EGraph {
     }
 }
 
+#[derive(Debug, Clone)]
 struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
@@ -157,7 +163,7 @@ struct ENodeRuleMatcher<'a> {
 }
 impl<'a> ENodeRuleMatcher<'a> {
     fn match_enode_to_enode_template(
-        &mut self,
+        &self,
         enode: &ENode,
         template: &ENodeTemplate,
         rule_storage: &RewriteRuleStorage,
@@ -188,13 +194,41 @@ impl<'a> ENodeRuleMatcher<'a> {
             return;
         }
 
-        // match the links
-        let mut cur_matches: Vec<Match> = Vec::new();
+        // now match the links.
+        //
+        // this part is a little complicated, i'll explain it as best as i can.
+        //
+        // whenever we encounter a link, due to links pointing to eclasses and not enodes, each link can match multiple enodes.
+        // if we ignore template vars for a moment, this essentially means that we want a cartesian product over the matches of
+        // each of the links to generate the final list of matches.
+        //
+        // for example, if the first link had matches [A, B], and the second link had matches [C, D], then in practice we can build
+        // 4 different structures that match the rule: (A, C), (A, D), (B, C), (B, D).
+        //
+        // now let's consider what happens when template vars are added.
+        // template vars require that when matching a link, we take into account the variable values inherited from the previous link.
+        // but, the previous link could have had multiple matches, each with its own variable binding.
+        // so, for each match in the previous link, we want to try to match the current link, but taking into account the variable
+        // bindings of the match in the previous link.
+        //
+        // this will still result in somewhat of a cartesian product, but this time, some of the options will be omitted due to not
+        // matching the variables.
+        //
+        // so, in each iteration, we first start with all matches from the previous link, which are by themselves a cartesian product
+        // of the previous link's matches with the matches of the links before it.
+        // then, we try to match each of them against each enode that matches the current link, which generates a new cartesian product
+        // of the initial list of matches with the list of matches of the current link.
+        // then we use the generated list for the next iteration.
+        //
+        // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
+        let mut cur_matches: Vec<Match> = vec![Match {
+            rule_storage: rule_storage.clone(),
+        }];
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
             let template_link = &template_links[cur_link_idx];
 
-            new_matches.clear();
+            // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {
                 match template_link {
                     TemplateLink::Specific(generic_node) => {
@@ -208,13 +242,31 @@ impl<'a> ENodeRuleMatcher<'a> {
                     TemplateLink::Var(template_var) => todo!(),
                 }
             }
+
+            // new matches now contains the new cartesian product over the current link with all of its previous link.
+            //
+            // we want to use this new list of matches for matching the next link.
+            //
+            // so basically we want to set `cur_matches` to `new_matches`, and to clear `new_matches` in preparation for the next
+            // iteration.
+            //
+            // but, doing this will lose the storage that was already allocated in the `cur_matches` vector, which we will then have
+            // to re-allocate when re-building the `new_matches` list.
+            //
+            // so, instead, we perform a swap to keep both allocations.
             std::mem::swap(&mut cur_matches, &mut new_matches);
+
+            // after the swap, `cur_matches` contains the value of `new_matches`, which is the list of matches that we just generated.
+            // and, `new_matches` now contains the value of `cur_matches`, which is the matches from the previous link.
+            // we no longer need the matches from the previous link, and each iteration assumes that `new_matches` is empty at the start
+            // of the iteration, so clear the vector.
+            new_matches.clear();
         }
         todo!()
     }
 
     fn template_link_is_match_eclass(
-        &mut self,
+        &self,
         template_link: &TemplateLink,
         eclass: EClassId,
         union_find: &UnionFind<ENode>,
@@ -230,7 +282,7 @@ impl<'a> ENodeRuleMatcher<'a> {
     }
 
     fn template_link_is_match_enode(
-        &mut self,
+        &self,
         template_link: &TemplateLink,
         eclass: EClassId,
         enode: &ENode,
