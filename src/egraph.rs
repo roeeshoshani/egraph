@@ -128,11 +128,10 @@ impl EGraph {
 
     pub fn apply_rule(&mut self, rule: &RewriteRule) {
         let hash = self.hasher.hash_node(&rule.params().query);
+        let matcher = RuleMatcher {
+            union_find: &self.enodes_union_find,
+        };
         for entry in self.enodes_hash_table.iter_hash_mut(hash) {
-            let matcher = ENodeRuleMatcher {
-                union_find: &self.enodes_union_find,
-                matched_enode_id: entry.id,
-            };
             let rule_storage = RewriteRuleStorage::new();
             let mut matches = Vec::new();
             matcher.match_enode_to_enode_template(
@@ -157,11 +156,10 @@ struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
 
-struct ENodeRuleMatcher<'a> {
+struct RuleMatcher<'a> {
     union_find: &'a UnionFind<ENode>,
-    matched_enode_id: ENodeId,
 }
-impl<'a> ENodeRuleMatcher<'a> {
+impl<'a> RuleMatcher<'a> {
     fn match_enode_to_enode_template(
         &self,
         enode: &ENode,
