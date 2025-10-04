@@ -243,8 +243,8 @@ impl<'a> ENodeRuleMatcher<'a> {
                     }
                     TemplateLink::Var(template_var) => {
                         self.match_template_var(
-                            template_var,
-                            enode_link,
+                            *template_var,
+                            **enode_link,
                             &cur_match.rule_storage,
                             &mut new_matches,
                         );
@@ -276,13 +276,13 @@ impl<'a> ENodeRuleMatcher<'a> {
 
     fn match_template_var(
         &self,
-        template_var: &TemplateVar,
-        enode_link: &EClassId,
+        template_var: TemplateVar,
+        enode_link: EClassId,
         rule_storage: &RewriteRuleStorage,
         new_matches: &mut Vec<Match>,
     ) {
         let effective_eclass_id = enode_link.to_effective(self.union_find);
-        match rule_storage.template_var_values.get(*template_var) {
+        match rule_storage.template_var_values.get(template_var) {
             Some(existing_var_value) => {
                 if effective_eclass_id != existing_var_value {
                     // no match
@@ -299,7 +299,7 @@ impl<'a> ENodeRuleMatcher<'a> {
                 let mut new_rule_storage = rule_storage.clone();
                 new_rule_storage
                     .template_var_values
-                    .set(*template_var, effective_eclass_id);
+                    .set(template_var, effective_eclass_id);
                 new_matches.push(Match {
                     rule_storage: new_rule_storage,
                 });
