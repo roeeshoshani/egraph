@@ -296,6 +296,10 @@ impl<'a> Matcher<'a> {
             // of the iteration, so clear the vector.
             new_matches.clear();
         }
+
+        // the final value of `new_matches` contains the final cartesian product of matches, which is what we want to return.
+        // so, copy it out.
+        *state.matches = new_matches;
     }
 
     fn match_template_var(
