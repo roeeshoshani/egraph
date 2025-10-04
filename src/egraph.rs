@@ -141,7 +141,6 @@ impl EGraph {
                 &rule.params().query,
                 &mut matching_state.get_state(),
             );
-            dbg!(&matching_state.matches);
         }
         todo!("do something with the matches");
     }
@@ -294,7 +293,7 @@ impl<'a> Matcher<'a> {
 
         // the final value of `cur_matches` contains the final cartesian product of matches, which is what we want to return.
         // so, copy it out.
-        *state.matches = cur_matches;
+        state.matches.append(&mut cur_matches);
     }
 
     fn match_eclass_to_template_link(
