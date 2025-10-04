@@ -281,12 +281,22 @@ impl<'a> ENodeRuleMatcher<'a> {
         rule_storage: &RewriteRuleStorage,
         new_matches: &mut Vec<Match>,
     ) {
+        let effective_eclass_id = enode_link.to_effective(self.union_find);
         match rule_storage.template_var_values.get(*template_var) {
-            Some(_) => todo!(),
+            Some(existing_var_value) => {
+                if effective_eclass_id != existing_var_value {
+                    // no match
+                    return;
+                }
+
+                // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
+                new_matches.push(Match {
+                    rule_storage: rule_storage.clone(),
+                });
+            }
             None => {
                 // the variable currently doesn't have any value, so we can bind it and consider it a match.
                 let mut new_rule_storage = rule_storage.clone();
-                let effective_eclass_id = enode_link.to_effective(self.union_find);
                 new_rule_storage
                     .template_var_values
                     .set(*template_var, effective_eclass_id);
