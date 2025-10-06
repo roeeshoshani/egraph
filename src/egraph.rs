@@ -362,6 +362,9 @@ impl EGraph {
                 }
             }
         }
+
+        out.push_str("}\n");
+
         out
     }
 }
