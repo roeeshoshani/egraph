@@ -242,4 +242,8 @@ impl RewriteRuleSet {
         res.add_multiple(rules);
         res
     }
+
+    pub fn rules(&self) -> &[RewriteRule] {
+        &self.rules
+    }
 }

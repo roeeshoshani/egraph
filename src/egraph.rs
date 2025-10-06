@@ -320,7 +320,15 @@ impl EGraph {
     }
 
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
-        todo!()
+        loop {
+            let mut did_anything = false;
+            for rule in rule_set.rules() {
+                did_anything |= self.apply_rule(rule);
+            }
+            if !did_anything {
+                break;
+            }
+        }
     }
 
     fn instantiate_enode_template(
