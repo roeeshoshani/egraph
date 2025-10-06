@@ -291,11 +291,6 @@ impl EGraph {
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
-        out.push_str("digraph egraph {\n");
-        out.push_str("  graph [rankdir=LR, compound=true];\n");
-        out.push_str("  node  [shape=box, fontname=\"Inter,Arial\", fontsize=10];\n");
-        out.push_str("  edge  [arrowsize=0.7];\n");
-
         fn eclass_id_to_str(eclass_id: UnionFindAnyId) -> String {
             match eclass_id {
                 UnionFindAnyId::Item(item_id) => format!("eclass_root_item_{}", item_id.0.get()),
@@ -363,9 +358,26 @@ impl EGraph {
             }
         }
 
-        out.push_str("}\n");
-
-        out
+        return format!(
+            r##"
+            digraph egraph {{
+                graph [rankdir=LR, compound=true];
+                bgcolor="#181818"
+                node [
+                    fontcolor = "#e6e6e6",
+                    style = filled,
+                    color = "#e6e6e6",
+                    fillcolor = "#333333"
+                ]
+                edge [
+                    color = "#e6e6e6",
+                    fontcolor = "#e6e6e6"
+                ]
+                {}
+            }}
+            "##,
+            out
+        );
     }
 }
 
