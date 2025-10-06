@@ -300,16 +300,14 @@ impl EGraph {
             }
         }
 
-        // draw each eclass. use a hashset to avoid drawing an eclass twice.
-        let mut eclasses = HashSet::new();
-        for enode_id in self.enodes_union_find.item_ids() {
-            let eclass_id = self.enodes_union_find.root_of_item(enode_id);
-            let eclass_id_str = eclass_id_to_str(eclass_id);
+        let eclasses: HashSet<UnionFindAnyId> = self
+            .enodes_union_find
+            .item_ids()
+            .map(|item_id| self.enodes_union_find.root_of_item(item_id))
+            .collect();
 
-            if !eclasses.insert(eclass_id) {
-                // already drawn this eclass
-                continue;
-            }
+        for &eclass in &eclasses {
+            let eclass_id_str = eclass_id_to_str(eclass);
             writeln!(
                 &mut out,
                 "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\";",
@@ -317,24 +315,24 @@ impl EGraph {
             )
             .unwrap();
 
-            // anchor node for edges to land on this cluster
-            writeln!(
-                &mut out,
-                "    c_{} [label=\"\", shape=point, width=0, height=0];",
-                eclass_id_str
-            )
-            .unwrap();
-
             // one node per enode in the class
-            for other_enode_id in self.enodes_union_find.items_eq_to_including_self(enode_id) {
-                let enode_id_str = format!("n_{}", other_enode_id.0.get());
-                let label = match &self.enodes_union_find[other_enode_id] {
+            for (i, enode_id) in self
+                .enodes_union_find
+                .items_eq_to_any_including_self(eclass)
+                .enumerate()
+            {
+                let label = match &self.enodes_union_find[enode_id] {
                     GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
                     GenericNode::Var(var) => format!("var{}", var.0),
                     GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
                     GenericNode::UnOp(un_op) => un_op.kind.to_string(),
                 };
-                writeln!(&mut out, "    {} [label=\"{}\"];", enode_id_str, label).unwrap();
+                writeln!(
+                    &mut out,
+                    "    {}_{} [label=\"{}\"];",
+                    eclass_id_str, i, label
+                )
+                .unwrap();
             }
 
             out.push_str("  }\n");
@@ -342,11 +340,12 @@ impl EGraph {
 
         // edges from each enode to target e-class clusters
         for eclass in eclasses {
-            for enode_id in self
+            let eclass_id_str = eclass_id_to_str(eclass);
+            for (i, enode_id) in self
                 .enodes_union_find
                 .items_eq_to_any_including_self(eclass)
+                .enumerate()
             {
-                let enode_id_str = format!("n_{}", enode_id.0.get());
                 let enode = &self.enodes_union_find[enode_id];
                 for link in enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
@@ -354,8 +353,8 @@ impl EGraph {
                     let target_eclass_id_str = eclass_id_to_str(target_eclass_id);
                     writeln!(
                         &mut out,
-                        "  {} -> c_{} [lhead=cluster_{}];",
-                        enode_id_str, target_eclass_id_str, target_eclass_id_str
+                        "  {}_{} -> {}_0 [lhead=cluster_{}];",
+                        eclass_id_str, i, target_eclass_id_str, target_eclass_id_str
                     )
                     .unwrap();
                 }
