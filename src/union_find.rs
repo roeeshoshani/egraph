@@ -3,6 +3,8 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use either::Either;
+
 /// a mapping between ids to their parent ids.
 #[derive(Debug, Clone)]
 struct IdToParentMap {
@@ -65,6 +67,20 @@ pub struct UnionFindParentId(pub NonZeroUsize);
 pub enum UnionFindAnyId {
     Item(UnionFindItemId),
     Parent(UnionFindParentId),
+}
+impl UnionFindAnyId {
+    pub fn as_item(&self) -> Option<UnionFindItemId> {
+        match self {
+            UnionFindAnyId::Item(x) => Some(*x),
+            UnionFindAnyId::Parent(_) => None,
+        }
+    }
+    pub fn as_parent(&self) -> Option<UnionFindParentId> {
+        match self {
+            UnionFindAnyId::Item(_) => None,
+            UnionFindAnyId::Parent(x) => Some(*x),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -196,7 +212,7 @@ impl<T> UnionFind<T> {
     pub fn root_of_parent(&self, id: UnionFindParentId) -> UnionFindAnyId {
         self.root_of_any(UnionFindAnyId::Parent(id))
     }
-    pub fn all_item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
+    pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
         (1..self.item_to_parent_map.next_id.get()).map(|i| {
             UnionFindItemId(
                 // SAFETY: our iteration starts from 1, so the value can't be 0
@@ -208,7 +224,7 @@ impl<T> UnionFind<T> {
     pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
         // TODO: make this efficient if needed. we iterate over all of the nodes here, which may not be the most efficient thing.
         let root = self.root_of_item(item);
-        self.all_item_ids()
+        self.item_ids()
             .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
     }
     /// returns an iterator over all items equal to the given item, including the item itself
@@ -217,8 +233,45 @@ impl<T> UnionFind<T> {
         item: UnionFindItemId,
     ) -> impl Iterator<Item = UnionFindItemId> + '_ {
         let root = self.root_of_item(item);
-        self.all_item_ids()
+        self.item_ids()
             .filter(move |&cur_item| cur_item == item || self.root_of_item(cur_item) == root)
+    }
+    /// returns an iterator over all items equal to the given parent
+    pub fn items_eq_to_parent(
+        &self,
+        id: UnionFindParentId,
+    ) -> impl Iterator<Item = UnionFindItemId> + '_ {
+        let root = self.root_of_parent(id);
+        self.item_ids()
+            .filter(move |&cur_item| self.root_of_item(cur_item) == root)
+    }
+    /// returns an iterator over all items equal to the given id. if the given id is an item id, the returned iterator excludes the
+    /// item itself.
+    pub fn items_eq_to_any(
+        &self,
+        id: UnionFindAnyId,
+    ) -> Either<
+        impl Iterator<Item = UnionFindItemId> + '_,
+        impl Iterator<Item = UnionFindItemId> + '_,
+    > {
+        match id {
+            UnionFindAnyId::Item(item_id) => Either::Left(self.items_eq_to(item_id)),
+            UnionFindAnyId::Parent(parent_id) => Either::Right(self.items_eq_to_parent(parent_id)),
+        }
+    }
+    /// returns an iterator over all items equal to the given id. if the given id is an item id, the returned iterator includes the
+    /// item itself.
+    pub fn items_eq_to_any_including_self(
+        &self,
+        id: UnionFindAnyId,
+    ) -> Either<
+        impl Iterator<Item = UnionFindItemId> + '_,
+        impl Iterator<Item = UnionFindItemId> + '_,
+    > {
+        match id {
+            UnionFindAnyId::Item(item_id) => Either::Left(self.items_eq_to_including_self(item_id)),
+            UnionFindAnyId::Parent(parent_id) => Either::Right(self.items_eq_to_parent(parent_id)),
+        }
     }
     pub fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
         if item_a == item_b {
@@ -227,7 +280,7 @@ impl<T> UnionFind<T> {
         self.root_of_item(item_a) == self.root_of_item(item_b)
     }
     pub fn flatten(&mut self) {
-        for item in self.all_item_ids() {
+        for item in self.item_ids() {
             let root = self.root_of_item(item);
             // if the item has a root other than itself, then make it point to its root
             if let UnionFindAnyId::Parent(parent) = root {
@@ -238,6 +291,9 @@ impl<T> UnionFind<T> {
     /// orphans the given item, detaching it from its parent.
     pub fn orphan(&mut self, item: UnionFindItemId) {
         self.set_parent_of_item(item, None);
+    }
+    pub fn items(&self) -> &[T] {
+        &self.items
     }
     pub fn items_mut(&mut self) -> &mut [T] {
         &mut self.items

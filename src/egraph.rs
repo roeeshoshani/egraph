@@ -1,7 +1,8 @@
-use hashbrown::{DefaultHashBuilder, HashTable, hash_table::Entry};
+use hashbrown::{DefaultHashBuilder, HashSet, HashTable, hash_table::Entry};
 use std::hash::BuildHasher;
 
 use crate::{union_find::*, *};
+use std::fmt::Write;
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -285,6 +286,81 @@ impl EGraph {
         let mut egraph = Self::new();
         egraph.add_rec_node(rec_node);
         egraph
+    }
+
+    pub fn to_dot(&self) -> String {
+        let mut out = String::new();
+
+        out.push_str("digraph egraph {\n");
+        out.push_str("  graph [rankdir=LR, compound=true];\n");
+        out.push_str("  node  [shape=box, fontname=\"Inter,Arial\", fontsize=10];\n");
+        out.push_str("  edge  [arrowsize=0.7];\n");
+
+        fn eclass_id_to_str(eclass_id: UnionFindAnyId) -> String {
+            match eclass_id {
+                UnionFindAnyId::Item(item_id) => format!("eclass_root_item_{}", item_id.0.get()),
+                UnionFindAnyId::Parent(parent_id) => {
+                    format!("eclass_root_parent_{}", parent_id.0.get())
+                }
+            }
+        }
+
+        // draw each eclass. use a hashset to avoid drawing an eclass twice.
+        let mut eclasses = HashSet::new();
+        for enode_id in self.enodes_union_find.item_ids() {
+            let eclass_id = self.enodes_union_find.root_of_item(enode_id);
+            let eclass_id_str = eclass_id_to_str(eclass_id);
+
+            if !eclasses.insert(eclass_id) {
+                // already drawn this eclass
+                continue;
+            }
+            writeln!(
+                &mut out,
+                "  subgraph cluster_{} {{\n    label=\"e#{}\"; color=gray60; style=\"rounded\";",
+                eclass_id_str, eclass_id_str
+            )
+            .unwrap();
+
+            // anchor node for edges to land on this cluster
+            writeln!(
+                &mut out,
+                "    c_{} [label=\"\", shape=point, width=0, height=0];",
+                eclass_id_str
+            )
+            .unwrap();
+
+            // one node per enode in the class
+            for other_enode_id in self.enodes_union_find.items_eq_to_including_self(enode_id) {
+                let enode_id_str = format!("n_{}", other_enode_id.0.get());
+                let label = format!("{:?}", self.enodes_union_find[other_enode_id]);
+                writeln!(&mut out, "    {} [label=\"{}\"];", enode_id_str, label).unwrap();
+            }
+        }
+
+        // edges from each enode to target e-class clusters
+        for eclass in eclasses {
+            let eclass_id_str = eclass_id_to_str(eclass);
+            for enode_id in self
+                .enodes_union_find
+                .items_eq_to_any_including_self(eclass)
+            {
+                let enode_id_str = format!("n_{}", enode_id.0.get());
+                let enode = &self.enodes_union_find[enode_id];
+                for link in enode.links() {
+                    // route to target cluster anchor; ltail/lhead draw the edge between clusters
+                    let target_eclass_id = self.enodes_union_find.root_of_item(link.enode_id.0);
+                    let target_eclass_id_str = eclass_id_to_str(target_eclass_id);
+                    writeln!(
+                        &mut out,
+                        "  {} -> c_{} [ltail=cluster_{}, lhead=cluster_{}];",
+                        enode_id_str, target_eclass_id_str, eclass_id_str, target_eclass_id_str
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        out
     }
 }
 
@@ -635,6 +711,8 @@ mod tests {
             .into(),
             keep_original: true,
         }));
+
+        std::fs::write("/tmp/graph.dot", egraph.to_dot()).unwrap();
 
         dbg!(&egraph);
         panic!();
