@@ -342,7 +342,6 @@ impl EGraph {
 
         // edges from each enode to target e-class clusters
         for eclass in eclasses {
-            let eclass_id_str = eclass_id_to_str(eclass);
             for enode_id in self
                 .enodes_union_find
                 .items_eq_to_any_including_self(eclass)
@@ -366,7 +365,8 @@ impl EGraph {
         return format!(
             r##"
             digraph egraph {{
-                graph [rankdir=LR, compound=true];
+                compound=true;
+                rankdir=TB;
                 bgcolor="#181818"
                 node [
                     fontcolor = "#e6e6e6",
