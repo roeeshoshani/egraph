@@ -312,8 +312,8 @@ impl EGraph {
             }
             writeln!(
                 &mut out,
-                "  subgraph cluster_{} {{\n    label=\"e#{}\"; color=gray60; style=\"rounded\";",
-                eclass_id_str, eclass_id_str
+                "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\";",
+                eclass_id_str
             )
             .unwrap();
 
@@ -328,7 +328,12 @@ impl EGraph {
             // one node per enode in the class
             for other_enode_id in self.enodes_union_find.items_eq_to_including_self(enode_id) {
                 let enode_id_str = format!("n_{}", other_enode_id.0.get());
-                let label = format!("{:?}", self.enodes_union_find[other_enode_id]);
+                let label = match &self.enodes_union_find[other_enode_id] {
+                    GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
+                    GenericNode::Var(var) => format!("var{}", var.0),
+                    GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
+                    GenericNode::UnOp(un_op) => un_op.kind.to_string(),
+                };
                 writeln!(&mut out, "    {} [label=\"{}\"];", enode_id_str, label).unwrap();
             }
 

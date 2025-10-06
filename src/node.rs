@@ -1,5 +1,6 @@
 use arrayvec::ArrayVec;
 use derive_more::From;
+use enum_display::EnumDisplay;
 
 use crate::array_vec;
 
@@ -12,11 +13,15 @@ pub struct Imm(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Var(pub u64);
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum BinOpKind {
+    #[display("+")]
     Add,
+    #[display("*")]
     Mul,
+    #[display("&")]
     And,
+    #[display("|")]
     Or,
 }
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -26,9 +31,11 @@ pub struct BinOp<L> {
     pub rhs: L,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum UnOpKind {
+    #[display("-")]
     Neg,
+    #[display("!")]
     Not,
 }
 
