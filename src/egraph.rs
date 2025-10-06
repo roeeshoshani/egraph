@@ -734,6 +734,50 @@ mod tests {
             keep_original: true,
         }));
 
+        // a & (b & c) => (a & b) & c
+        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(2).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            rewrite: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(2).into(),
+                }
+                .into(),
+                rhs: TemplateVar::new(3).into(),
+            }
+            .into(),
+            keep_original: true,
+        }));
+
+        // a & b => b & a
+        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateVar::new(2).into(),
+            }
+            .into(),
+            rewrite: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(2).into(),
+                rhs: TemplateVar::new(1).into(),
+            }
+            .into(),
+            keep_original: true,
+        }));
+
         std::fs::write("/tmp/graph.dot", egraph.to_dot()).unwrap();
 
         dbg!(&egraph);
