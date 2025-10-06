@@ -219,10 +219,7 @@ impl EGraph {
         };
         let mut matching_state_storage = MatchingStateStorage::new();
 
-        let hash = self
-            .enodes_hash_table
-            .hasher
-            .hash_node(&rule.params().query);
+        let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
         // find the first enode that matches the rule.
         let Some(matched_entry) = self
@@ -233,7 +230,7 @@ impl EGraph {
                 // match the current enode
                 matcher.match_enode_to_enode_template(
                     &entry.enode,
-                    &rule.params().query,
+                    &rule.query,
                     &mut matching_state_storage.get_state(),
                 );
                 !matching_state_storage.matches.is_empty()
@@ -249,10 +246,9 @@ impl EGraph {
         for (i, match_obj) in matching_state_storage.matches.into_iter().enumerate() {
             let is_last_match_obj = i + 1 == matches_amount;
 
-            let new_enode =
-                self.instantiate_enode_template(&rule.params().rewrite, &match_obj.rule_storage);
+            let new_enode = self.instantiate_enode_template(&rule.rewrite, &match_obj.rule_storage);
 
-            if is_last_match_obj && !rule.params().keep_original {
+            if is_last_match_obj && !rule.keep_original {
                 // if we are the last match, and the rule doesn't want to keep the original, then we should overwrite the
                 // original enode.
                 self.replace_enode(matched_enode_id, new_enode);

@@ -71,8 +71,31 @@ pub struct RewriteRuleParams {
 
     /// should we keep the original enode after the rule has been applied to it?
     pub keep_original: bool,
+
+    /// is the rule bi-directional
+    pub bi_directional: bool,
 }
-impl RewriteRuleParams {
+
+#[derive(Debug, Clone)]
+pub struct RewriteRule {
+    pub query: ENodeTemplate,
+    pub rewrite: ENodeTemplate,
+
+    /// should we keep the original enode after the rule has been applied to it?
+    pub keep_original: bool,
+}
+impl RewriteRule {
+    pub fn new(query: ENodeTemplate, rewrite: ENodeTemplate, keep_original: bool) -> Self {
+        let res = Self {
+            query,
+            rewrite,
+            keep_original,
+        };
+        res.check();
+        res
+    }
+
+    // checks that this re-write rule even makes sense to exist.
     fn check(&self) {
         match self.query.max_template_var_id() {
             Some(max_var_id) => {
@@ -102,20 +125,47 @@ impl RewriteRuleParams {
             }
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct RewriteRule {
-    params: RewriteRuleParams,
-}
-impl RewriteRule {
-    pub fn new(params: RewriteRuleParams) -> Self {
-        params.check();
-        Self { params }
+    // checks that this re-write rule can swap directions (swap the query and the rewrite).
+    //
+    // this assumes that the rule was already checked using the basic sanity checks.
+    fn check_can_swap_direction(&self) {
+        // swapping direction without setting `keep_original` doesn't make sense, since not setting `keep_original` means that the
+        // original representation is worthless, and now we suddenly want to swap direction to generate that original representation?
+        //
+        // additionally, in the context of bi-directional rules, swapping direction without setting `keep_original` doesn't make
+        // sense, since it will just make the egraph go back and forth between two representations, which is completely pointless.
+        assert!(self.keep_original);
+
+        match self.query.max_template_var_id() {
+            Some(max_var_id) => {
+                // the query uses some variables
+
+                // make sure that both the query and the rewrite use all template vars
+                for i in 1..=max_var_id.get() {
+                    let var = TemplateVar {
+                        id: unsafe {
+                            // SAFETY: we start iterating from 1
+                            NonZeroUsize::new_unchecked(i)
+                        },
+                    };
+                    assert!(self.query.does_use_template_var(var));
+                    assert!(self.rewrite.does_use_template_var(var));
+                }
+            }
+            None => {
+                // the query doesn't use any values, so it can swap directions
+            }
+        }
     }
 
-    pub fn params(&self) -> &RewriteRuleParams {
-        &self.params
+    fn swap_direction(self) -> Self {
+        self.check_can_swap_direction();
+        Self {
+            query: self.rewrite,
+            rewrite: self.query,
+            keep_original: self.keep_original,
+        }
     }
 }
 
@@ -152,6 +202,25 @@ impl RewriteRuleStorage {
     pub fn new() -> Self {
         Self {
             template_var_values: TemplateVarValues::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RewriteRuleSet {
+    rules: Vec<RewriteRule>,
+}
+impl RewriteRuleSet {
+    pub fn new() -> Self {
+        Self { rules: Vec::new() }
+    }
+    pub fn add(&mut self, params: RewriteRuleParams) {
+        let basic_rule = RewriteRule::new(params.query, params.rewrite, params.keep_original);
+
+        self.rules.push(basic_rule.clone());
+
+        if params.bi_directional {
+            self.rules.push(basic_rule.swap_direction());
         }
     }
 }
