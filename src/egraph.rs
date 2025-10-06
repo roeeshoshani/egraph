@@ -261,6 +261,10 @@ impl EGraph {
         }
     }
 
+    pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
+        todo!()
+    }
+
     fn instantiate_enode_template(
         &mut self,
         template: &ENodeTemplate,
