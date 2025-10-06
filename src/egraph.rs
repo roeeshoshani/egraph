@@ -564,8 +564,8 @@ mod tests {
         assert_eq!(egraph.enodes_union_find.len(), 6);
     }
 
-    // #[test]
-    fn test_basic() {
+    #[test]
+    fn test_basic_rewrite() {
         // 0xff & ((x & 0xff00) | (x & 0xff0000))
         let rec_node: RecNode = RecBinOp {
             kind: BinOpKind::And,
@@ -589,37 +589,10 @@ mod tests {
         }
         .into();
 
-        let egraph = EGraph::from_rec_node(&rec_node);
-        dbg!(egraph);
-    }
-
-    #[test]
-    fn test_basic_rewrite() {
-        // 0xff & ((x & 0xff00) | (x & 0x0))
-        let rec_node: RecNode = RecBinOp {
-            kind: BinOpKind::And,
-            lhs: 0xff.into(),
-            rhs: RecBinOp {
-                kind: BinOpKind::Or,
-                lhs: RecBinOp {
-                    kind: BinOpKind::And,
-                    lhs: Var(0).into(),
-                    rhs: 0xff00.into(),
-                }
-                .into(),
-                rhs: RecBinOp {
-                    kind: BinOpKind::And,
-                    lhs: Var(0).into(),
-                    rhs: 0.into(),
-                }
-                .into(),
-            }
-            .into(),
-        }
-        .into();
-
         let mut egraph = EGraph::from_rec_node(&rec_node);
         dbg!(&egraph);
+
+        // (x & 0) => 0
         egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
             query: BinOpTemplate {
                 kind: BinOpKind::And,
@@ -630,6 +603,39 @@ mod tests {
             rewrite: 0.into(),
             keep_original: false,
         }));
+
+        // a & (b | c) => (a & b) | (a & c)
+        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: BinOpTemplate {
+                    kind: BinOpKind::Or,
+                    lhs: TemplateVar::new(2).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            rewrite: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(2).into(),
+                }
+                .into(),
+                rhs: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            keep_original: true,
+        }));
+
         dbg!(&egraph);
         panic!();
     }
