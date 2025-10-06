@@ -214,13 +214,32 @@ impl RewriteRuleSet {
     pub fn new() -> Self {
         Self { rules: Vec::new() }
     }
-    pub fn add(&mut self, params: RewriteRuleParams) {
-        let basic_rule = RewriteRule::new(params.query, params.rewrite, params.keep_original);
+
+    pub fn add(&mut self, rule: RewriteRuleParams) {
+        let basic_rule = RewriteRule::new(rule.query, rule.rewrite, rule.keep_original);
 
         self.rules.push(basic_rule.clone());
 
-        if params.bi_directional {
+        if rule.bi_directional {
             self.rules.push(basic_rule.swap_direction());
         }
+    }
+
+    pub fn add_multiple<I>(&mut self, rules: I)
+    where
+        I: IntoIterator<Item = RewriteRuleParams>,
+    {
+        for rule in rules {
+            self.add(rule);
+        }
+    }
+
+    pub fn from_rules<I>(rules: I) -> Self
+    where
+        I: IntoIterator<Item = RewriteRuleParams>,
+    {
+        let mut res = Self::new();
+        res.add_multiple(rules);
+        res
     }
 }

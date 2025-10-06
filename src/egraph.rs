@@ -685,93 +685,96 @@ mod tests {
         let mut egraph = EGraph::from_rec_node(&rec_node);
         dbg!(&egraph);
 
-        // (x & 0) => 0
-        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
-            query: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: TemplateVar::new(1).into(),
-                rhs: 0.into(),
-            }
-            .into(),
-            rewrite: 0.into(),
-            keep_original: false,
-        }));
-
-        // a & (b | c) => (a & b) | (a & c)
-        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
-            query: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: TemplateVar::new(1).into(),
-                rhs: BinOpTemplate {
+        let rule_set = RewriteRuleSet::from_rules([
+            // (x & 0) => 0
+            RewriteRuleParams {
+                query: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: 0.into(),
+                }
+                .into(),
+                rewrite: 0.into(),
+                keep_original: false,
+                bi_directional: false,
+            },
+            // a & (b | c) => (a & b) | (a & c)
+            RewriteRuleParams {
+                query: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: BinOpTemplate {
+                        kind: BinOpKind::Or,
+                        lhs: TemplateVar::new(2).into(),
+                        rhs: TemplateVar::new(3).into(),
+                    }
+                    .into(),
+                }
+                .into(),
+                rewrite: BinOpTemplate {
                     kind: BinOpKind::Or,
-                    lhs: TemplateVar::new(2).into(),
+                    lhs: BinOpTemplate {
+                        kind: BinOpKind::And,
+                        lhs: TemplateVar::new(1).into(),
+                        rhs: TemplateVar::new(2).into(),
+                    }
+                    .into(),
+                    rhs: BinOpTemplate {
+                        kind: BinOpKind::And,
+                        lhs: TemplateVar::new(1).into(),
+                        rhs: TemplateVar::new(3).into(),
+                    }
+                    .into(),
+                }
+                .into(),
+                keep_original: true,
+                bi_directional: true,
+            },
+            // a & (b & c) => (a & b) & c
+            RewriteRuleParams {
+                query: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: BinOpTemplate {
+                        kind: BinOpKind::And,
+                        lhs: TemplateVar::new(2).into(),
+                        rhs: TemplateVar::new(3).into(),
+                    }
+                    .into(),
+                }
+                .into(),
+                rewrite: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: BinOpTemplate {
+                        kind: BinOpKind::And,
+                        lhs: TemplateVar::new(1).into(),
+                        rhs: TemplateVar::new(2).into(),
+                    }
+                    .into(),
                     rhs: TemplateVar::new(3).into(),
                 }
                 .into(),
-            }
-            .into(),
-            rewrite: BinOpTemplate {
-                kind: BinOpKind::Or,
-                lhs: BinOpTemplate {
+                keep_original: true,
+                bi_directional: true,
+            },
+            // a & b => b & a
+            RewriteRuleParams {
+                query: BinOpTemplate {
                     kind: BinOpKind::And,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateVar::new(2).into(),
                 }
                 .into(),
-                rhs: BinOpTemplate {
-                    kind: BinOpKind::And,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(3).into(),
-                }
-                .into(),
-            }
-            .into(),
-            keep_original: true,
-        }));
-
-        // a & (b & c) => (a & b) & c
-        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
-            query: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: TemplateVar::new(1).into(),
-                rhs: BinOpTemplate {
+                rewrite: BinOpTemplate {
                     kind: BinOpKind::And,
                     lhs: TemplateVar::new(2).into(),
-                    rhs: TemplateVar::new(3).into(),
+                    rhs: TemplateVar::new(1).into(),
                 }
                 .into(),
-            }
-            .into(),
-            rewrite: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: BinOpTemplate {
-                    kind: BinOpKind::And,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(2).into(),
-                }
-                .into(),
-                rhs: TemplateVar::new(3).into(),
-            }
-            .into(),
-            keep_original: true,
-        }));
-
-        // a & b => b & a
-        egraph.apply_rule(&RewriteRule::new(RewriteRuleParams {
-            query: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: TemplateVar::new(1).into(),
-                rhs: TemplateVar::new(2).into(),
-            }
-            .into(),
-            rewrite: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: TemplateVar::new(2).into(),
-                rhs: TemplateVar::new(1).into(),
-            }
-            .into(),
-            keep_original: true,
-        }));
+                keep_original: true,
+                bi_directional: true,
+            },
+        ]);
 
         std::fs::write("/tmp/graph.dot", egraph.to_dot()).unwrap();
 
