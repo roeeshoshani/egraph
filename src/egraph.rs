@@ -100,6 +100,26 @@ impl ENodeHashTable {
     }
 }
 
+/// enode deduplication information when adding an enode
+#[derive(Debug, PartialEq, Eq)]
+pub enum ENodeDedupInfo {
+    /// the added enode is a new enode that we previously didn't have in our egraph.
+    New,
+
+    /// the added enode is a duplicate of an existing enode that we already have in the egraph.
+    Duplicate,
+}
+
+/// the result of adding an enode to the egraph
+#[derive(Debug)]
+pub struct AddENodeRes {
+    /// the eclass id of the new enode
+    pub eclass_id: EClassId,
+
+    /// the deduplication info of the added enode
+    pub dedup_info: ENodeDedupInfo,
+}
+
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
     enodes_union_find: UnionFind<ENode>,
@@ -119,28 +139,38 @@ impl EGraph {
     }
 
     /// adds an enode to the egraph and returns the eclass id which contains it.
-    pub fn add_enode(&mut self, enode: ENode) -> EClassId {
+    pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
         let entry = self
             .enodes_hash_table
             .entry(&enode, &self.enodes_union_find);
 
-        let enode_id = match entry {
-            Entry::Occupied(entry) => entry.get().id,
+        match entry {
+            Entry::Occupied(entry) => AddENodeRes {
+                eclass_id: EClassId {
+                    enode_id: entry.get().id,
+                },
+                dedup_info: ENodeDedupInfo::Duplicate,
+            },
             Entry::Vacant(entry) => {
                 let enode_id = ENodeId(self.enodes_union_find.create_new_item(enode.clone()));
                 entry.insert(ENodeHashTableEntry {
                     enode,
                     id: enode_id,
                 });
-                enode_id
+                AddENodeRes {
+                    eclass_id: EClassId { enode_id },
+                    dedup_info: ENodeDedupInfo::New,
+                }
             }
-        };
-
-        EClassId { enode_id }
+        }
     }
 
     /// replaces the enode with the given enode id with the given new enode.
-    pub fn replace_enode(&mut self, enode_id_to_replace: ENodeId, replace_with: ENode) {
+    pub fn replace_enode(
+        &mut self,
+        enode_id_to_replace: ENodeId,
+        replace_with: ENode,
+    ) -> AddENodeRes {
         let entry = self
             .enodes_hash_table
             .entry(&replace_with, &self.enodes_union_find);
@@ -157,12 +187,15 @@ impl EGraph {
                 //
                 // so, if we make sure that no existing node points to the original enode, and then we orphan it, then it will
                 // become practically inaccessible, which is equivalent to removing it.
-                let new_id = entry.get().id;
+                let new_enode_id = entry.get().id;
+                let new_eclass_id = EClassId {
+                    enode_id: new_enode_id,
+                };
                 for item in self.enodes_union_find.items_mut() {
                     *item = item.convert_link(|link| {
                         if link.enode_id == enode_id_to_replace {
                             // if this link points to the enode that we want to replace, make it point to the new id instead
-                            EClassId { enode_id: new_id }
+                            new_eclass_id
                         } else {
                             *link
                         }
@@ -179,6 +212,11 @@ impl EGraph {
                     unreachable!();
                 };
                 orig_entry.remove();
+
+                AddENodeRes {
+                    eclass_id: new_eclass_id,
+                    dedup_info: ENodeDedupInfo::Duplicate,
+                }
             }
             Entry::Vacant(entry) => {
                 // the new enode is not a duplicate of an existing node. in this case, we can just re-use the enode id of the original
@@ -204,16 +242,26 @@ impl EGraph {
                     unreachable!();
                 };
                 orig_entry.remove();
+
+                AddENodeRes {
+                    eclass_id: EClassId {
+                        enode_id: enode_id_to_replace,
+                    },
+                    dedup_info: ENodeDedupInfo::New,
+                }
             }
-        };
+        }
     }
 
-    pub fn add_rec_node(&mut self, rec_node: &RecNode) -> EClassId {
-        let graph_node = rec_node.0.convert_link(|link| self.add_rec_node(link));
+    pub fn add_rec_node(&mut self, rec_node: &RecNode) -> AddENodeRes {
+        let graph_node = rec_node
+            .0
+            .convert_link(|link| self.add_rec_node(link).eclass_id);
         self.add_enode(graph_node)
     }
 
-    pub fn apply_rule(&mut self, rule: &RewriteRule) {
+    /// returns whether applying the rule actually added any new information to the egraph.
+    pub fn apply_rule(&mut self, rule: &RewriteRule) -> bool {
         let matcher = Matcher {
             union_find: &self.enodes_union_find,
         };
@@ -236,10 +284,12 @@ impl EGraph {
                 !matching_state_storage.matches.is_empty()
             })
         else {
-            return;
+            return false;
         };
 
         let matched_enode_id = matched_entry.id;
+
+        let mut did_anything = false;
 
         // for each match, add the rerwrite result to the egraph
         let matches_amount = matching_state_storage.matches.len();
@@ -251,14 +301,22 @@ impl EGraph {
             if is_last_match_obj && !rule.keep_original {
                 // if we are the last match, and the rule doesn't want to keep the original, then we should overwrite the
                 // original enode.
-                self.replace_enode(matched_enode_id, new_enode);
+                let replace_res = self.replace_enode(matched_enode_id, new_enode);
+                if replace_res.dedup_info == ENodeDedupInfo::New {
+                    did_anything = true;
+                }
             } else {
                 // just add the new enode and union it with the original enode
-                let new_eclass_id = self.add_enode(new_enode);
+                let add_res = self.add_enode(new_enode);
                 self.enodes_union_find
-                    .union(new_eclass_id.enode_id.0, matched_enode_id.0);
+                    .union(add_res.eclass_id.enode_id.0, matched_enode_id.0);
+                if add_res.dedup_info == ENodeDedupInfo::New {
+                    did_anything = true;
+                }
             }
         }
+
+        did_anything
     }
 
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
@@ -273,7 +331,7 @@ impl EGraph {
         template.convert_link(|template_link| match template_link {
             TemplateLink::Specific(inner_template) => {
                 let enode = self.instantiate_enode_template(inner_template, rule_storage);
-                self.add_enode(enode)
+                self.add_enode(enode).eclass_id
             }
             TemplateLink::Var(template_var) => {
                 let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
@@ -603,61 +661,69 @@ mod tests {
     fn test_dedup_basic() {
         let mut egraph = EGraph::new();
         let enode = ENode::Var(Var(5));
-        let id1 = egraph.add_enode(enode.clone());
-        let id2 = egraph.add_enode(enode.clone());
-        assert_eq!(id1.enode_id, id2.enode_id);
+        let res1 = egraph.add_enode(enode.clone());
+        let res2 = egraph.add_enode(enode.clone());
+        assert_eq!(res1.dedup_info, ENodeDedupInfo::New);
+        assert_eq!(res2.dedup_info, ENodeDedupInfo::Duplicate);
+        assert_eq!(res1.eclass_id.enode_id, res2.eclass_id.enode_id);
         assert_eq!(egraph.enodes_union_find.len(), 1);
     }
 
     #[test]
     fn test_dedup_nested() {
         let mut egraph = EGraph::new();
-        let var1 = egraph.add_enode(ENode::Var(Var(1)));
-        let var2 = egraph.add_enode(ENode::Var(Var(2)));
+        let var1_res = egraph.add_enode(ENode::Var(Var(1)));
+        let var2_res = egraph.add_enode(ENode::Var(Var(2)));
 
         let enode = ENode::BinOp(BinOp {
             kind: BinOpKind::Add,
-            lhs: var1,
-            rhs: var2,
+            lhs: var1_res.eclass_id,
+            rhs: var2_res.eclass_id,
         });
 
-        let id1 = egraph.add_enode(enode.clone());
+        let res1 = egraph.add_enode(enode.clone());
 
         // add something in between just to add some noise
-        let var3 = egraph.add_enode(ENode::Var(Var(3)));
+        let var3_res = egraph.add_enode(ENode::Var(Var(3)));
 
         // re-add the same enode
-        let id2 = egraph.add_enode(enode.clone());
+        let res2 = egraph.add_enode(enode.clone());
 
         // make sure that it got de-duplicated
-        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(res1.dedup_info, ENodeDedupInfo::New);
+        assert_eq!(res2.dedup_info, ENodeDedupInfo::Duplicate);
+        assert_eq!(res1.eclass_id.enode_id, res2.eclass_id.enode_id);
         assert_eq!(egraph.enodes_union_find.len(), 4);
 
         // now do some more
         let enode = ENode::UnOp(UnOp {
             kind: UnOpKind::Neg,
-            operand: var1,
+            operand: var1_res.eclass_id,
         });
 
-        let id1 = egraph.add_enode(enode.clone());
-        let id2 = egraph.add_enode(enode.clone());
+        let res1 = egraph.add_enode(enode.clone());
+        let res2 = egraph.add_enode(enode.clone());
 
         // make sure that it got de-duplicated
-        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(res1.dedup_info, ENodeDedupInfo::New);
+        assert_eq!(res2.dedup_info, ENodeDedupInfo::Duplicate);
+        assert_eq!(res1.eclass_id.enode_id, res2.eclass_id.enode_id);
         assert_eq!(egraph.enodes_union_find.len(), 5);
 
         // even more
         let enode = ENode::BinOp(BinOp {
             kind: BinOpKind::Mul,
-            lhs: var3,
-            rhs: var2,
+            lhs: var3_res.eclass_id,
+            rhs: var2_res.eclass_id,
         });
 
-        let id1 = egraph.add_enode(enode.clone());
-        let id2 = egraph.add_enode(enode.clone());
+        let res1 = egraph.add_enode(enode.clone());
+        let res2 = egraph.add_enode(enode.clone());
 
         // make sure that it got de-duplicated
-        assert_eq!(id1.enode_id, id2.enode_id);
+        assert_eq!(res1.dedup_info, ENodeDedupInfo::New);
+        assert_eq!(res2.dedup_info, ENodeDedupInfo::Duplicate);
+        assert_eq!(res1.eclass_id.enode_id, res2.eclass_id.enode_id);
         assert_eq!(egraph.enodes_union_find.len(), 6);
     }
 
