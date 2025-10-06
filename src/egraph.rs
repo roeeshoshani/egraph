@@ -336,6 +336,8 @@ impl EGraph {
                 let label = format!("{:?}", self.enodes_union_find[other_enode_id]);
                 writeln!(&mut out, "    {} [label=\"{}\"];", enode_id_str, label).unwrap();
             }
+
+            out.push_str("  }\n");
         }
 
         // edges from each enode to target e-class clusters
