@@ -761,7 +761,6 @@ mod tests {
         .into();
 
         let mut egraph = EGraph::from_rec_node(&rec_node);
-        dbg!(&egraph);
 
         let rule_set = RewriteRuleSet::from_rules([
             // (x & 0) => 0
@@ -856,7 +855,10 @@ mod tests {
 
         std::fs::write("/tmp/graph.dot", egraph.to_dot()).unwrap();
 
-        dbg!(&egraph);
+        egraph.apply_rule_set(&rule_set);
+
+        std::fs::write("/tmp/graph2.dot", egraph.to_dot()).unwrap();
+
         panic!();
     }
 }
