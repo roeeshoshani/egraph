@@ -355,8 +355,8 @@ impl EGraph {
                     let target_eclass_id_str = eclass_id_to_str(target_eclass_id);
                     writeln!(
                         &mut out,
-                        "  {} -> c_{} [ltail=cluster_{}, lhead=cluster_{}];",
-                        enode_id_str, target_eclass_id_str, eclass_id_str, target_eclass_id_str
+                        "  {} -> c_{} [lhead=cluster_{}];",
+                        enode_id_str, target_eclass_id_str, target_eclass_id_str
                     )
                     .unwrap();
                 }
