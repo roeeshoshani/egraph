@@ -883,11 +883,11 @@ mod tests {
             },
         ]);
 
-        std::fs::write("/tmp/graph.dot", egraph.to_dot()).unwrap();
+        std::fs::write("./graph.dot", egraph.to_dot()).unwrap();
 
         egraph.apply_rule_set(&rule_set);
 
-        std::fs::write("/tmp/graph2.dot", egraph.to_dot()).unwrap();
+        std::fs::write("./graph2.dot", egraph.to_dot()).unwrap();
 
         panic!();
     }
