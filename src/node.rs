@@ -1,86 +1,18 @@
-use arrayvec::ArrayVec;
-use derive_more::From;
-use enum_display::EnumDisplay;
+use std::ops::Index;
 
-use crate::array_vec;
+pub trait NodeProvider {
+    type Node<L>: Clone + std::fmt::Debug + std::hash::Hash + PartialEq + Eq;
 
-pub const NODE_MAX_LINKS: usize = 2;
-pub type NodeLinks<'a, L> = ArrayVec<&'a L, NODE_MAX_LINKS>;
+    type NodeLinks<'a, L: 'a>: Iterator<Item = &'a L>
+        + ExactSizeIterator
+        + Index<usize, Output = &'a L>;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Imm(pub u64);
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Var(pub u64);
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
-pub enum BinOpKind {
-    #[display("+")]
-    Add,
-    #[display("*")]
-    Mul,
-    #[display("&")]
-    And,
-    #[display("|")]
-    Or,
-}
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct BinOp<L> {
-    pub kind: BinOpKind,
-    pub lhs: L,
-    pub rhs: L,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
-pub enum UnOpKind {
-    #[display("-")]
-    Neg,
-    #[display("!")]
-    Not,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct UnOp<L> {
-    pub kind: UnOpKind,
-    pub operand: L,
-}
-
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub enum GenericNode<L> {
-    Imm(Imm),
-    Var(Var),
-    BinOp(BinOp<L>),
-    UnOp(UnOp<L>),
-}
-impl<L> From<u64> for GenericNode<L> {
-    fn from(value: u64) -> Self {
-        Imm(value).into()
-    }
-}
-impl<L> GenericNode<L> {
-    pub fn convert_link<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
+    fn convert_link<L1, L2, F>(node: &Self::Node<L1>, f: F) -> Self::Node<L2>
     where
-        F: FnMut(&L) -> L2,
-    {
-        match self {
-            GenericNode::Imm(imm) => GenericNode::Imm(*imm),
-            GenericNode::Var(var) => GenericNode::Var(*var),
-            GenericNode::BinOp(BinOp { kind, lhs, rhs }) => GenericNode::BinOp(BinOp {
-                kind: *kind,
-                lhs: conversion(lhs),
-                rhs: conversion(rhs),
-            }),
-            GenericNode::UnOp(UnOp { kind, operand }) => GenericNode::UnOp(UnOp {
-                kind: *kind,
-                operand: conversion(operand),
-            }),
-        }
-    }
-    pub fn links(&self) -> NodeLinks<'_, L> {
-        match self {
-            GenericNode::BinOp(bin_op) => array_vec![&bin_op.lhs, &bin_op.rhs],
-            GenericNode::UnOp(un_op) => array_vec![&un_op.operand],
-            _ => array_vec![],
-        }
-    }
+        F: FnMut(&L1) -> L2,
+        Self::Node<()>: std::hash::Hash;
+
+    fn links<L>(node: &Self::Node<L>) -> Self::NodeLinks<'_, L>;
+
+    fn dot_graph_label<L>(node: &Self::Node<L>) -> String;
 }

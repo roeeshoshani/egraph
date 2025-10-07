@@ -1,23 +1,11 @@
-use crate::node::{BinOp, GenericNode, UnOp};
+use derivative::Derivative;
 
-#[derive(Debug, Clone)]
-pub struct RecNode(pub GenericNode<Box<RecNode>>);
-impl<T> From<T> for RecNode
-where
-    GenericNode<Box<RecNode>>: From<T>,
-{
-    fn from(value: T) -> Self {
-        Self(value.into())
-    }
-}
-pub type RecBinOp = BinOp<Box<RecNode>>;
-pub type RecUnOp = UnOp<Box<RecNode>>;
+use crate::NodeProvider;
 
-impl<T> From<T> for Box<RecNode>
-where
-    GenericNode<Box<RecNode>>: From<T>,
-{
-    fn from(value: T) -> Self {
-        Self::new(value.into())
-    }
-}
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""))]
+#[derivative(Debug(bound = ""))]
+#[derivative(PartialEq(bound = ""))]
+#[derivative(Eq(bound = ""))]
+#[derivative(Hash(bound = ""))]
+pub struct RecNode<N: NodeProvider>(pub N::Node<Box<RecNode<N>>>);

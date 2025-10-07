@@ -1,5 +1,7 @@
 use std::num::NonZeroUsize;
 
+use derivative::Derivative;
+
 use crate::*;
 
 /// a variable in a template enode
@@ -21,53 +23,48 @@ impl TemplateVar {
 
 /// a link in a template enode.
 #[derive(Debug, Clone)]
-pub enum TemplateLink {
-    Specific(Box<ENodeTemplate>),
+pub enum TemplateLink<N: NodeProvider> {
+    Specific(Box<ENodeTemplate<N>>),
     Var(TemplateVar),
 }
-impl From<TemplateVar> for TemplateLink {
+impl<N: NodeProvider> From<TemplateVar> for TemplateLink<N> {
     fn from(x: TemplateVar) -> Self {
         Self::Var(x)
     }
 }
-impl<T> From<T> for TemplateLink
-where
-    ENodeTemplate: From<T>,
-{
-    fn from(x: T) -> Self {
-        Self::Specific(Box::new(x.into()))
-    }
-}
-
-pub type BinOpTemplate = BinOp<TemplateLink>;
-pub type UnOpTemplate = UnOp<TemplateLink>;
 
 /// an enode template.
-pub type ENodeTemplate = GenericNode<TemplateLink>;
-impl ENodeTemplate {
-    fn max_template_var_id(&self) -> Option<NonZeroUsize> {
-        self.links()
-            .into_iter()
-            .filter_map(|link| match link {
-                TemplateLink::Specific(generic_node) => generic_node.max_template_var_id(),
-                TemplateLink::Var(template_var) => Some(template_var.id),
-            })
-            .max()
-    }
-    fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
-        self.links().into_iter().any(|link| match link {
-            TemplateLink::Specific(generic_node) => {
-                generic_node.does_use_template_var(template_var)
-            }
-            TemplateLink::Var(cur_template_var) => *cur_template_var == template_var,
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""))]
+#[derivative(Debug(bound = ""))]
+pub struct ENodeTemplate<N: NodeProvider>(pub N::Node<TemplateLink<N>>);
+fn enode_template_max_template_var_id<N: NodeProvider>(
+    template: &ENodeTemplate<N>,
+) -> Option<NonZeroUsize> {
+    N::links(&template.0)
+        .into_iter()
+        .filter_map(|link| match link {
+            TemplateLink::Specific(node) => enode_template_max_template_var_id::<N>(node),
+            TemplateLink::Var(template_var) => Some(template_var.id),
         })
-    }
+        .max()
+}
+fn enode_template_does_use_template_var<N: NodeProvider>(
+    template: &ENodeTemplate<N>,
+    template_var: TemplateVar,
+) -> bool {
+    N::links(&template.0).into_iter().any(|link| match link {
+        TemplateLink::Specific(node) => {
+            enode_template_does_use_template_var::<N>(node, template_var)
+        }
+        TemplateLink::Var(cur_template_var) => *cur_template_var == template_var,
+    })
 }
 
 #[derive(Debug, Clone)]
-pub struct RewriteRuleParams {
-    pub query: ENodeTemplate,
-    pub rewrite: ENodeTemplate,
+pub struct RewriteRuleParams<N: NodeProvider> {
+    pub query: ENodeTemplate<N>,
+    pub rewrite: ENodeTemplate<N>,
 
     /// should we keep the original enode after the rule has been applied to it?
     pub keep_original: bool,
@@ -76,16 +73,18 @@ pub struct RewriteRuleParams {
     pub bi_directional: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct RewriteRule {
-    pub query: ENodeTemplate,
-    pub rewrite: ENodeTemplate,
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""))]
+#[derivative(Debug(bound = ""))]
+pub struct RewriteRule<N: NodeProvider> {
+    pub query: ENodeTemplate<N>,
+    pub rewrite: ENodeTemplate<N>,
 
     /// should we keep the original enode after the rule has been applied to it?
     pub keep_original: bool,
 }
-impl RewriteRule {
-    pub fn new(query: ENodeTemplate, rewrite: ENodeTemplate, keep_original: bool) -> Self {
+impl<N: NodeProvider> RewriteRule<N> {
+    pub fn new(query: ENodeTemplate<N>, rewrite: ENodeTemplate<N>, keep_original: bool) -> Self {
         let res = Self {
             query,
             rewrite,
@@ -97,23 +96,28 @@ impl RewriteRule {
 
     // checks that this re-write rule even makes sense to exist.
     fn check(&self) {
-        match self.query.max_template_var_id() {
+        match enode_template_max_template_var_id::<N>(&self.query) {
             Some(max_var_id) => {
                 // the query uses some variables
 
                 // make sure that there are no gaps in the variable ids
                 for i in 1..=max_var_id.get() {
-                    let does_use_var = self.query.does_use_template_var(TemplateVar {
-                        id: unsafe {
-                            // SAFETY: we start iterating from 1
-                            NonZeroUsize::new_unchecked(i)
+                    let does_use_var = enode_template_does_use_template_var::<N>(
+                        &self.query,
+                        TemplateVar {
+                            id: unsafe {
+                                // SAFETY: we start iterating from 1
+                                NonZeroUsize::new_unchecked(i)
+                            },
                         },
-                    });
+                    );
                     assert!(does_use_var);
                 }
 
                 // make sure that the re-write doesn't use variables that don't exist in the query
-                if let Some(rewrite_max_var_id) = self.rewrite.max_template_var_id() {
+                if let Some(rewrite_max_var_id) =
+                    enode_template_max_template_var_id::<N>(&self.rewrite)
+                {
                     assert!(rewrite_max_var_id <= max_var_id)
                 }
             }
@@ -121,7 +125,7 @@ impl RewriteRule {
                 // the query doesn't use any values
 
                 // make sure that the re-write also doesn't use any variables
-                assert_eq!(self.rewrite.max_template_var_id(), None);
+                assert_eq!(enode_template_max_template_var_id::<N>(&self.rewrite), None);
             }
         }
     }
@@ -137,7 +141,7 @@ impl RewriteRule {
         // sense, since it will just make the egraph go back and forth between two representations, which is completely pointless.
         assert!(self.keep_original);
 
-        match self.query.max_template_var_id() {
+        match enode_template_max_template_var_id::<N>(&self.query) {
             Some(max_var_id) => {
                 // the query uses some variables
 
@@ -149,8 +153,11 @@ impl RewriteRule {
                             NonZeroUsize::new_unchecked(i)
                         },
                     };
-                    assert!(self.query.does_use_template_var(var));
-                    assert!(self.rewrite.does_use_template_var(var));
+                    assert!(enode_template_does_use_template_var::<N>(&self.query, var));
+                    assert!(enode_template_does_use_template_var::<N>(
+                        &self.rewrite,
+                        var
+                    ));
                 }
             }
             None => {
@@ -207,15 +214,15 @@ impl RewriteRuleStorage {
 }
 
 #[derive(Debug, Clone)]
-pub struct RewriteRuleSet {
-    rules: Vec<RewriteRule>,
+pub struct RewriteRuleSet<N: NodeProvider> {
+    rules: Vec<RewriteRule<N>>,
 }
-impl RewriteRuleSet {
+impl<N: NodeProvider> RewriteRuleSet<N> {
     pub fn new() -> Self {
         Self { rules: Vec::new() }
     }
 
-    pub fn add(&mut self, rule: RewriteRuleParams) {
+    pub fn add(&mut self, rule: RewriteRuleParams<N>) {
         let basic_rule = RewriteRule::new(rule.query, rule.rewrite, rule.keep_original);
 
         self.rules.push(basic_rule.clone());
@@ -227,7 +234,7 @@ impl RewriteRuleSet {
 
     pub fn add_multiple<I>(&mut self, rules: I)
     where
-        I: IntoIterator<Item = RewriteRuleParams>,
+        I: IntoIterator<Item = RewriteRuleParams<N>>,
     {
         for rule in rules {
             self.add(rule);
@@ -236,14 +243,14 @@ impl RewriteRuleSet {
 
     pub fn from_rules<I>(rules: I) -> Self
     where
-        I: IntoIterator<Item = RewriteRuleParams>,
+        I: IntoIterator<Item = RewriteRuleParams<N>>,
     {
         let mut res = Self::new();
         res.add_multiple(rules);
         res
     }
 
-    pub fn rules(&self) -> &[RewriteRule] {
+    pub fn rules(&self) -> &[RewriteRule<N>] {
         &self.rules
     }
 }
