@@ -262,46 +262,46 @@ impl EGraph {
 
     /// returns whether applying the rule actually added any new information to the egraph.
     pub fn apply_rule(&mut self, rule: &RewriteRule) -> bool {
-        let matcher = Matcher {
-            union_find: &self.enodes_union_find,
-        };
-        let mut matching_state_storage = MatchingStateStorage::new();
-
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
+        let mut enode_matches = Vec::new();
+
         // find the first enode that matches the rule.
-        let Some(matched_entry) = self
-            .enodes_hash_table
-            .table
-            .iter_hash_mut(hash)
-            .find(|entry| {
-                // match the current enode
-                matcher.match_enode_to_enode_template(
-                    &entry.enode,
-                    &rule.query,
-                    &mut matching_state_storage.get_state(),
-                );
-                !matching_state_storage.matches.is_empty()
-            })
-        else {
-            return false;
-        };
+        for entry in self.enodes_hash_table.table.iter_hash(hash) {
+            let mut matching_state_storage = MatchingStateStorage::new();
 
-        let matched_enode_id = matched_entry.id;
+            // match the current enode
+            self.match_enode_to_enode_template(
+                &entry.enode,
+                &rule.query,
+                &mut matching_state_storage.get_state(),
+            );
 
+            enode_matches.extend(matching_state_storage.matches.into_iter().map(|match_obj| {
+                ENodeMatch {
+                    match_obj,
+                    enode_id: entry.id,
+                }
+            }));
+        }
+
+        self.handle_enode_matches(&enode_matches, rule)
+    }
+
+    fn handle_enode_matches(&mut self, enode_matches: &[ENodeMatch], rule: &RewriteRule) -> bool {
         let mut did_anything = false;
 
+        let mut overwritten_enode_ids = HashSet::new();
+
         // for each match, add the rerwrite result to the egraph
-        let matches_amount = matching_state_storage.matches.len();
-        for (i, match_obj) in matching_state_storage.matches.into_iter().enumerate() {
-            let is_last_match_obj = i + 1 == matches_amount;
+        for enode_match in enode_matches {
+            let new_enode =
+                self.instantiate_enode_template(&rule.rewrite, &enode_match.match_obj.rule_storage);
 
-            let new_enode = self.instantiate_enode_template(&rule.rewrite, &match_obj.rule_storage);
-
-            if is_last_match_obj && !rule.keep_original {
-                // if we are the last match, and the rule doesn't want to keep the original, then we should overwrite the
-                // original enode.
-                let replace_res = self.replace_enode(matched_enode_id, new_enode);
+            // if rule doesn't want to keep the original, then we should overwrite the original enode.
+            // but, we only want to overwrite the original enode once, so we track which enodes were already overwritten.
+            if !rule.keep_original && overwritten_enode_ids.insert(enode_match.enode_id.0) {
+                let replace_res = self.replace_enode(enode_match.enode_id, new_enode);
                 if replace_res.dedup_info == ENodeDedupInfo::New {
                     did_anything = true;
                 }
@@ -309,7 +309,7 @@ impl EGraph {
                 // just add the new enode and union it with the original enode
                 let add_res = self.add_enode(new_enode);
                 self.enodes_union_find
-                    .union(add_res.eclass_id.enode_id.0, matched_enode_id.0);
+                    .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
                 if add_res.dedup_info == ENodeDedupInfo::New {
                     did_anything = true;
                 }
@@ -317,6 +317,181 @@ impl EGraph {
         }
 
         did_anything
+    }
+
+    fn match_enode_to_enode_template(
+        &self,
+        enode: &ENode,
+        template: &ENodeTemplate,
+        state: &mut MatchingState,
+    ) {
+        // first, perform structural comparison on everything other than the link
+        if enode.convert_link(|_| ()) != template.convert_link(|_| ()) {
+            // no match
+            return;
+        }
+
+        // now compare the links
+        let enode_links = enode.links();
+        let template_links = template.links();
+
+        if enode_links.len() != template_links.len() {
+            // no match
+            return;
+        }
+
+        let links_amount = enode_links.len();
+
+        if links_amount == 0 {
+            // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
+            state.matches.push(Match {
+                rule_storage: state.rule_storage.clone(),
+            });
+            return;
+        }
+
+        // now match the links.
+        //
+        // this part is a little complicated, i'll explain it as best as i can.
+        //
+        // whenever we encounter a link, due to links pointing to eclasses and not enodes, each link can match multiple enodes.
+        // if we ignore template vars for a moment, this essentially means that we want a cartesian product over the matches of
+        // each of the links to generate the final list of matches.
+        //
+        // for example, if the first link had matches [A, B], and the second link had matches [C, D], then in practice we can build
+        // 4 different structures that match the rule: (A, C), (A, D), (B, C), (B, D).
+        //
+        // now let's consider what happens when template vars are added.
+        // template vars require that when matching a link, we take into account the variable values inherited from the previous link.
+        // but, the previous link could have had multiple matches, each with its own variable binding.
+        // so, for each match in the previous link, we want to try to match the current link, but taking into account the variable
+        // bindings of the match in the previous link.
+        //
+        // this will still result in somewhat of a cartesian product, but this time, some of the options will be omitted due to not
+        // matching the variables.
+        //
+        // so, in each iteration, we first start with all matches from the previous link, which are by themselves a cartesian product
+        // of the previous link's matches with the matches of the links before it.
+        // then, we try to match each of them against each enode that matches the current link, which generates a new cartesian product
+        // of the initial list of matches with the list of matches of the current link.
+        // then we use the generated list for the next iteration.
+        //
+        // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
+        let mut cur_matches: Vec<Match> = vec![Match {
+            rule_storage: state.rule_storage.clone(),
+        }];
+        let mut new_matches: Vec<Match> = Vec::new();
+        for cur_link_idx in 0..links_amount {
+            // the current template link
+            let template_link = template_links[cur_link_idx];
+
+            // the eclass that the current enode link points to
+            let enode_link_eclass = *enode_links[cur_link_idx];
+
+            // we want a cartesian product over matches from previous links, so try matching the link for each previous match
+            for cur_match in &cur_matches {
+                let mut new_matching_state = MatchingState {
+                    rule_storage: &cur_match.rule_storage,
+                    matches: &mut new_matches,
+                };
+                self.match_eclass_to_template_link(
+                    enode_link_eclass,
+                    template_link,
+                    &mut new_matching_state,
+                );
+            }
+
+            // new matches now contains the new cartesian product over the current link with all of its previous link.
+            //
+            // we want to use this new list of matches for matching the next link.
+            //
+            // so basically we want to set `cur_matches` to `new_matches`, and to clear `new_matches` in preparation for the next
+            // iteration.
+            //
+            // but, doing this will lose the storage that was already allocated in the `cur_matches` vector, which we will then have
+            // to re-allocate when re-building the `new_matches` list.
+            //
+            // so, instead, we perform a swap to keep both allocations.
+            std::mem::swap(&mut cur_matches, &mut new_matches);
+
+            // after the swap, `cur_matches` contains the value of `new_matches`, which is the list of matches that we just generated.
+            // and, `new_matches` now contains the value of `cur_matches`, which is the matches from the previous link.
+            // we no longer need the matches from the previous link, and each iteration assumes that `new_matches` is empty at the start
+            // of the iteration, so clear the vector.
+            new_matches.clear();
+        }
+
+        // the final value of `cur_matches` contains the final cartesian product of matches, which is what we want to return.
+        // so, copy it out.
+        state.matches.append(&mut cur_matches);
+    }
+
+    fn match_eclass_to_template_link(
+        &self,
+        eclass: EClassId,
+        template_link: &TemplateLink,
+        state: &mut MatchingState,
+    ) {
+        match template_link {
+            TemplateLink::Specific(enode_template) => {
+                self.match_eclass_to_specific_template_link(eclass, enode_template, state);
+            }
+            TemplateLink::Var(template_var) => {
+                self.match_eclass_to_template_var(eclass, *template_var, state);
+            }
+        }
+    }
+
+    fn match_eclass_to_template_var(
+        &self,
+        eclass: EClassId,
+        template_var: TemplateVar,
+        state: &mut MatchingState,
+    ) {
+        let effective_eclass_id = eclass.to_effective(&self.enodes_union_find);
+        match state.rule_storage.template_var_values.get(template_var) {
+            Some(existing_var_value) => {
+                if effective_eclass_id != existing_var_value.effective_eclass_id {
+                    // no match
+                    return;
+                }
+
+                // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
+                state.matches.push(Match {
+                    rule_storage: state.rule_storage.clone(),
+                });
+            }
+            None => {
+                // the variable currently doesn't have any value, so we can bind it and consider it a match.
+                let mut new_rule_storage = state.rule_storage.clone();
+                new_rule_storage.template_var_values.set(
+                    template_var,
+                    TemplateVarValue {
+                        eclass,
+                        effective_eclass_id,
+                    },
+                );
+                state.matches.push(Match {
+                    rule_storage: new_rule_storage,
+                });
+            }
+        }
+    }
+
+    fn match_eclass_to_specific_template_link(
+        &self,
+        eclass: EClassId,
+        template: &ENodeTemplate,
+        state: &mut MatchingState,
+    ) {
+        // iterate all enodes in the eclass
+        for enode_item_id in self
+            .enodes_union_find
+            .items_eq_to_including_self(eclass.enode_id.0)
+        {
+            let enode = &self.enodes_union_find[enode_item_id];
+            self.match_enode_to_enode_template(enode, template, state);
+        }
     }
 
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
@@ -456,6 +631,12 @@ struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
 
+#[derive(Debug, Clone)]
+struct ENodeMatch {
+    pub match_obj: Match,
+    pub enode_id: ENodeId,
+}
+
 struct MatchingStateStorage {
     rule_storage: RewriteRuleStorage,
     matches: Vec<Match>,
@@ -479,186 +660,6 @@ impl MatchingStateStorage {
 struct MatchingState<'a> {
     rule_storage: &'a RewriteRuleStorage,
     matches: &'a mut Vec<Match>,
-}
-
-struct Matcher<'a> {
-    union_find: &'a UnionFind<ENode>,
-}
-impl<'a> Matcher<'a> {
-    fn match_enode_to_enode_template(
-        &self,
-        enode: &ENode,
-        template: &ENodeTemplate,
-        state: &mut MatchingState,
-    ) {
-        // first, perform structural comparison on everything other than the link
-        if enode.convert_link(|_| ()) != template.convert_link(|_| ()) {
-            // no match
-            return;
-        }
-
-        // now compare the links
-        let enode_links = enode.links();
-        let template_links = template.links();
-
-        if enode_links.len() != template_links.len() {
-            // no match
-            return;
-        }
-
-        let links_amount = enode_links.len();
-
-        if links_amount == 0 {
-            // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
-            state.matches.push(Match {
-                rule_storage: state.rule_storage.clone(),
-            });
-            return;
-        }
-
-        // now match the links.
-        //
-        // this part is a little complicated, i'll explain it as best as i can.
-        //
-        // whenever we encounter a link, due to links pointing to eclasses and not enodes, each link can match multiple enodes.
-        // if we ignore template vars for a moment, this essentially means that we want a cartesian product over the matches of
-        // each of the links to generate the final list of matches.
-        //
-        // for example, if the first link had matches [A, B], and the second link had matches [C, D], then in practice we can build
-        // 4 different structures that match the rule: (A, C), (A, D), (B, C), (B, D).
-        //
-        // now let's consider what happens when template vars are added.
-        // template vars require that when matching a link, we take into account the variable values inherited from the previous link.
-        // but, the previous link could have had multiple matches, each with its own variable binding.
-        // so, for each match in the previous link, we want to try to match the current link, but taking into account the variable
-        // bindings of the match in the previous link.
-        //
-        // this will still result in somewhat of a cartesian product, but this time, some of the options will be omitted due to not
-        // matching the variables.
-        //
-        // so, in each iteration, we first start with all matches from the previous link, which are by themselves a cartesian product
-        // of the previous link's matches with the matches of the links before it.
-        // then, we try to match each of them against each enode that matches the current link, which generates a new cartesian product
-        // of the initial list of matches with the list of matches of the current link.
-        // then we use the generated list for the next iteration.
-        //
-        // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
-        let mut cur_matches: Vec<Match> = vec![Match {
-            rule_storage: state.rule_storage.clone(),
-        }];
-        let mut new_matches: Vec<Match> = Vec::new();
-        for cur_link_idx in 0..links_amount {
-            // the current template link
-            let template_link = template_links[cur_link_idx];
-
-            // the eclass that the current enode link points to
-            let enode_link_eclass = *enode_links[cur_link_idx];
-
-            // we want a cartesian product over matches from previous links, so try matching the link for each previous match
-            for cur_match in &cur_matches {
-                let mut new_matching_state = MatchingState {
-                    rule_storage: &cur_match.rule_storage,
-                    matches: &mut new_matches,
-                };
-                self.match_eclass_to_template_link(
-                    enode_link_eclass,
-                    template_link,
-                    &mut new_matching_state,
-                );
-            }
-
-            // new matches now contains the new cartesian product over the current link with all of its previous link.
-            //
-            // we want to use this new list of matches for matching the next link.
-            //
-            // so basically we want to set `cur_matches` to `new_matches`, and to clear `new_matches` in preparation for the next
-            // iteration.
-            //
-            // but, doing this will lose the storage that was already allocated in the `cur_matches` vector, which we will then have
-            // to re-allocate when re-building the `new_matches` list.
-            //
-            // so, instead, we perform a swap to keep both allocations.
-            std::mem::swap(&mut cur_matches, &mut new_matches);
-
-            // after the swap, `cur_matches` contains the value of `new_matches`, which is the list of matches that we just generated.
-            // and, `new_matches` now contains the value of `cur_matches`, which is the matches from the previous link.
-            // we no longer need the matches from the previous link, and each iteration assumes that `new_matches` is empty at the start
-            // of the iteration, so clear the vector.
-            new_matches.clear();
-        }
-
-        // the final value of `cur_matches` contains the final cartesian product of matches, which is what we want to return.
-        // so, copy it out.
-        state.matches.append(&mut cur_matches);
-    }
-
-    fn match_eclass_to_template_link(
-        &self,
-        eclass: EClassId,
-        template_link: &TemplateLink,
-        state: &mut MatchingState,
-    ) {
-        match template_link {
-            TemplateLink::Specific(enode_template) => {
-                self.match_eclass_to_specific_template_link(eclass, enode_template, state);
-            }
-            TemplateLink::Var(template_var) => {
-                self.match_eclass_to_template_var(eclass, *template_var, state);
-            }
-        }
-    }
-
-    fn match_eclass_to_template_var(
-        &self,
-        eclass: EClassId,
-        template_var: TemplateVar,
-        state: &mut MatchingState,
-    ) {
-        let effective_eclass_id = eclass.to_effective(self.union_find);
-        match state.rule_storage.template_var_values.get(template_var) {
-            Some(existing_var_value) => {
-                if effective_eclass_id != existing_var_value.effective_eclass_id {
-                    // no match
-                    return;
-                }
-
-                // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
-                state.matches.push(Match {
-                    rule_storage: state.rule_storage.clone(),
-                });
-            }
-            None => {
-                // the variable currently doesn't have any value, so we can bind it and consider it a match.
-                let mut new_rule_storage = state.rule_storage.clone();
-                new_rule_storage.template_var_values.set(
-                    template_var,
-                    TemplateVarValue {
-                        eclass,
-                        effective_eclass_id,
-                    },
-                );
-                state.matches.push(Match {
-                    rule_storage: new_rule_storage,
-                });
-            }
-        }
-    }
-
-    fn match_eclass_to_specific_template_link(
-        &self,
-        eclass: EClassId,
-        template: &ENodeTemplate,
-        state: &mut MatchingState,
-    ) {
-        // iterate all enodes in the eclass
-        for enode_item_id in self
-            .union_find
-            .items_eq_to_including_self(eclass.enode_id.0)
-        {
-            let enode = &self.union_find[enode_item_id];
-            self.match_enode_to_enode_template(enode, template, state);
-        }
-    }
 }
 
 #[cfg(test)]
