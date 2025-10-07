@@ -291,28 +291,17 @@ impl EGraph {
     fn handle_enode_matches(&mut self, enode_matches: &[ENodeMatch], rule: &RewriteRule) -> bool {
         let mut did_anything = false;
 
-        let mut overwritten_enode_ids = HashSet::new();
-
         // for each match, add the rerwrite result to the egraph
         for enode_match in enode_matches {
             let new_enode =
                 self.instantiate_enode_template(&rule.rewrite, &enode_match.match_obj.rule_storage);
 
-            // if rule doesn't want to keep the original, then we should overwrite the original enode.
-            // but, we only want to overwrite the original enode once, so we track which enodes were already overwritten.
-            if !rule.keep_original && overwritten_enode_ids.insert(enode_match.enode_id.0) {
-                let replace_res = self.replace_enode(enode_match.enode_id, new_enode);
-                if replace_res.dedup_info == ENodeDedupInfo::New {
-                    did_anything = true;
-                }
-            } else {
-                // just add the new enode and union it with the original enode
-                let add_res = self.add_enode(new_enode);
-                self.enodes_union_find
-                    .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
-                if add_res.dedup_info == ENodeDedupInfo::New {
-                    did_anything = true;
-                }
+            // just add the new enode and union it with the original enode
+            let add_res = self.add_enode(new_enode);
+            self.enodes_union_find
+                .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
+            if add_res.dedup_info == ENodeDedupInfo::New {
+                did_anything = true;
             }
         }
 
@@ -523,7 +512,11 @@ impl EGraph {
             };
             let res = kind.apply_to_imms(lhs_imm, rhs_imm);
 
-            self.enodes_union_find[enode_id] = GenericNode::Imm(Imm(res));
+            // add the imm and union it with the original enode
+            let add_res = self.add_enode(GenericNode::Imm(Imm(res)));
+            self.enodes_union_find
+                .union(add_res.eclass_id.enode_id.0, enode_id);
+
             did_anything = true;
         }
         did_anything
