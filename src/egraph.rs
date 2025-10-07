@@ -15,12 +15,18 @@ pub struct ENode<N: NodeProvider>(pub N::Node<EClassId>);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ENodeId(pub UnionFindItemId);
 
-// NOTE: this should NOT implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
-// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
-// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
-//
-// checking if 2 instances of this type are equal requires accessing the union find tree.
-#[derive(Debug, Clone, Copy)]
+/// an eclass id.
+///
+/// NOTE: one should NOT rely on the `Hash`, `PartialEq` and `Eq` implementations of this type due to how it is implemented.
+/// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
+/// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
+///
+/// checking if 2 instances of this type are equal requires accessing the union find tree.
+///
+/// the reason that those traits are still implemented is due limitations of the rust type system, which force us to require that
+/// every possible type used as a link type of a node must implement all traits that we would ever want from such a link.
+/// for more info, see `[NodeProvider::Node]`.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct EClassId {
     /// an id of some enode which is part of this eclass.
     /// this can be used to iterate over all
@@ -427,7 +433,7 @@ impl<N: NodeProvider> EGraph<N> {
                 .enumerate()
             {
                 let enode = &self.enodes_union_find[enode_id];
-                for link in N::links(&enode.0) {
+                for link in N::links(&enode.0).iter() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
                     let target_eclass_id = self.enodes_union_find.root_of_item(link.enode_id.0);
                     let target_eclass_id_str = eclass_id_to_str(target_eclass_id);
@@ -563,10 +569,10 @@ impl<'a, N: NodeProvider> Matcher<'a, N> {
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
             // the current template link
-            let template_link = template_links[cur_link_idx];
+            let template_link = template_links.get_index(cur_link_idx);
 
             // the eclass that the current enode link points to
-            let enode_link_eclass = *enode_links[cur_link_idx];
+            let enode_link_eclass = *enode_links.get_index(cur_link_idx);
 
             // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {

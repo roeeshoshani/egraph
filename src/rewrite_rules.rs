@@ -42,7 +42,7 @@ fn enode_template_max_template_var_id<N: NodeProvider>(
     template: &ENodeTemplate<N>,
 ) -> Option<NonZeroUsize> {
     N::links(&template.0)
-        .into_iter()
+        .iter()
         .filter_map(|link| match link {
             TemplateLink::Specific(node) => enode_template_max_template_var_id::<N>(node),
             TemplateLink::Var(template_var) => Some(template_var.id),
@@ -53,7 +53,7 @@ fn enode_template_does_use_template_var<N: NodeProvider>(
     template: &ENodeTemplate<N>,
     template_var: TemplateVar,
 ) -> bool {
-    N::links(&template.0).into_iter().any(|link| match link {
+    N::links(&template.0).iter().any(|link| match link {
         TemplateLink::Specific(node) => {
             enode_template_does_use_template_var::<N>(node, template_var)
         }
