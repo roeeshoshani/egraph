@@ -494,10 +494,46 @@ impl EGraph {
         }
     }
 
+    fn eclass_as_imm(&self, eclass_id: EClassId) -> Option<Imm> {
+        self.enodes_union_find
+            .items_eq_to_including_self(eclass_id.enode_id.0)
+            .find_map(|item_id| {
+                let enode = &self.enodes_union_find[item_id];
+                match enode {
+                    GenericNode::Imm(imm) => Some(imm),
+                    _ => None,
+                }
+            })
+            .copied()
+    }
+
+    /// returns `did_anything`
+    pub fn perform_constant_folding(&mut self) -> bool {
+        let mut did_anything = false;
+        for enode_id in self.enodes_union_find.item_ids() {
+            let GenericNode::BinOp(BinOp { kind, lhs, rhs }) = &self.enodes_union_find[enode_id]
+            else {
+                continue;
+            };
+            let Some(lhs_imm) = self.eclass_as_imm(*lhs) else {
+                continue;
+            };
+            let Some(rhs_imm) = self.eclass_as_imm(*rhs) else {
+                continue;
+            };
+            let res = kind.apply_to_imms(lhs_imm, rhs_imm);
+
+            self.enodes_union_find[enode_id] = GenericNode::Imm(Imm(res));
+            did_anything = true;
+        }
+        did_anything
+    }
+
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
         loop {
             let mut did_anything = false;
             for rule in rule_set.rules() {
+                did_anything |= self.perform_constant_folding();
                 did_anything |= self.apply_rule(rule);
             }
             if !did_anything {

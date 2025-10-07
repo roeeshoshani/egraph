@@ -24,6 +24,17 @@ pub enum BinOpKind {
     #[display("|")]
     Or,
 }
+impl BinOpKind {
+    pub fn apply_to_imms(&self, lhs: Imm, rhs: Imm) -> u64 {
+        match self {
+            BinOpKind::Add => lhs.0.wrapping_add(rhs.0),
+            BinOpKind::Mul => lhs.0.wrapping_mul(rhs.0),
+            BinOpKind::And => lhs.0 & rhs.0,
+            BinOpKind::Or => lhs.0 | rhs.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BinOp<L> {
     pub kind: BinOpKind,
