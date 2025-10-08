@@ -576,7 +576,7 @@ impl EGraph {
     pub fn dump_dot_svg(&self, out_file_path: &str) {
         let mut tmpfile = NamedTempFile::new().unwrap();
         tmpfile.write_all(self.to_dot().as_bytes()).unwrap();
-        cmd!("dot", "-Tsvg", tmpfile.path(), "-o", out_file_path)
+        cmd!("fdp", "-Tsvg", tmpfile.path(), "-o", out_file_path)
             .run()
             .unwrap();
     }
