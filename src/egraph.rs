@@ -525,11 +525,22 @@ impl EGraph {
     }
 
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
+        let mut counter = 0;
+        let mut chk_did_anything = |did_anything: bool, egraph: &EGraph, reason: &str| {
+            if did_anything {
+                std::fs::create_dir_all("./graphs/").unwrap();
+                egraph.dump_dot_svg(&format!("./graphs/graph{}_{}.svg", counter, reason));
+                counter += 1;
+            }
+            did_anything
+        };
         loop {
             let mut did_anything = false;
-            for rule in rule_set.rules() {
-                did_anything |= self.perform_constant_folding();
-                did_anything |= self.apply_rule(rule);
+            for (rule_index, rule) in rule_set.rules().iter().enumerate() {
+                did_anything |=
+                    chk_did_anything(self.perform_constant_folding(), self, "constfold");
+                did_anything |=
+                    chk_did_anything(self.apply_rule(rule), self, &format!("rule{}", rule_index));
             }
             if !did_anything {
                 break;
@@ -560,7 +571,7 @@ impl EGraph {
         egraph
     }
 
-    pub fn to_dot_svg(&self, out_file_path: &str) {
+    pub fn dump_dot_svg(&self, out_file_path: &str) {
         let mut tmpfile = NamedTempFile::new().unwrap();
         tmpfile.write_all(self.to_dot().as_bytes()).unwrap();
         cmd!("dot", "-Tsvg", tmpfile.path(), "-o", out_file_path)
