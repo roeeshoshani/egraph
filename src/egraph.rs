@@ -611,7 +611,7 @@ impl EGraph {
             let eclass_id_str = eclass_id_to_str(eclass);
             writeln!(
                 &mut out,
-                "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\"; label=\"{}\"",
+                "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
                 eclass_id_str,
                 self.eclass_get_sample_rec_node(EClassId {
                     enode_id: ENodeId(
