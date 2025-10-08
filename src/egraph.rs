@@ -516,10 +516,11 @@ impl EGraph {
 
             // add the imm and union it with the original enode
             let add_res = self.add_enode(GenericNode::Imm(Imm(res)));
-            self.enodes_union_find
+            let union_res = self
+                .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_id);
 
-            did_anything = true;
+            did_anything = union_res == UnionRes::New;
         }
         did_anything
     }

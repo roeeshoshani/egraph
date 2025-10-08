@@ -84,6 +84,7 @@ impl UnionFindAnyId {
 }
 
 /// the result of performing a union operation.
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum UnionRes {
     /// the union that we performed is new, and resulted in unioning 2 items that previously weren't considered equal.
     New,
