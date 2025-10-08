@@ -885,7 +885,7 @@ mod tests {
                 }
                 .into(),
                 keep_original: true,
-                bi_directional: true,
+                bi_directional: false,
             },
             // a & b => b & a
             RewriteRuleParams {
@@ -902,7 +902,7 @@ mod tests {
                 }
                 .into(),
                 keep_original: true,
-                bi_directional: true,
+                bi_directional: false,
             },
         ]);
 
