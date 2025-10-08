@@ -83,6 +83,15 @@ impl UnionFindAnyId {
     }
 }
 
+/// the result of performing a union operation.
+pub enum UnionRes {
+    /// the union that we performed is new, and resulted in unioning 2 items that previously weren't considered equal.
+    New,
+
+    /// the union that was performed is not new, and the 2 items that it unioned were already considered equal.
+    Existing,
+}
+
 #[derive(Debug, Clone)]
 pub struct UnionFind<T> {
     item_to_parent_map: IdToParentMap,
@@ -145,49 +154,39 @@ impl<T> UnionFind<T> {
             UnionFindAnyId::Parent(parent_id) => self.get_parent_of_parent(parent_id),
         }
     }
-    fn set_parent_of_any(&mut self, id: UnionFindAnyId, new_parent: Option<UnionFindParentId>) {
-        match id {
-            UnionFindAnyId::Item(id) => self.set_parent_of_item(id, new_parent),
-            UnionFindAnyId::Parent(id) => self.set_parent_of_parent(id, new_parent),
+    pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
+        let root_a = self.root_of_item(item_a);
+        let root_b = self.root_of_item(item_b);
+        if root_a == root_b {
+            // the items are already unioned.
+            return UnionRes::Existing;
         }
-    }
-    pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) {
-        // we use a loop here since we may need to climb up the parents if both items already have a parent.
-        let mut cur_item_a = UnionFindAnyId::Item(item_a);
-        let mut cur_item_b = UnionFindAnyId::Item(item_b);
-        loop {
-            match (
-                self.get_parent_of_any(cur_item_a),
-                self.get_parent_of_any(cur_item_b),
-            ) {
-                (None, None) => {
-                    // none of the items have a parent, create a new parent which is the union of both of them.
-                    let parent = self.create_new_parent();
-                    self.set_parent_of_any(cur_item_a, Some(parent));
-                    self.set_parent_of_any(cur_item_b, Some(parent));
 
-                    // we're done
-                    break;
-                }
-                (None, Some(parent_b)) => {
-                    // add item a to the group of b by settings its parent to parent b
-                    self.set_parent_of_any(cur_item_a, Some(parent_b));
-
-                    // we're done
-                    break;
-                }
-                (Some(parent_a), None) => {
-                    // add item b to the group of a by settings its parent to parent a
-                    self.set_parent_of_any(cur_item_b, Some(parent_a));
-
-                    // we're done
-                    break;
-                }
-                (Some(parent_a), Some(parent_b)) => {
-                    // both items already have a parent, union their parents.
-                    cur_item_a = UnionFindAnyId::Parent(parent_a);
-                    cur_item_b = UnionFindAnyId::Parent(parent_b);
-                }
+        // the items are not unioned, we should union them by making sure that they both have the same root.
+        //
+        // this can be achieved by just setting the parent of one of the roots to the other root. but, this only works if
+        // one of the roots is a parent and not an item, since items can not be parents of other nodes.
+        //
+        // if both nodes are items, we create a shared parent for them.
+        match (root_a, root_b) {
+            (UnionFindAnyId::Item(item_a), UnionFindAnyId::Item(item_b)) => {
+                let new_parent = self.create_new_parent();
+                self.set_parent_of_item(item_a, Some(new_parent));
+                self.set_parent_of_item(item_b, Some(new_parent));
+                UnionRes::New
+            }
+            (UnionFindAnyId::Item(item_a), UnionFindAnyId::Parent(parent_b)) => {
+                self.set_parent_of_item(item_a, Some(parent_b));
+                UnionRes::New
+            }
+            (UnionFindAnyId::Parent(parent_a), UnionFindAnyId::Item(item_b)) => {
+                self.set_parent_of_item(item_b, Some(parent_a));
+                UnionRes::New
+            }
+            (UnionFindAnyId::Parent(parent_a), UnionFindAnyId::Parent(parent_b)) => {
+                // TODO: decide which one to use as the new parent base on the depth to balance the tree.
+                self.set_parent_of_parent(parent_a, Some(parent_b));
+                UnionRes::New
             }
         }
     }
