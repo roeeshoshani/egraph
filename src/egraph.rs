@@ -581,6 +581,14 @@ impl EGraph {
             .unwrap();
     }
 
+    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+        RecNode(
+            self.enodes_union_find[eclass_id.enode_id.0].convert_link(|link_eclass_id| {
+                Box::new(self.eclass_get_sample_rec_node(*link_eclass_id))
+            }),
+        )
+    }
+
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
@@ -603,8 +611,16 @@ impl EGraph {
             let eclass_id_str = eclass_id_to_str(eclass);
             writeln!(
                 &mut out,
-                "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\";",
-                eclass_id_str
+                "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\"; label=\"{:?}\"",
+                eclass_id_str,
+                self.eclass_get_sample_rec_node(EClassId {
+                    enode_id: ENodeId(
+                        self.enodes_union_find
+                            .items_eq_to_any_including_self(eclass)
+                            .next()
+                            .unwrap()
+                    )
+                })
             )
             .unwrap();
 
