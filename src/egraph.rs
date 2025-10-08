@@ -300,9 +300,10 @@ impl EGraph {
 
             // just add the new enode and union it with the original enode
             let add_res = self.add_enode(new_enode);
-            self.enodes_union_find
+            let union_res = self
+                .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
-            if add_res.dedup_info == ENodeDedupInfo::New {
+            if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
                 did_anything = true;
             }
         }
