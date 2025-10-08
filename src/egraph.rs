@@ -527,22 +527,11 @@ impl EGraph {
     }
 
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
-        let mut counter = 0;
-        let mut chk_did_anything = |did_anything: bool, egraph: &EGraph, reason: &str| {
-            if did_anything {
-                std::fs::create_dir_all("./graphs/").unwrap();
-                egraph.dump_dot_svg(&format!("./graphs/graph{}_{}.svg", counter, reason));
-                counter += 1;
-            }
-            did_anything
-        };
         loop {
             let mut did_anything = false;
-            for (rule_index, rule) in rule_set.rules().iter().enumerate() {
-                did_anything |=
-                    chk_did_anything(self.perform_constant_folding(), self, "constfold");
-                did_anything |=
-                    chk_did_anything(self.apply_rule(rule), self, &format!("rule{}", rule_index));
+            for rule in rule_set.rules() {
+                did_anything |= self.perform_constant_folding();
+                did_anything |= self.apply_rule(rule);
             }
             if !did_anything {
                 break;
@@ -874,7 +863,7 @@ mod tests {
                 }
                 .into(),
                 keep_original: true,
-                bi_directional: true,
+                bi_directional: false,
             },
             // a & (b & c) => (a & b) & c
             RewriteRuleParams {
