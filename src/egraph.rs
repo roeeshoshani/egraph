@@ -1,8 +1,10 @@
+use duct::cmd;
 use hashbrown::{DefaultHashBuilder, HashSet, HashTable, hash_table::Entry};
-use std::hash::BuildHasher;
+use std::{hash::BuildHasher, io::Write as _};
+use tempfile::NamedTempFile;
 
 use crate::{union_find::*, *};
-use std::fmt::Write;
+use std::fmt::Write as _;
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -556,6 +558,14 @@ impl EGraph {
         let mut egraph = Self::new();
         egraph.add_rec_node(rec_node);
         egraph
+    }
+
+    pub fn to_dot_svg(&self, out_file_path: &str) {
+        let mut tmpfile = NamedTempFile::new().unwrap();
+        tmpfile.write_all(self.to_dot().as_bytes()).unwrap();
+        cmd!("dot", "-Tsvg", tmpfile.path(), "-o", out_file_path)
+            .run()
+            .unwrap();
     }
 
     pub fn to_dot(&self) -> String {
