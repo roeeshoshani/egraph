@@ -2,8 +2,8 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use egraph::union_find::*;
 use rand::seq::IndexedRandom;
 
-const TREE_SIZE_OPTIONS: &[usize] = &[1_000, 10_000, 100_000];
-const NUM_OPS_OPTIONS: &[usize] = &[1_000, 10_000, 100_000];
+const TREE_SIZE_OPTIONS: &[usize] = &[1000, 2000, 5000];
+const NUM_OPS_OPTIONS: &[usize] = &[1000, 2000, 5000];
 
 struct Pair {
     a: UnionFindItemId,
@@ -119,6 +119,50 @@ fn test_are_eq(c: &mut Criterion) {
                             let tree = base_tree;
                             for pair in pairs {
                                 black_box(tree.are_eq(black_box(pair.a), black_box(pair.b)));
+                            }
+                        })
+                    },
+                );
+            }
+        }
+    }
+    group.finish();
+}
+struct TestItemsEqTo {
+    size: usize,
+    num_union_ops: usize,
+}
+impl std::fmt::Display for TestItemsEqTo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "size={},num_union_ops={}",
+            self.size, self.num_union_ops
+        )
+    }
+}
+
+fn test_items_eq_to(c: &mut Criterion) {
+    let mut group = c.benchmark_group("are_eq");
+
+    for &size in TREE_SIZE_OPTIONS {
+        for &num_union_ops in NUM_OPS_OPTIONS {
+            for &num_are_eq_ops in NUM_OPS_OPTIONS {
+                let setup = Setup::new(size);
+                let base_tree = setup.gen_tree_with_unions(num_union_ops);
+
+                group.bench_with_input(
+                    BenchmarkId::from_parameter(TestParamsAreEq {
+                        size,
+                        num_union_ops,
+                        num_are_eq_ops,
+                    }),
+                    &(&setup, &base_tree),
+                    |b, &(setup, base_tree)| {
+                        b.iter(|| {
+                            let tree = base_tree;
+                            for item_id in &setup.item_ids {
+                                black_box(tree.items_eq_to(black_box(*item_id)).count());
                             }
                         })
                     },
