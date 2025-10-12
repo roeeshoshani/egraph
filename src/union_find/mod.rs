@@ -7,6 +7,7 @@ use crate::union_find::id_to_parent_map::{IdToParentMap, TrySetParentOfItemErr};
 
 mod id_to_parent_map;
 
+/// the id of an item in the union find tree.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct UnionFindItemId(pub NonZeroUsize);
 impl UnionFindItemId {
@@ -26,21 +27,27 @@ pub enum UnionRes {
     Existing,
 }
 
+/// a union find tree, where each node contains an item of type `T`.
 #[derive(Debug, Clone)]
 pub struct UnionFind<T> {
     item_to_parent_map: IdToParentMap,
     items: Vec<T>,
 }
 impl<T> UnionFind<T> {
+    /// returns a new, empty, union find tree.
     pub fn new() -> Self {
         Self {
             item_to_parent_map: IdToParentMap::new(),
             items: Vec::new(),
         }
     }
+
+    /// returns the amount of items in the union find tree.
     pub fn len(&self) -> usize {
         self.items.len()
     }
+
+    /// creates a new item in the union find tree. the new item is placed in a new set containing only that item.
     #[must_use]
     pub fn create_new_item(&mut self, item: T) -> UnionFindItemId {
         self.items.push(item);
@@ -54,12 +61,15 @@ impl<T> UnionFind<T> {
 
         id
     }
-    fn get_parent_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
+
+    /// returns the direct parent of the given item.
+    pub fn get_parent_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
         UnionFindItemId(self.item_to_parent_map.get_parent_of(item.0))
     }
-    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<UnionFindItemId>) {
-        self.item_to_parent_map
-            .set_parent(item.0, new_parent.map(|x| x.0));
+
+    /// sets the direct parent of the given item
+    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: UnionFindItemId) {
+        self.item_to_parent_map.set_parent(item.0, new_parent.0);
     }
     fn try_set_parent_of_item(
         &self,
@@ -77,7 +87,7 @@ impl<T> UnionFind<T> {
         }
 
         // we can union the items by making one of their roots a parent of the other root
-        self.set_parent_of_item(root_b, Some(root_a));
+        self.set_parent_of_item(root_b, root_a);
 
         UnionRes::New
     }
@@ -134,12 +144,7 @@ impl<T> UnionFind<T> {
     pub fn flatten(&mut self) {
         for item in self.item_ids() {
             let root = self.root_of_item(item);
-
-            // only set the root if the item is not the root of itself. this can help us avoid unnecessary allocation in some cases,
-            // due to the lazily allocated parent ids vector.
-            if root != item {
-                self.set_parent_of_item(item, Some(root));
-            }
+            self.set_parent_of_item(item, root);
         }
     }
     pub fn items(&self) -> &[T] {
