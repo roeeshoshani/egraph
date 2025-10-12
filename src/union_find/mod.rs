@@ -71,6 +71,12 @@ impl<T> UnionFind<T> {
     fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: UnionFindItemId) {
         self.item_to_parent_map.set_parent(item.0, new_parent.0);
     }
+
+    /// tries to set the parent of the item with the given id.
+    ///
+    /// this function has the benefit of not requiring a mutable ref to self while still allowing modification of the tree.
+    ///
+    /// this may fail if the parent of this node hasn't been set before, due to the lazily allocated array of parent ids.
     fn try_set_parent_of_item(
         &self,
         item: UnionFindItemId,
@@ -78,6 +84,8 @@ impl<T> UnionFind<T> {
     ) -> Result<(), TrySetParentOfItemErr> {
         self.item_to_parent_map.try_set_parent(item.0, new_parent.0)
     }
+
+    /// unions the given two items.
     pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         let root_a = self.root_of_item(item_a);
         let root_b = self.root_of_item(item_b);
@@ -91,6 +99,8 @@ impl<T> UnionFind<T> {
 
         UnionRes::New
     }
+
+    /// finds the root item of the given item.
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
         let root = {
             let mut cur_item = item;
@@ -111,6 +121,8 @@ impl<T> UnionFind<T> {
 
         root
     }
+
+    /// returns an iterator over all of the item ids in the tree.
     pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
         self.item_to_parent_map.item_ids().map(|i| {
             UnionFindItemId(
@@ -119,6 +131,7 @@ impl<T> UnionFind<T> {
             )
         })
     }
+
     /// returns an iterator over all items equal to the given item, excluding the item itself
     pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
         // TODO: make this efficient if needed. we iterate over all of the nodes here, which may not be the most efficient thing.
@@ -126,6 +139,7 @@ impl<T> UnionFind<T> {
         self.item_ids()
             .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
     }
+
     /// returns an iterator over all items equal to the given item, including the item itself
     pub fn items_eq_to_including_self(
         &self,
@@ -135,21 +149,29 @@ impl<T> UnionFind<T> {
         self.item_ids()
             .filter(move |&cur_item| cur_item == item || self.root_of_item(cur_item) == root)
     }
+
+    /// checks if the given two items are equal.
     pub fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
         if item_a == item_b {
             return true;
         }
         self.root_of_item(item_a) == self.root_of_item(item_b)
     }
+
+    /// flattens the union find tree, causing future root lookups to be `O(1)`, until the next modification of the tree.
     pub fn flatten(&mut self) {
         for item in self.item_ids() {
             let root = self.root_of_item(item);
             self.set_parent_of_item(item, root);
         }
     }
+
+    /// returns a reference to the values of all the items in the tree.
     pub fn items(&self) -> &[T] {
         &self.items
     }
+
+    /// returns a mutable reference to the values of all the items in the tree.
     pub fn items_mut(&mut self) -> &mut [T] {
         &mut self.items
     }
