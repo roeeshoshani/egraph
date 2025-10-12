@@ -13,7 +13,7 @@ struct IdToParentMap {
     parent_of_id: Vec<Cell<Option<NonZeroUsize>>>,
 }
 impl IdToParentMap {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             next_id: NonZeroUsize::new(1).unwrap(),
             parent_of_id: Vec::new(),
@@ -23,13 +23,17 @@ impl IdToParentMap {
         id.get() - 1
     }
     #[must_use]
-    fn alloc_id(&mut self) -> NonZeroUsize {
+    pub fn alloc_id(&mut self) -> NonZeroUsize {
         let res = self.next_id;
         self.next_id = self.next_id.checked_add(1).unwrap();
         res
     }
-    fn get_parent_of(&self, id: NonZeroUsize) -> Option<NonZeroUsize> {
+    fn get_opt_parent_of(&self, id: NonZeroUsize) -> Option<NonZeroUsize> {
         self.parent_of_id.get(Self::id_to_index(id))?.get()
+    }
+    pub fn get_parent_of(&self, id: NonZeroUsize) -> NonZeroUsize {
+        // if the node doesn't have a parent, it is considered to be the parent of itself
+        self.get_opt_parent_of(id).unwrap_or(id)
     }
     fn set_parent(&mut self, id: NonZeroUsize, new_parent: Option<NonZeroUsize>) {
         let index = Self::id_to_index(id);
@@ -58,14 +62,14 @@ impl IdToParentMap {
     fn try_set_parent(
         &self,
         id: NonZeroUsize,
-        new_parent: Option<NonZeroUsize>,
+        new_parent: NonZeroUsize,
     ) -> Result<(), TrySetParentOfItemErr> {
         let index = Self::id_to_index(id);
 
         // the array is lazily extended. so, it is possible that an id exists even though the array is too small to hold its index.
         // in that case, resize the array.
         if index < self.parent_of_id.len() {
-            self.parent_of_id[index].set(new_parent);
+            self.parent_of_id[index].set(Some(new_parent));
             Ok(())
         } else {
             Err(TrySetParentOfItemErr { id, new_parent })
@@ -77,7 +81,7 @@ impl IdToParentMap {
 #[error("failed to set parent of item with id {id:?} to {new_parent:?}")]
 struct TrySetParentOfItemErr {
     id: NonZeroUsize,
-    new_parent: Option<NonZeroUsize>,
+    new_parent: NonZeroUsize,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -127,10 +131,8 @@ impl<T> UnionFind<T> {
 
         id
     }
-    fn get_parent_of_item(&self, item: UnionFindItemId) -> Option<UnionFindItemId> {
-        self.item_to_parent_map
-            .get_parent_of(item.0)
-            .map(UnionFindItemId)
+    fn get_parent_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
+        UnionFindItemId(self.item_to_parent_map.get_parent_of(item.0))
     }
     fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<UnionFindItemId>) {
         self.item_to_parent_map
@@ -139,10 +141,9 @@ impl<T> UnionFind<T> {
     fn try_set_parent_of_item(
         &self,
         item: UnionFindItemId,
-        new_parent: Option<UnionFindItemId>,
+        new_parent: UnionFindItemId,
     ) -> Result<(), TrySetParentOfItemErr> {
-        self.item_to_parent_map
-            .try_set_parent(item.0, new_parent.map(|x| x.0))
+        self.item_to_parent_map.try_set_parent(item.0, new_parent.0)
     }
     pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         let root_a = self.root_of_item(item_a);
@@ -158,17 +159,14 @@ impl<T> UnionFind<T> {
         UnionRes::New
     }
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
-        let mut cur_item = item;
-        let root = loop {
-            match self.get_parent_of_item(cur_item) {
-                Some(parent) => {
-                    // advance to the parent
-                    cur_item = parent;
-                }
-                None => {
-                    // no more parents, we reached the root
+        let root = {
+            let mut cur_item = item;
+            loop {
+                let parent = self.get_parent_of_item(cur_item);
+                if parent == cur_item {
                     break cur_item;
                 }
+                cur_item = parent;
             }
         };
 
@@ -176,7 +174,7 @@ impl<T> UnionFind<T> {
         //
         // NOTE: we don't care if this fails, since this will only fail if the item previously had no parent, in which case we
         // have no reason to flatten anything anyways.
-        let _ = self.try_set_parent_of_item(item, Some(root));
+        let _ = self.try_set_parent_of_item(item, root);
 
         root
     }
@@ -220,10 +218,6 @@ impl<T> UnionFind<T> {
                 self.set_parent_of_item(item, Some(root));
             }
         }
-    }
-    /// orphans the given item, detaching it from its parent.
-    pub fn orphan(&mut self, item: UnionFindItemId) {
-        self.set_parent_of_item(item, None);
     }
     pub fn items(&self) -> &[T] {
         &self.items
@@ -371,6 +365,8 @@ mod tests {
 
         union_find.union(a, b);
 
+        dbg!(&union_find);
+
         assert!(union_find.are_eq(a, b));
     }
 
@@ -506,27 +502,30 @@ mod tests {
         union_find.union(b, g);
 
         // sanity check the groups
-        chk_groups(&union_find, &all_items, &[&[a, b, e, f, g], &[c, d]]);
+        let groups: &[&[UnionFindItemId]] = &[&[a, b, e, f, g], &[c, d]];
+        chk_groups(&union_find, &all_items, groups);
 
-        // at this point, some items have different parents even though they are equal
-        assert!(union_find.are_eq(a, f));
-        assert_ne!(
-            union_find.get_parent_of_item(a).unwrap(),
-            union_find.get_parent_of_item(f).unwrap()
-        );
+        // at this point, some items can have different parents even though they are equal.
+        // we can't check it since it might be by chance that all items in the group have the same parent.
 
         union_find.flatten();
 
         // now the equal items should have the same parent
-        assert_eq!(
-            union_find.get_parent_of_item(a).unwrap(),
-            union_find.get_parent_of_item(f).unwrap()
-        );
+        for &group in groups {
+            for &item1 in group {
+                for &item2 in group {
+                    assert_eq!(
+                        union_find.get_parent_of_item(item1),
+                        union_find.get_parent_of_item(item2)
+                    );
+                }
+            }
+        }
 
         // but items that are not equal should still have different parents
         assert_ne!(
-            union_find.get_parent_of_item(a).unwrap(),
-            union_find.get_parent_of_item(c).unwrap()
+            union_find.get_parent_of_item(a),
+            union_find.get_parent_of_item(c)
         );
 
         // make sure that flatenning didn't mess with the groups
