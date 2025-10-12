@@ -1,15 +1,16 @@
 use std::{
+    cell::Cell,
     num::NonZeroUsize,
     ops::{Index, IndexMut},
 };
 
-use either::Either;
+use thiserror::Error;
 
 /// a mapping between ids to their parent ids.
 #[derive(Debug, Clone)]
 struct IdToParentMap {
     next_id: NonZeroUsize,
-    parent_of_id: Vec<Option<NonZeroUsize>>,
+    parent_of_id: Vec<Cell<Option<NonZeroUsize>>>,
 }
 impl IdToParentMap {
     fn new() -> Self {
@@ -28,7 +29,7 @@ impl IdToParentMap {
         res
     }
     fn get_parent_of(&self, id: NonZeroUsize) -> Option<NonZeroUsize> {
-        self.parent_of_id.get(Self::id_to_index(id)).copied()?
+        self.parent_of_id.get(Self::id_to_index(id))?.get()
     }
     fn set_parent(&mut self, id: NonZeroUsize, new_parent: Option<NonZeroUsize>) {
         let index = Self::id_to_index(id);
@@ -43,11 +44,40 @@ impl IdToParentMap {
             // resize the array such that it can hold the currently highest id, which is one less than than the next id.
             // note that the ids are 1-based and not 0-based, so we don't need an extra ` - 1` here, only one ` - 1` to get from the
             // next id to the currently highest id.
-            self.parent_of_id.resize(self.next_id.get() - 1, None);
+            self.parent_of_id
+                .resize(self.next_id.get() - 1, Cell::new(None));
         }
 
-        self.parent_of_id[index] = new_parent;
+        self.parent_of_id[index].set(new_parent);
     }
+    /// tries to set the parent of the item with the given id.
+    ///
+    /// this function has the benefit of not requiring a mutable ref to self while still allowing modification.
+    ///
+    /// this may fail if the parent of this node hasn't been set before, due to the lazily allocated array of parent ids.
+    fn try_set_parent(
+        &self,
+        id: NonZeroUsize,
+        new_parent: Option<NonZeroUsize>,
+    ) -> Result<(), TrySetParentOfItemErr> {
+        let index = Self::id_to_index(id);
+
+        // the array is lazily extended. so, it is possible that an id exists even though the array is too small to hold its index.
+        // in that case, resize the array.
+        if index < self.parent_of_id.len() {
+            self.parent_of_id[index].set(new_parent);
+            Ok(())
+        } else {
+            Err(TrySetParentOfItemErr { id, new_parent })
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("failed to set parent of item with id {id:?} to {new_parent:?}")]
+struct TrySetParentOfItemErr {
+    id: NonZeroUsize,
+    new_parent: Option<NonZeroUsize>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -56,30 +86,6 @@ impl UnionFindItemId {
     /// the index of the item in the items array
     fn index(&self) -> usize {
         self.0.get() - 1
-    }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct UnionFindParentId(pub NonZeroUsize);
-
-/// an id of any kind, either an item id or a parent id.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum UnionFindAnyId {
-    Item(UnionFindItemId),
-    Parent(UnionFindParentId),
-}
-impl UnionFindAnyId {
-    pub fn as_item(&self) -> Option<UnionFindItemId> {
-        match self {
-            UnionFindAnyId::Item(x) => Some(*x),
-            UnionFindAnyId::Parent(_) => None,
-        }
-    }
-    pub fn as_parent(&self) -> Option<UnionFindParentId> {
-        match self {
-            UnionFindAnyId::Item(_) => None,
-            UnionFindAnyId::Parent(x) => Some(*x),
-        }
     }
 }
 
@@ -96,14 +102,12 @@ pub enum UnionRes {
 #[derive(Debug, Clone)]
 pub struct UnionFind<T> {
     item_to_parent_map: IdToParentMap,
-    parent_to_parent_map: IdToParentMap,
     items: Vec<T>,
 }
 impl<T> UnionFind<T> {
     pub fn new() -> Self {
         Self {
             item_to_parent_map: IdToParentMap::new(),
-            parent_to_parent_map: IdToParentMap::new(),
             items: Vec::new(),
         }
     }
@@ -123,37 +127,22 @@ impl<T> UnionFind<T> {
 
         id
     }
-    #[must_use]
-    fn create_new_parent(&mut self) -> UnionFindParentId {
-        UnionFindParentId(self.parent_to_parent_map.alloc_id())
-    }
-    fn get_parent_of_item(&self, item: UnionFindItemId) -> Option<UnionFindParentId> {
+    fn get_parent_of_item(&self, item: UnionFindItemId) -> Option<UnionFindItemId> {
         self.item_to_parent_map
             .get_parent_of(item.0)
-            .map(UnionFindParentId)
+            .map(UnionFindItemId)
     }
-    fn get_parent_of_parent(&self, id: UnionFindParentId) -> Option<UnionFindParentId> {
-        self.parent_to_parent_map
-            .get_parent_of(id.0)
-            .map(UnionFindParentId)
-    }
-    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<UnionFindParentId>) {
+    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: Option<UnionFindItemId>) {
         self.item_to_parent_map
             .set_parent(item.0, new_parent.map(|x| x.0));
     }
-    fn set_parent_of_parent(
-        &mut self,
-        id: UnionFindParentId,
-        new_parent: Option<UnionFindParentId>,
-    ) {
-        self.parent_to_parent_map
-            .set_parent(id.0, new_parent.map(|x| x.0));
-    }
-    fn get_parent_of_any(&self, id: UnionFindAnyId) -> Option<UnionFindParentId> {
-        match id {
-            UnionFindAnyId::Item(item_id) => self.get_parent_of_item(item_id),
-            UnionFindAnyId::Parent(parent_id) => self.get_parent_of_parent(parent_id),
-        }
+    fn try_set_parent_of_item(
+        &self,
+        item: UnionFindItemId,
+        new_parent: Option<UnionFindItemId>,
+    ) -> Result<(), TrySetParentOfItemErr> {
+        self.item_to_parent_map
+            .try_set_parent(item.0, new_parent.map(|x| x.0))
     }
     pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         let root_a = self.root_of_item(item_a);
@@ -163,54 +152,33 @@ impl<T> UnionFind<T> {
             return UnionRes::Existing;
         }
 
-        // the items are not unioned, we should union them by making sure that they both have the same root.
-        //
-        // this can be achieved by just setting the parent of one of the roots to the other root. but, this only works if
-        // one of the roots is a parent and not an item, since items can not be parents of other nodes.
-        //
-        // if both nodes are items, we create a shared parent for them.
-        match (root_a, root_b) {
-            (UnionFindAnyId::Item(item_a), UnionFindAnyId::Item(item_b)) => {
-                let new_parent = self.create_new_parent();
-                self.set_parent_of_item(item_a, Some(new_parent));
-                self.set_parent_of_item(item_b, Some(new_parent));
-                UnionRes::New
-            }
-            (UnionFindAnyId::Item(item_a), UnionFindAnyId::Parent(parent_b)) => {
-                self.set_parent_of_item(item_a, Some(parent_b));
-                UnionRes::New
-            }
-            (UnionFindAnyId::Parent(parent_a), UnionFindAnyId::Item(item_b)) => {
-                self.set_parent_of_item(item_b, Some(parent_a));
-                UnionRes::New
-            }
-            (UnionFindAnyId::Parent(parent_a), UnionFindAnyId::Parent(parent_b)) => {
-                // TODO: decide which one to use as the new parent base on the depth to balance the tree.
-                self.set_parent_of_parent(parent_a, Some(parent_b));
-                UnionRes::New
-            }
-        }
+        // we can union the items by making one of their roots a parent of the other root
+        self.set_parent_of_item(root_b, Some(root_a));
+
+        UnionRes::New
     }
-    pub fn root_of_any(&self, id: UnionFindAnyId) -> UnionFindAnyId {
-        let mut cur_item = id;
-        loop {
-            match self.get_parent_of_any(cur_item) {
+    pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
+        let mut cur_item = item;
+        let root = loop {
+            match self.get_parent_of_item(cur_item) {
                 Some(parent) => {
                     // advance to the parent
-                    cur_item = UnionFindAnyId::Parent(parent);
+                    cur_item = parent;
                 }
                 None => {
                     // no more parents, we reached the root
                     break cur_item;
                 }
             }
-        }
-    }
-    pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindAnyId {
-        self.root_of_any(UnionFindAnyId::Item(item))
-    }
-    pub fn root_of_parent(&self, id: UnionFindParentId) -> UnionFindAnyId {
-        self.root_of_any(UnionFindAnyId::Parent(id))
+        };
+
+        // at this point we know the root. we can make our item point directly to the root to make future lookups faster.
+        //
+        // NOTE: we don't care if this fails, since this will only fail if the item previously had no parent, in which case we
+        // have no reason to flatten anything anyways.
+        let _ = self.try_set_parent_of_item(item, Some(root));
+
+        root
     }
     pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
         (1..self.item_to_parent_map.next_id.get()).map(|i| {
@@ -236,43 +204,6 @@ impl<T> UnionFind<T> {
         self.item_ids()
             .filter(move |&cur_item| cur_item == item || self.root_of_item(cur_item) == root)
     }
-    /// returns an iterator over all items equal to the given parent
-    pub fn items_eq_to_parent(
-        &self,
-        id: UnionFindParentId,
-    ) -> impl Iterator<Item = UnionFindItemId> + '_ {
-        let root = self.root_of_parent(id);
-        self.item_ids()
-            .filter(move |&cur_item| self.root_of_item(cur_item) == root)
-    }
-    /// returns an iterator over all items equal to the given id. if the given id is an item id, the returned iterator excludes the
-    /// item itself.
-    pub fn items_eq_to_any(
-        &self,
-        id: UnionFindAnyId,
-    ) -> Either<
-        impl Iterator<Item = UnionFindItemId> + '_,
-        impl Iterator<Item = UnionFindItemId> + '_,
-    > {
-        match id {
-            UnionFindAnyId::Item(item_id) => Either::Left(self.items_eq_to(item_id)),
-            UnionFindAnyId::Parent(parent_id) => Either::Right(self.items_eq_to_parent(parent_id)),
-        }
-    }
-    /// returns an iterator over all items equal to the given id. if the given id is an item id, the returned iterator includes the
-    /// item itself.
-    pub fn items_eq_to_any_including_self(
-        &self,
-        id: UnionFindAnyId,
-    ) -> Either<
-        impl Iterator<Item = UnionFindItemId> + '_,
-        impl Iterator<Item = UnionFindItemId> + '_,
-    > {
-        match id {
-            UnionFindAnyId::Item(item_id) => Either::Left(self.items_eq_to_including_self(item_id)),
-            UnionFindAnyId::Parent(parent_id) => Either::Right(self.items_eq_to_parent(parent_id)),
-        }
-    }
     pub fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
         if item_a == item_b {
             return true;
@@ -282,9 +213,11 @@ impl<T> UnionFind<T> {
     pub fn flatten(&mut self) {
         for item in self.item_ids() {
             let root = self.root_of_item(item);
-            // if the item has a root other than itself, then make it point to its root
-            if let UnionFindAnyId::Parent(parent) = root {
-                self.set_parent_of_item(item, Some(parent));
+
+            // only set the root if the item is not the root of itself. this can help us avoid unnecessary allocation in some cases,
+            // due to the lazily allocated parent ids vector.
+            if root != item {
+                self.set_parent_of_item(item, Some(root));
             }
         }
     }

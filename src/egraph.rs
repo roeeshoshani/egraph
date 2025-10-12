@@ -42,7 +42,7 @@ pub type ENode = GenericNode<EClassId>;
 /// this id is only true for a snapshot of the union find tree. once the tree is modified, it is no longer up to date, since the root
 /// may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EffectiveEClassId(pub UnionFindAnyId);
+pub struct EffectiveEClassId(pub UnionFindItemId);
 
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
 pub type ENodeWithEffectiveEClassId = GenericNode<EffectiveEClassId>;
@@ -581,16 +581,11 @@ impl EGraph {
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
-        fn eclass_id_to_str(eclass_id: UnionFindAnyId) -> String {
-            match eclass_id {
-                UnionFindAnyId::Item(item_id) => format!("eclass_root_item_{}", item_id.0.get()),
-                UnionFindAnyId::Parent(parent_id) => {
-                    format!("eclass_root_parent_{}", parent_id.0.get())
-                }
-            }
+        fn eclass_id_to_str(eclass_root_item_id: UnionFindItemId) -> String {
+            format!("eclass_item_{}", eclass_root_item_id.0.get())
         }
 
-        let eclasses: HashSet<UnionFindAnyId> = self
+        let eclasses: HashSet<UnionFindItemId> = self
             .enodes_union_find
             .item_ids()
             .map(|item_id| self.enodes_union_find.root_of_item(item_id))
@@ -605,7 +600,7 @@ impl EGraph {
                 self.eclass_get_sample_rec_node(EClassId {
                     enode_id: ENodeId(
                         self.enodes_union_find
-                            .items_eq_to_any_including_self(eclass)
+                            .items_eq_to_including_self(eclass)
                             .next()
                             .unwrap()
                     )
@@ -616,7 +611,7 @@ impl EGraph {
             // one node per enode in the class
             for (i, enode_id) in self
                 .enodes_union_find
-                .items_eq_to_any_including_self(eclass)
+                .items_eq_to_including_self(eclass)
                 .enumerate()
             {
                 let label = match &self.enodes_union_find[enode_id] {
@@ -641,7 +636,7 @@ impl EGraph {
             let eclass_id_str = eclass_id_to_str(eclass);
             for (i, enode_id) in self
                 .enodes_union_find
-                .items_eq_to_any_including_self(eclass)
+                .items_eq_to_including_self(eclass)
                 .enumerate()
             {
                 let enode = &self.enodes_union_find[enode_id];
