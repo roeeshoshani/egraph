@@ -945,18 +945,6 @@ mod tests {
                 keep_original: true,
                 bi_directional: false,
             },
-            // a & a => a
-            RewriteRuleParams {
-                query: BinOpTemplate {
-                    kind: BinOpKind::And,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(1).into(),
-                }
-                .into(),
-                rewrite: TemplateVar::new(1).into(),
-                keep_original: true,
-                bi_directional: false,
-            },
         ]);
 
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;
