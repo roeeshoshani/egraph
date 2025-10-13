@@ -2,8 +2,8 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use egraph::union_find::*;
 use rand::seq::IndexedRandom;
 
-const TREE_SIZE_OPTIONS: &[usize] = &[1000, 5000];
-const NUM_UNION_OPS_OPTIONS: &[usize] = &[1000, 5000];
+const TREE_SIZE_OPTIONS: &[usize] = &[10_000, 50_000];
+const NUM_UNION_OPS_OPTIONS: &[usize] = &[100_000, 500_000];
 
 struct Pair {
     a: UnionFindItemId,
