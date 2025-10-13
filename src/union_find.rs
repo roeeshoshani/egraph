@@ -193,11 +193,6 @@ impl<T> UnionFind<T> {
         }
 
         for &child in &*children {
-            if child == item {
-                // if the item is a root, it will be a child of itself, in which case, we don't want to explore its children once more,
-                // we are already doing it.
-                continue;
-            }
             // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
             // all child lists along the way.
             self.set_parent_of_item_noremove(child, item);
