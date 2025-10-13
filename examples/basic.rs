@@ -4,16 +4,11 @@ use egraph::{
 };
 
 fn main() {
-    // 0xff & (x & 0xff00)
+    // x & 0
     let rec_node: RecNode = RecBinOp {
         kind: BinOpKind::And,
-        lhs: 0xff.into(),
-        rhs: RecBinOp {
-            kind: BinOpKind::And,
-            lhs: Var(0).into(),
-            rhs: 0xff00.into(),
-        }
-        .into(),
+        lhs: 0.into(),
+        rhs: Var(0).into(),
     }
     .into();
 
@@ -30,38 +25,6 @@ fn main() {
             .into(),
             rewrite: 0.into(),
             keep_original: false,
-            bi_directional: false,
-        },
-        // a & (b | c) => (a & b) | (a & c)
-        RewriteRuleParams {
-            query: BinOpTemplate {
-                kind: BinOpKind::And,
-                lhs: TemplateVar::new(1).into(),
-                rhs: BinOpTemplate {
-                    kind: BinOpKind::Or,
-                    lhs: TemplateVar::new(2).into(),
-                    rhs: TemplateVar::new(3).into(),
-                }
-                .into(),
-            }
-            .into(),
-            rewrite: BinOpTemplate {
-                kind: BinOpKind::Or,
-                lhs: BinOpTemplate {
-                    kind: BinOpKind::And,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(2).into(),
-                }
-                .into(),
-                rhs: BinOpTemplate {
-                    kind: BinOpKind::And,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(3).into(),
-                }
-                .into(),
-            }
-            .into(),
-            keep_original: true,
             bi_directional: false,
         },
         // a & (b & c) => (a & b) & c
@@ -105,6 +68,18 @@ fn main() {
                 rhs: TemplateVar::new(1).into(),
             }
             .into(),
+            keep_original: true,
+            bi_directional: false,
+        },
+        // a & a => a
+        RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateVar::new(1).into(),
+            }
+            .into(),
+            rewrite: TemplateVar::new(1).into(),
             keep_original: true,
             bi_directional: false,
         },

@@ -25,6 +25,22 @@ pub enum TemplateLink {
     Specific(Box<ENodeTemplate>),
     Var(TemplateVar),
 }
+impl TemplateLink {
+    fn max_template_var_id(&self) -> Option<NonZeroUsize> {
+        match self {
+            TemplateLink::Specific(generic_node) => generic_node.max_template_var_id(),
+            TemplateLink::Var(template_var) => Some(template_var.id),
+        }
+    }
+    fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
+        match self {
+            TemplateLink::Specific(generic_node) => {
+                generic_node.does_use_template_var(template_var)
+            }
+            TemplateLink::Var(cur_template_var) => *cur_template_var == template_var,
+        }
+    }
+}
 impl From<TemplateVar> for TemplateLink {
     fn from(x: TemplateVar) -> Self {
         Self::Var(x)
@@ -48,26 +64,20 @@ impl ENodeTemplate {
     fn max_template_var_id(&self) -> Option<NonZeroUsize> {
         self.links()
             .into_iter()
-            .filter_map(|link| match link {
-                TemplateLink::Specific(generic_node) => generic_node.max_template_var_id(),
-                TemplateLink::Var(template_var) => Some(template_var.id),
-            })
+            .filter_map(|link| link.max_template_var_id())
             .max()
     }
     fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
-        self.links().into_iter().any(|link| match link {
-            TemplateLink::Specific(generic_node) => {
-                generic_node.does_use_template_var(template_var)
-            }
-            TemplateLink::Var(cur_template_var) => *cur_template_var == template_var,
-        })
+        self.links()
+            .into_iter()
+            .any(|link| link.does_use_template_var(template_var))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct RewriteRuleParams {
     pub query: ENodeTemplate,
-    pub rewrite: ENodeTemplate,
+    pub rewrite: TemplateLink,
 
     /// should we keep the original enode after the rule has been applied to it?
     pub keep_original: bool,
@@ -79,13 +89,13 @@ pub struct RewriteRuleParams {
 #[derive(Debug, Clone)]
 pub struct RewriteRule {
     pub query: ENodeTemplate,
-    pub rewrite: ENodeTemplate,
+    pub rewrite: TemplateLink,
 
     /// should we keep the original enode after the rule has been applied to it?
     pub keep_original: bool,
 }
 impl RewriteRule {
-    pub fn new(query: ENodeTemplate, rewrite: ENodeTemplate, keep_original: bool) -> Self {
+    pub fn new(query: ENodeTemplate, rewrite: TemplateLink, keep_original: bool) -> Self {
         let res = Self {
             query,
             rewrite,
@@ -161,9 +171,15 @@ impl RewriteRule {
 
     fn swap_direction(self) -> Self {
         self.check_can_swap_direction();
+        let rewrite_template = match self.rewrite {
+            TemplateLink::Specific(x) => x,
+            TemplateLink::Var(_) => {
+                panic!("can't reverse a rule whose re-write is just a single template var")
+            }
+        };
         Self {
-            query: self.rewrite,
-            rewrite: self.query,
+            query: *rewrite_template,
+            rewrite: TemplateLink::Specific(self.query.into()),
             keep_original: self.keep_original,
         }
     }

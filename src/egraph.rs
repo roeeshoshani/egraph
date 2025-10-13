@@ -236,11 +236,11 @@ impl EGraph {
 
         // for each match, add the rerwrite result to the egraph
         for enode_match in enode_matches {
-            let new_enode =
-                self.instantiate_enode_template(&rule.rewrite, &enode_match.match_obj.rule_storage);
+            let add_res = self.instantiate_enode_template_link(
+                &rule.rewrite,
+                &enode_match.match_obj.rule_storage,
+            );
 
-            // just add the new enode and union it with the original enode
-            let add_res = self.add_enode(new_enode);
             let union_res = self
                 .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
@@ -486,20 +486,34 @@ impl EGraph {
         }
     }
 
+    fn instantiate_enode_template_link(
+        &mut self,
+        template_link: &TemplateLink,
+        rule_storage: &RewriteRuleStorage,
+    ) -> AddENodeRes {
+        match template_link {
+            TemplateLink::Specific(inner_template) => {
+                let enode = self.instantiate_enode_template(inner_template, rule_storage);
+                self.add_enode(enode)
+            }
+            TemplateLink::Var(template_var) => {
+                let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
+                AddENodeRes {
+                    eclass_id: var_value.eclass,
+                    dedup_info: ENodeDedupInfo::Duplicate,
+                }
+            }
+        }
+    }
+
     fn instantiate_enode_template(
         &mut self,
         template: &ENodeTemplate,
         rule_storage: &RewriteRuleStorage,
     ) -> ENode {
-        template.convert_link(|template_link| match template_link {
-            TemplateLink::Specific(inner_template) => {
-                let enode = self.instantiate_enode_template(inner_template, rule_storage);
-                self.add_enode(enode).eclass_id
-            }
-            TemplateLink::Var(template_var) => {
-                let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
-                var_value.eclass
-            }
+        template.convert_link(|template_link| {
+            self.instantiate_enode_template_link(template_link, rule_storage)
+                .eclass_id
         })
     }
 
