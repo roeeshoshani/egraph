@@ -40,7 +40,7 @@ impl Setup {
             .collect()
     }
     fn gen_tree_with_unions(&self, num_union_ops: usize) -> UnionFind<usize> {
-        let mut tree = self.tree.clone();
+        let tree = self.tree.clone();
         let pairs = self.gen_pairs(num_union_ops);
         for pair in &pairs {
             tree.union(pair.a, pair.b);
@@ -75,7 +75,7 @@ fn test_union(c: &mut Criterion) {
                 &(&setup, &pairs),
                 |b, &(setup, pairs)| {
                     b.iter(|| {
-                        let mut tree = setup.tree.clone();
+                        let tree = setup.tree.clone();
                         for pair in pairs {
                             tree.union(black_box(pair.a), black_box(pair.b));
                         }

@@ -389,10 +389,7 @@ impl EGraph {
         state: &mut MatchingState,
     ) {
         // iterate all enodes in the eclass
-        for enode_item_id in self
-            .enodes_union_find
-            .items_eq_to_including_self(eclass.enode_id.0)
-        {
+        for enode_item_id in self.enodes_union_find.items_eq_to(eclass.enode_id.0) {
             let enode = &self.enodes_union_find[enode_item_id];
             self.match_enode_to_enode_template(enode, template, state);
         }
@@ -400,7 +397,7 @@ impl EGraph {
 
     fn eclass_as_imm(&self, eclass_id: EClassId) -> Option<Imm> {
         self.enodes_union_find
-            .items_eq_to_including_self(eclass_id.enode_id.0)
+            .items_eq_to(eclass_id.enode_id.0)
             .find_map(|item_id| {
                 let enode = &self.enodes_union_find[item_id];
                 match enode {
@@ -512,7 +509,7 @@ impl EGraph {
                 self.eclass_get_sample_rec_node(EClassId {
                     enode_id: ENodeId(
                         self.enodes_union_find
-                            .items_eq_to_including_self(eclass)
+                            .items_eq_to(eclass)
                             .next()
                             .unwrap()
                     )
@@ -521,11 +518,7 @@ impl EGraph {
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self
-                .enodes_union_find
-                .items_eq_to_including_self(eclass)
-                .enumerate()
-            {
+            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
                 let label = match &self.enodes_union_find[enode_id] {
                     GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
                     GenericNode::Var(var) => format!("var{}", var.0),
@@ -546,11 +539,7 @@ impl EGraph {
         // edges from each enode to target e-class clusters
         for eclass in eclasses {
             let eclass_id_str = eclass_id_to_str(eclass);
-            for (i, enode_id) in self
-                .enodes_union_find
-                .items_eq_to_including_self(eclass)
-                .enumerate()
-            {
+            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
                 let enode = &self.enodes_union_find[enode_id];
                 for link in enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters

@@ -1,11 +1,8 @@
 use std::{
+    cell::{Cell, RefCell},
     num::NonZeroUsize,
     ops::{Index, IndexMut},
 };
-
-use crate::union_find::id_to_parent_map::{IdToParentMap, TrySetParentOfItemErr};
-
-mod id_to_parent_map;
 
 /// the id of an item in the union find tree.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -30,15 +27,17 @@ pub enum UnionRes {
 /// a union find tree, where each node contains an item of type `T`.
 #[derive(Debug, Clone)]
 pub struct UnionFind<T> {
-    item_to_parent_map: IdToParentMap,
     items: Vec<T>,
+    parent_of_item: Vec<Cell<UnionFindItemId>>,
+    children_of_item: Vec<RefCell<Vec<UnionFindItemId>>>,
 }
 impl<T> UnionFind<T> {
     /// returns a new, empty, union find tree.
     pub fn new() -> Self {
         Self {
-            item_to_parent_map: IdToParentMap::new(),
             items: Vec::new(),
+            parent_of_item: Vec::new(),
+            children_of_item: Vec::new(),
         }
     }
 
@@ -52,41 +51,59 @@ impl<T> UnionFind<T> {
     pub fn create_new_item(&mut self, item: T) -> UnionFindItemId {
         self.items.push(item);
 
-        // allocate an id for it
-        let id = UnionFindItemId(self.item_to_parent_map.alloc_id());
+        let id = UnionFindItemId(unsafe {
+            // SAFETY: we just pushed to the vector so the length can't be 0.
+            NonZeroUsize::new_unchecked(self.items.len())
+        });
 
-        // the id should be 1 more than the index in the items vec.
-        // sanity check this assumption.
-        debug_assert_eq!(id.0.get(), self.items.len());
+        // initially, the item is a child of itself, and the parent of itself
+        self.children_of_item.push(RefCell::new(vec![id]));
+        self.parent_of_item.push(Cell::new(id));
 
         id
     }
 
+    /// adds the given child to the list of children of the given parent.
+    fn add_child(&self, parent: UnionFindItemId, child: UnionFindItemId) {
+        self.children_of_item[parent.index()]
+            .borrow_mut()
+            .push(child);
+    }
+
+    /// removes the given child from the list of children of the given parent.
+    fn remove_child(&self, parent: UnionFindItemId, child: UnionFindItemId) {
+        let mut children = self.children_of_item[parent.index()].borrow_mut();
+        let child_index = children.iter().position(|x| *x == child).unwrap();
+        children.swap_remove(child_index);
+    }
+
     /// returns the direct parent of the given item.
     pub fn get_parent_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
-        UnionFindItemId(self.item_to_parent_map.get_parent_of(item.0))
+        self.parent_of_item[item.index()].get()
     }
 
-    /// sets the direct parent of the given item
-    fn set_parent_of_item(&mut self, item: UnionFindItemId, new_parent: UnionFindItemId) {
-        self.item_to_parent_map.set_parent(item.0, new_parent.0);
-    }
-
-    /// tries to set the parent of the item with the given id.
+    /// sets the direct parent of the given item, and correctly updates the children list of the old and new parents.
     ///
-    /// this function has the benefit of not requiring a mutable ref to self while still allowing modification of the tree.
-    ///
-    /// this may fail if the parent of this node hasn't been set before, due to the lazily allocated array of parent ids.
-    fn try_set_parent_of_item(
+    /// returns the old parent.
+    fn set_parent_of_item(
         &self,
         item: UnionFindItemId,
         new_parent: UnionFindItemId,
-    ) -> Result<(), TrySetParentOfItemErr> {
-        self.item_to_parent_map.try_set_parent(item.0, new_parent.0)
+    ) -> UnionFindItemId {
+        let old_parent = self.parent_of_item[item.index()].replace(new_parent);
+
+        if old_parent == new_parent {
+            // nothing changed
+            return old_parent;
+        }
+
+        self.remove_child(old_parent, item);
+        self.add_child(new_parent, item);
+        old_parent
     }
 
     /// unions the given two items.
-    pub fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
+    pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         let root_a = self.root_of_item(item_a);
         let root_b = self.root_of_item(item_b);
         if root_a == root_b {
@@ -114,17 +131,14 @@ impl<T> UnionFind<T> {
         };
 
         // at this point we know the root. we can make our item point directly to the root to make future lookups faster.
-        //
-        // NOTE: we don't care if this fails, since this will only fail if the item previously had no parent, in which case we
-        // have no reason to flatten anything anyways.
-        let _ = self.try_set_parent_of_item(item, root);
+        self.set_parent_of_item(item, root);
 
         root
     }
 
     /// returns an iterator over all of the item ids in the tree.
     pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
-        self.item_to_parent_map.item_ids().map(|i| {
+        (1..=self.items.len()).map(|i| {
             UnionFindItemId(
                 // SAFETY: our iteration starts from 1, so the value can't be 0
                 unsafe { NonZeroUsize::new_unchecked(i) },
@@ -132,22 +146,42 @@ impl<T> UnionFind<T> {
         })
     }
 
-    /// returns an iterator over all items equal to the given item, excluding the item itself
-    pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> + '_ {
-        // TODO: make this efficient if needed. we iterate over all of the nodes here, which may not be the most efficient thing.
-        let root = self.root_of_item(item);
-        self.item_ids()
-            .filter(move |&cur_item| cur_item != item && self.root_of_item(cur_item) == root)
+    /// flattens all of the descendents of the given item to be direct children of it.
+    fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
+        let mut children = self.children_of_item[item.index()].borrow_mut();
+
+        // generate an initial exploration queue made of our sub-children
+        let mut exploration_queue = Vec::new();
+        for &child in &*children {
+            let mut sub_children = self.children_of_item[child.index()].borrow_mut();
+            exploration_queue.append(&mut *sub_children);
+        }
+
+        while !exploration_queue.is_empty() {
+            for child in std::mem::take(&mut exploration_queue) {
+                children.push(child);
+                let mut sub_children = self.children_of_item[child.index()].borrow_mut();
+                exploration_queue.append(&mut *sub_children);
+            }
+        }
+
+        for &child in &*children {
+            // make us the new parent of the child. don't try removing the child from its old parent's child list, since we empties
+            // all child lists along the way.
+            self.parent_of_item[child.index()].set(item);
+            self.add_child(item, child);
+        }
     }
 
     /// returns an iterator over all items equal to the given item, including the item itself
-    pub fn items_eq_to_including_self(
-        &self,
-        item: UnionFindItemId,
-    ) -> impl Iterator<Item = UnionFindItemId> + '_ {
+    pub fn items_eq_to(&self, item: UnionFindItemId) -> ItemsEqTo<'_> {
         let root = self.root_of_item(item);
-        self.item_ids()
-            .filter(move |&cur_item| cur_item == item || self.root_of_item(cur_item) == root)
+
+        if root != item {
+            self.flatten_descendents_of_item(root);
+        }
+
+        ItemsEqTo::new(self.children_of_item[root.index()].borrow())
     }
 
     /// checks if the given two items are equal.
@@ -189,6 +223,32 @@ impl<T> IndexMut<UnionFindItemId> for UnionFind<T> {
     }
 }
 
+#[derive(Debug)]
+pub struct ItemsEqTo<'a> {
+    items: std::cell::Ref<'a, Vec<UnionFindItemId>>,
+    next_index: usize,
+}
+impl<'a> ItemsEqTo<'a> {
+    fn new(items: std::cell::Ref<'a, Vec<UnionFindItemId>>) -> Self {
+        Self {
+            items,
+            next_index: 0,
+        }
+    }
+}
+impl<'a> Iterator for ItemsEqTo<'a> {
+    type Item = UnionFindItemId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_index >= self.items.len() {
+            return None;
+        }
+        let res = self.items[self.next_index];
+        self.next_index += 1;
+        Some(res)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,20 +283,7 @@ mod tests {
             // make sure that when iterating over each item in the group, we get all other items in the group, except for the item
             // itself.
             for &item in group {
-                let group_items_other_than = {
-                    let mut tmp = collect_to_vec(group.iter().copied());
-                    // keep all items other than the current item
-                    tmp.retain(|x| *x != item);
-                    tmp
-                };
-                let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
-                assert_eq!(
-                    group_items_other_than, items_eq_to_item,
-                    "item {item:?} in group {group:?} was expected to have items eq to of {group_items_other_than:?} but instead has {items_eq_to_item:?}",
-                );
-
-                let items_eq_to_item_including_self =
-                    collect_to_vec(union_find.items_eq_to_including_self(item));
+                let items_eq_to_item_including_self = collect_to_vec(union_find.items_eq_to(item));
                 assert_eq!(
                     group, items_eq_to_item_including_self,
                     "item {item:?} in group {group:?} was expected to have items eq including self to of {group:?} but instead has {items_eq_to_item_including_self:?}",
@@ -252,8 +299,7 @@ mod tests {
                 }
 
                 let items_eq_to_item = collect_to_vec(union_find.items_eq_to(item));
-                let items_eq_to_item_including_self =
-                    collect_to_vec(union_find.items_eq_to_including_self(item));
+                let items_eq_to_item_including_self = collect_to_vec(union_find.items_eq_to(item));
 
                 for &group_item in group {
                     assert!(
