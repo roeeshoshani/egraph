@@ -491,8 +491,10 @@ impl EGraph {
         did_anything
     }
 
-    pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
+    pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet, max_iterations: Option<usize>) {
+        let mut i = 0;
         loop {
+            println!("{}", i);
             let mut did_anything = DidAnything::False;
             for rule in rule_set.rules() {
                 did_anything |= self.perform_constant_folding();
@@ -500,6 +502,12 @@ impl EGraph {
             }
             if !did_anything.as_bool() {
                 break;
+            }
+            if let Some(max_iterations) = max_iterations {
+                i += 1;
+                if i == max_iterations {
+                    break;
+                }
             }
         }
     }
@@ -901,7 +909,7 @@ mod tests {
             },
         ]);
 
-        egraph.apply_rule_set(&rule_set);
+        egraph.apply_rule_set(&rule_set, None);
 
         panic!();
     }

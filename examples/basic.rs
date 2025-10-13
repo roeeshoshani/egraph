@@ -110,5 +110,9 @@ fn main() {
         },
     ]);
 
-    egraph.apply_rule_set(&rule_set);
+    egraph.apply_rule_set(&rule_set, Some(5));
+
+    std::fs::create_dir_all("./graphs").unwrap();
+    std::fs::write("./graphs/graph.gexf", egraph.to_gexf()).unwrap();
+    egraph.dump_dot_svg("./graphs/graph.svg");
 }
