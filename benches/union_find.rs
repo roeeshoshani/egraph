@@ -31,9 +31,11 @@ impl Setup {
         let mut rng = rand::rng();
         (0..num_pairs)
             .map(|_| {
-                let id1 = self.item_ids.choose(&mut rng).unwrap();
-                let id2 = self.item_ids.choose(&mut rng).unwrap();
-                Pair { a: *id1, b: *id2 }
+                let [id1, id2] = self
+                    .item_ids
+                    .choose_multiple_array::<_, 2>(&mut rng)
+                    .unwrap();
+                Pair { a: id1, b: id2 }
             })
             .collect()
     }
