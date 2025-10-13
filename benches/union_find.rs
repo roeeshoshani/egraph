@@ -3,7 +3,7 @@ use egraph::union_find::*;
 use rand::seq::IndexedRandom;
 
 const TREE_SIZE_OPTIONS: &[usize] = &[1000, 5000];
-const NUM_OPS_OPTIONS: &[usize] = &[1000, 5000];
+const NUM_UNION_OPS_OPTIONS: &[usize] = &[1000, 5000];
 
 struct Pair {
     a: UnionFindItemId,
@@ -47,13 +47,13 @@ impl Setup {
     }
 }
 
-struct TestParamsUnion {
+struct TestId {
     size: usize,
-    num_ops: usize,
+    num_union_ops: usize,
 }
-impl std::fmt::Display for TestParamsUnion {
+impl std::fmt::Display for TestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "size={},num_union_ops={}", self.size, self.num_ops)
+        write!(f, "size={},num_union_ops={}", self.size, self.num_union_ops)
     }
 }
 
@@ -61,12 +61,15 @@ fn test_union(c: &mut Criterion) {
     let mut group = c.benchmark_group("union");
 
     for &size in TREE_SIZE_OPTIONS {
-        for &num_ops in NUM_OPS_OPTIONS {
+        for &num_ops in NUM_UNION_OPS_OPTIONS {
             let setup = Setup::new(size);
             let pairs = setup.gen_pairs(num_ops);
 
             group.bench_with_input(
-                BenchmarkId::from_parameter(TestParamsUnion { size, num_ops }),
+                BenchmarkId::from_parameter(TestId {
+                    size,
+                    num_union_ops: num_ops,
+                }),
                 &(&setup, &pairs),
                 |b, &(setup, pairs)| {
                     b.iter(|| {
@@ -82,72 +85,45 @@ fn test_union(c: &mut Criterion) {
     group.finish();
 }
 
-struct TestParamsAreEq {
-    size: usize,
-    num_union_ops: usize,
-    num_are_eq_ops: usize,
-}
-impl std::fmt::Display for TestParamsAreEq {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "size={},num_union_ops={},num_are_eq_ops={}",
-            self.size, self.num_union_ops, self.num_are_eq_ops
-        )
-    }
-}
-
 fn test_are_eq(c: &mut Criterion) {
     let mut group = c.benchmark_group("are_eq");
 
     for &size in TREE_SIZE_OPTIONS {
-        for &num_union_ops in NUM_OPS_OPTIONS {
-            for &num_are_eq_ops in NUM_OPS_OPTIONS {
-                let setup = Setup::new(size);
-                let base_tree = setup.gen_tree_with_unions(num_union_ops);
-                let pairs = setup.gen_pairs(num_are_eq_ops);
+        for &num_union_ops in NUM_UNION_OPS_OPTIONS {
+            let setup = Setup::new(size);
+            let tree = setup.gen_tree_with_unions(num_union_ops);
 
-                group.bench_with_input(
-                    BenchmarkId::from_parameter(TestParamsAreEq {
-                        size,
-                        num_union_ops,
-                        num_are_eq_ops,
-                    }),
-                    &(&base_tree, &pairs),
-                    |b, &(base_tree, pairs)| {
-                        b.iter(|| {
-                            let tree = base_tree;
-                            for pair in pairs {
-                                black_box(tree.are_eq(black_box(pair.a), black_box(pair.b)));
+            group.bench_with_input(
+                BenchmarkId::from_parameter(TestId {
+                    size,
+                    num_union_ops,
+                }),
+                &(&tree, &setup.item_ids),
+                |b, &(tree, item_ids)| {
+                    b.iter(|| {
+                        for &item_id_1 in item_ids {
+                            for &item_id_2 in item_ids {
+                                black_box(tree.are_eq(black_box(item_id_1), black_box(item_id_2)));
                             }
-                        })
-                    },
-                );
-            }
+                        }
+                    })
+                },
+            );
         }
     }
     group.finish();
-}
-struct TestItemsEqTo {
-    size: usize,
-    num_union_ops: usize,
-}
-impl std::fmt::Display for TestItemsEqTo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "size={},num_union_ops={}", self.size, self.num_union_ops)
-    }
 }
 
 fn test_items_eq_to(c: &mut Criterion) {
     let mut group = c.benchmark_group("are_eq");
 
     for &size in TREE_SIZE_OPTIONS {
-        for &num_union_ops in NUM_OPS_OPTIONS {
+        for &num_union_ops in NUM_UNION_OPS_OPTIONS {
             let setup = Setup::new(size);
             let base_tree = setup.gen_tree_with_unions(num_union_ops);
 
             group.bench_with_input(
-                BenchmarkId::from_parameter(TestItemsEqTo {
+                BenchmarkId::from_parameter(TestId {
                     size,
                     num_union_ops,
                 }),
