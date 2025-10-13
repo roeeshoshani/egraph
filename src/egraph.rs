@@ -147,6 +147,7 @@ pub struct EGraph {
     enodes_hash_table: ENodeHashTable,
 }
 impl EGraph {
+    /// returns a new empty egraph.
     pub fn new() -> Self {
         Self {
             enodes_union_find: UnionFind::new(),
@@ -157,7 +158,9 @@ impl EGraph {
         }
     }
 
-    /// adds an enode to the egraph and returns the eclass id which contains it.
+    /// adds an enode to the egraph, puts it in a new eclass which only contains that single enode, and returns the id of that eclass.
+    ///
+    /// if the exact enode already exists in the egraph, returns the id of the existing enode.
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
         let entry = self
             .enodes_hash_table
@@ -184,6 +187,7 @@ impl EGraph {
         }
     }
 
+    /// adds a recursive node to the egraph, converting each node to an enode.
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> AddENodeRes {
         let graph_node = rec_node
             .0
