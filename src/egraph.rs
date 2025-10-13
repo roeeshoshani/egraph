@@ -45,6 +45,14 @@ pub type ENode = GenericNode<EClassId>;
 /// the root may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EffectiveEClassId(pub UnionFindItemId);
+impl EffectiveEClassId {
+    /// converts this effective eclass id back to an eclass id.
+    pub fn to_eclass_id(&self) -> EClassId {
+        EClassId {
+            enode_id: ENodeId(self.0),
+        }
+    }
+}
 
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
 pub type ENodeWithEffectiveEClassId = GenericNode<EffectiveEClassId>;
@@ -208,9 +216,13 @@ impl EGraph {
         for entry in self.enodes_hash_table.table.iter_hash(hash) {
             let mut matching_state_storage = MatchingStateStorage::new();
 
+            let eclass_id = EClassId { enode_id: entry.id };
+            let effective_eclass_id = eclass_id.to_effective(&self.enodes_union_find);
+
             // match the current enode
             self.match_enode_to_enode_template(
                 &entry.enode,
+                effective_eclass_id,
                 &rule.query,
                 &mut matching_state_storage.get_state(),
             );
@@ -259,6 +271,7 @@ impl EGraph {
     fn match_enode_to_enode_template(
         &self,
         enode: &ENode,
+        effective_eclass_id: EffectiveEClassId,
         template: &ENodeTemplate,
         state: &mut MatchingState,
     ) {
@@ -272,16 +285,20 @@ impl EGraph {
         let enode_links = enode.links();
         let template_links = template.links();
 
-        if enode_links.len() != template_links.len() {
-            // no match
-            return;
-        }
+        // sanity. the structural matching should already guarantee this.
+        assert_eq!(enode_links.len(), template_links.len());
+
+        // we defer adding the eclass if to the list of visited eclasses because we want to avoid redundant clones of the state,
+        // but at this point we performed strctural comparison, so we are pretty sure that the clone will be required.
+        let new_match = state
+            .cur_match
+            .with_added_visited_eclass(effective_eclass_id);
 
         let links_amount = enode_links.len();
 
         if links_amount == 0 {
             // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
-            state.matches.push(state.cur_match.clone());
+            state.matches.push(new_match);
             return;
         }
 
@@ -312,7 +329,7 @@ impl EGraph {
         // then we use the generated list for the next iteration.
         //
         // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
-        let mut cur_matches: Vec<Match> = vec![state.cur_match.clone()];
+        let mut cur_matches: Vec<Match> = vec![new_match];
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
             // the current template link
@@ -361,28 +378,35 @@ impl EGraph {
 
     fn match_eclass_to_template_link(
         &self,
-        eclass: EClassId,
+        eclass_id: EClassId,
         template_link: &TemplateLink,
         state: &mut MatchingState,
     ) {
+        let effective_eclass_id = eclass_id.to_effective(&self.enodes_union_find);
+        if state.cur_match.has_visited_eclass(effective_eclass_id) {
+            // don't loop
+            return;
+        }
         match template_link {
             TemplateLink::Specific(enode_template) => {
-                self.match_eclass_to_specific_template_link(eclass, enode_template, state);
+                self.match_eclass_to_specific_template_link(
+                    effective_eclass_id,
+                    enode_template,
+                    state,
+                );
             }
             TemplateLink::Var(template_var) => {
-                self.match_eclass_to_template_var(eclass, *template_var, state);
+                self.match_eclass_to_template_var(effective_eclass_id, *template_var, state);
             }
         }
     }
 
     fn match_eclass_to_template_var(
         &self,
-        eclass: EClassId,
+        effective_eclass_id: EffectiveEClassId,
         template_var: TemplateVar,
         state: &mut MatchingState,
     ) {
-        let effective_eclass_id = eclass.to_effective(&self.enodes_union_find);
-
         match state
             .cur_match
             .rule_storage
@@ -396,15 +420,24 @@ impl EGraph {
                 }
 
                 // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
-                state.matches.push(state.cur_match.clone());
+                //
+                // we add the eclass id here since we defer it until we are sure we have a match.
+                state.matches.push(
+                    state
+                        .cur_match
+                        .with_added_visited_eclass(effective_eclass_id),
+                );
             }
             None => {
                 // the variable currently doesn't have any value, so we can bind it and consider it a match.
-                let mut new_match = state.cur_match.clone();
+                //
+                // we add the eclass id here since we defer it until we are sure we have a match.
+                let mut new_match = state
+                    .cur_match
+                    .with_added_visited_eclass(effective_eclass_id);
                 new_match.rule_storage.template_var_values.set(
                     template_var,
                     TemplateVarValue {
-                        eclass,
                         effective_eclass_id,
                     },
                 );
@@ -415,14 +448,14 @@ impl EGraph {
 
     fn match_eclass_to_specific_template_link(
         &self,
-        eclass: EClassId,
+        effective_eclass_id: EffectiveEClassId,
         template: &ENodeTemplate,
         state: &mut MatchingState,
     ) {
         // iterate all enodes in the eclass
-        for enode_item_id in self.enodes_union_find.items_eq_to(eclass.enode_id.0) {
+        for enode_item_id in self.enodes_union_find.items_eq_to(effective_eclass_id.0) {
             let enode = &self.enodes_union_find[enode_item_id];
-            self.match_enode_to_enode_template(enode, template, state);
+            self.match_enode_to_enode_template(enode, effective_eclass_id, template, state);
         }
     }
 
@@ -499,7 +532,7 @@ impl EGraph {
             TemplateLink::Var(template_var) => {
                 let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
                 AddENodeRes {
-                    eclass_id: var_value.eclass,
+                    eclass_id: var_value.effective_eclass_id.to_eclass_id(),
                     dedup_info: ENodeDedupInfo::Duplicate,
                 }
             }
@@ -672,12 +705,22 @@ impl EGraph {
 #[derive(Debug, Clone)]
 pub struct Match {
     pub rule_storage: RewriteRuleStorage,
+    pub visited_eclasses: Vec<EffectiveEClassId>,
 }
 impl Match {
     pub fn new() -> Self {
         Self {
             rule_storage: RewriteRuleStorage::new(),
+            visited_eclasses: Vec::new(),
         }
+    }
+    pub fn has_visited_eclass(&self, effective_eclass_id: EffectiveEClassId) -> bool {
+        self.visited_eclasses.contains(&effective_eclass_id)
+    }
+    pub fn with_added_visited_eclass(&self, effective_eclass_id: EffectiveEClassId) -> Self {
+        let mut res = self.clone();
+        res.visited_eclasses.push(effective_eclass_id);
+        res
     }
 }
 

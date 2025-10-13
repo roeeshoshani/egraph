@@ -187,7 +187,6 @@ impl RewriteRule {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TemplateVarValue {
-    pub eclass: EClassId,
     pub effective_eclass_id: EffectiveEClassId,
 }
 
