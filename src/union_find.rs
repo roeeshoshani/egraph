@@ -153,6 +153,11 @@ impl<T> UnionFind<T> {
         // generate an initial exploration queue made of our sub-children
         let mut exploration_queue = Vec::new();
         for &child in &*children {
+            if child == item {
+                // if the item is a root, it will be a child of itself, in which case, we don't want to explore its children once more,
+                // we are already doing it.
+                continue;
+            }
             let mut sub_children = self.children_of_item[child.index()].borrow_mut();
             exploration_queue.append(&mut *sub_children);
         }
