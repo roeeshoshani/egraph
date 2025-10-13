@@ -4,26 +4,16 @@ use egraph::{
 };
 
 fn main() {
-    // 0xff & ((x & 0xff00) | (y & 0xff0000))
+    // (x | y) & 0
     let rec_node: RecNode = RecBinOp {
         kind: BinOpKind::And,
-        lhs: 0xff.into(),
-        rhs: RecBinOp {
+        lhs: RecBinOp {
             kind: BinOpKind::Or,
-            lhs: RecBinOp {
-                kind: BinOpKind::And,
-                lhs: Var(0).into(),
-                rhs: 0xff00.into(),
-            }
-            .into(),
-            rhs: RecBinOp {
-                kind: BinOpKind::And,
-                lhs: Var(1).into(),
-                rhs: 0xff0000.into(),
-            }
-            .into(),
+            lhs: Var(0).into(),
+            rhs: Var(1).into(),
         }
         .into(),
+        rhs: 0.into(),
     }
     .into();
 
