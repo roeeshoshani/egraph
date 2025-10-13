@@ -281,9 +281,7 @@ impl EGraph {
 
         if links_amount == 0 {
             // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
-            state.matches.push(Match {
-                rule_storage: state.rule_storage.clone(),
-            });
+            state.matches.push(state.cur_match.clone());
             return;
         }
 
@@ -314,9 +312,7 @@ impl EGraph {
         // then we use the generated list for the next iteration.
         //
         // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
-        let mut cur_matches: Vec<Match> = vec![Match {
-            rule_storage: state.rule_storage.clone(),
-        }];
+        let mut cur_matches: Vec<Match> = vec![state.cur_match.clone()];
         let mut new_matches: Vec<Match> = Vec::new();
         for cur_link_idx in 0..links_amount {
             // the current template link
@@ -328,7 +324,7 @@ impl EGraph {
             // we want a cartesian product over matches from previous links, so try matching the link for each previous match
             for cur_match in &cur_matches {
                 let mut new_matching_state = MatchingState {
-                    rule_storage: &cur_match.rule_storage,
+                    cur_match: cur_match,
                     matches: &mut new_matches,
                 };
                 self.match_eclass_to_template_link(
@@ -387,7 +383,12 @@ impl EGraph {
     ) {
         let effective_eclass_id = eclass.to_effective(&self.enodes_union_find);
 
-        match state.rule_storage.template_var_values.get(template_var) {
+        match state
+            .cur_match
+            .rule_storage
+            .template_var_values
+            .get(template_var)
+        {
             Some(existing_var_value) => {
                 if effective_eclass_id != existing_var_value.effective_eclass_id {
                     // no match
@@ -395,23 +396,19 @@ impl EGraph {
                 }
 
                 // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
-                state.matches.push(Match {
-                    rule_storage: state.rule_storage.clone(),
-                });
+                state.matches.push(state.cur_match.clone());
             }
             None => {
                 // the variable currently doesn't have any value, so we can bind it and consider it a match.
-                let mut new_rule_storage = state.rule_storage.clone();
-                new_rule_storage.template_var_values.set(
+                let mut new_match = state.cur_match.clone();
+                new_match.rule_storage.template_var_values.set(
                     template_var,
                     TemplateVarValue {
                         eclass,
                         effective_eclass_id,
                     },
                 );
-                state.matches.push(Match {
-                    rule_storage: new_rule_storage,
-                });
+                state.matches.push(new_match);
             }
         }
     }
@@ -676,6 +673,13 @@ impl EGraph {
 pub struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
+impl Match {
+    pub fn new() -> Self {
+        Self {
+            rule_storage: RewriteRuleStorage::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ENodeMatch {
@@ -684,19 +688,19 @@ pub struct ENodeMatch {
 }
 
 struct MatchingStateStorage {
-    rule_storage: RewriteRuleStorage,
+    initial_match: Match,
     matches: Vec<Match>,
 }
 impl MatchingStateStorage {
     fn new() -> Self {
         Self {
-            rule_storage: RewriteRuleStorage::new(),
+            initial_match: Match::new(),
             matches: Vec::new(),
         }
     }
     fn get_state(&mut self) -> MatchingState<'_> {
         MatchingState {
-            rule_storage: &self.rule_storage,
+            cur_match: &self.initial_match,
             matches: &mut self.matches,
         }
     }
@@ -704,7 +708,7 @@ impl MatchingStateStorage {
 
 #[derive(Debug)]
 struct MatchingState<'a> {
-    rule_storage: &'a RewriteRuleStorage,
+    cur_match: &'a Match,
     matches: &'a mut Vec<Match>,
 }
 
