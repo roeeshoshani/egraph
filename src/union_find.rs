@@ -181,8 +181,9 @@ impl<T> UnionFind<T> {
 
     /// flattens all of the descendents of the given item to be direct children of it.
     fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
-        let mut children = self.children_of_item[item.index()].borrow_mut();
-        let mut new_children = Vec::new();
+        // we intentionally start with an immutable borrow instead of a mutable borrow, to allow nested iteration in the case where
+        // all children are already flattened.
+        let children = self.children_of_item[item.index()].borrow();
 
         // generate an initial exploration queue made of our sub-children
         let mut exploration_queue = Vec::new();
@@ -196,6 +197,16 @@ impl<T> UnionFind<T> {
             exploration_queue.append(&mut *sub_children);
         }
 
+        if exploration_queue.is_empty() {
+            // if there are no sub-children, we have nothing to do.
+            //
+            // NOTE: this early return is important since it entirely skips the mutable borrow of the children, which allows nested
+            // iteration.
+            return;
+        }
+
+        // collect new children which are currently not direct children of this item
+        let mut new_children = Vec::new();
         while !exploration_queue.is_empty() {
             new_children.extend_from_slice(&exploration_queue);
             for child in std::mem::take(&mut exploration_queue) {
@@ -204,12 +215,17 @@ impl<T> UnionFind<T> {
             }
         }
 
+        // make this item the parent of all new children
         for &child in &new_children {
             // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
             // all child lists along the way.
             self.set_parent_of_item_no_remove(child, item);
         }
 
+        // add the new children to the children array.
+        //
+        // we need to reborrow children mutably since we currently only have an immutable borrow.
+        let mut children = self.children_of_item[item.index()].borrow_mut();
         children.append(&mut new_children);
     }
 
