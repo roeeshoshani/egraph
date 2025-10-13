@@ -3,22 +3,24 @@ use hashbrown::{DefaultHashBuilder, HashSet, HashTable, hash_table::Entry};
 use std::{hash::BuildHasher, io::Write as _};
 use tempfile::NamedTempFile;
 
-use crate::{union_find::*, *};
+use crate::{did_anything::DidAnything, union_find::*, *};
 use std::fmt::Write as _;
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ENodeId(pub UnionFindItemId);
 
-// NOTE: this should NOT implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
-// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
-// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
-//
-// checking if 2 instances of this type are equal requires accessing the union find tree.
+/// the id of an eclass.
+///
+/// NOTE: this does not implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
+/// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
+/// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
+///
+/// checking if 2 instances of this type are equal requires accessing the union find tree.
 #[derive(Debug, Clone, Copy)]
 pub struct EClassId {
     /// an id of some enode which is part of this eclass.
-    /// this can be used to iterate over all
+    /// this can be used to iterate over all enodes in the eclass.
     pub enode_id: ENodeId,
 }
 impl EClassId {
@@ -34,15 +36,15 @@ pub type ENode = GenericNode<EClassId>;
 /// an effective eclass id.
 ///
 /// usually, the eclass id is represented as an id to any enode in that eclass. this is problematic since it means that we can't
-/// compare eclass ids, which means that we can't compare enodes.
+/// compare eclass ids, which means that we can't compare enodes (since they contain eclass ids).
 ///
-/// this type represents an actual eclass id which can be compared to other eclass id. this is resolved by taking the root of the enode
-/// id in the union find tree.
+/// this type represents an eclass id which can actually be compared to other eclass id. this is resolved by taking the root node
+/// of the enode id in the union find tree.
 ///
-/// this id is only true for a snapshot of the union find tree. once the tree is modified, it is no longer up to date, since the root
-/// may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
+/// this id is only true for a given snapshot of the union find tree. once the tree is modified, it is no longer up to date, since
+/// the root may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EffectiveEClassId(pub UnionFindAnyId);
+pub struct EffectiveEClassId(pub UnionFindItemId);
 
 /// an enode with an effective eclass id. this allows comparing the enode to other enodes.
 pub type ENodeWithEffectiveEClassId = GenericNode<EffectiveEClassId>;
@@ -57,28 +59,42 @@ impl ENode {
     }
 }
 
+/// a hash table entry in our enode hash table.
 #[derive(Debug, Clone)]
-struct ENodeHashTableEntry {
+pub struct ENodeHashTableEntry {
+    /// the enode.
     enode: ENode,
+
+    /// the id of the enode.
     id: ENodeId,
 }
 
+/// a node hasher. used for implementing our enode hash table.
 #[derive(Debug, Default, Clone)]
-struct NodeHasher(DefaultHashBuilder);
+pub struct NodeHasher(DefaultHashBuilder);
 impl NodeHasher {
-    fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
+    /// performs structural hashing on the given node, ignoring the link. the calculated hash then allows performing lookup
+    /// in the hash table.
+    pub fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
         // hash the enode, but ignore the links. only take its structure into account.
         self.0.hash_one(node.convert_link(|_| ()))
     }
 }
 
+/// a hash table of enodes.
+///
+/// the enodes are hashed according to their structure, ignoring the links, but contain the fully detailed enode values including
+/// the links, which allows for comparison against exact entries.
 #[derive(Clone)]
-struct ENodeHashTable {
-    table: HashTable<ENodeHashTableEntry>,
-    hasher: NodeHasher,
+pub struct ENodeHashTable {
+    pub table: HashTable<ENodeHashTableEntry>,
+    pub hasher: NodeHasher,
 }
 impl ENodeHashTable {
-    fn entry(
+    /// finds the entry in the hash table for the given enode.
+    ///
+    /// if an exact enode already exists, returns an occupied entry. otherwise, returns a vacant entry.
+    pub fn entry(
         &mut self,
         enode: &ENode,
         enodes_union_find: &UnionFind<ENode>,
@@ -102,7 +118,7 @@ impl ENodeHashTable {
     }
 }
 
-/// enode deduplication information when adding an enode
+/// enode deduplication information when adding an enode.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ENodeDedupInfo {
     /// the added enode is a new enode that we previously didn't have in our egraph.
@@ -122,14 +138,16 @@ pub struct AddENodeRes {
     pub dedup_info: ENodeDedupInfo,
 }
 
+/// an egraph.
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
-    enodes_union_find: UnionFind<ENode>,
+    pub enodes_union_find: UnionFind<ENode>,
 
     #[dbg(skip)]
-    enodes_hash_table: ENodeHashTable,
+    pub enodes_hash_table: ENodeHashTable,
 }
 impl EGraph {
+    /// returns a new empty egraph.
     pub fn new() -> Self {
         Self {
             enodes_union_find: UnionFind::new(),
@@ -140,7 +158,9 @@ impl EGraph {
         }
     }
 
-    /// adds an enode to the egraph and returns the eclass id which contains it.
+    /// adds an enode to the egraph, puts it in a new eclass which only contains that single enode, and returns the id of that eclass.
+    ///
+    /// if the exact enode already exists in the egraph, returns the id of the existing enode.
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
         let entry = self
             .enodes_hash_table
@@ -167,94 +187,11 @@ impl EGraph {
         }
     }
 
-    /// replaces the enode with the given enode id with the given new enode.
-    pub fn replace_enode(
-        &mut self,
-        enode_id_to_replace: ENodeId,
-        replace_with: ENode,
-    ) -> AddENodeRes {
-        let entry = self
-            .enodes_hash_table
-            .entry(&replace_with, &self.enodes_union_find);
-
-        match entry {
-            Entry::Occupied(entry) => {
-                // the new enode is a duplicate of an enode which already exists.
-                // so, we just want to get rid of the original enode, both in the union find tree, and in the hash table.
-                //
-                // the union find tree doesn't support removing items, but it supports orphaning items.
-                //
-                // when we query enodes, we first start from the hash table, and then descend by looking at items in the same
-                // eclass as the enode that each link points to.
-                //
-                // so, if we make sure that no existing node points to the original enode, and then we orphan it, then it will
-                // become practically inaccessible, which is equivalent to removing it.
-                let new_enode_id = entry.get().id;
-                let new_eclass_id = EClassId {
-                    enode_id: new_enode_id,
-                };
-                for item in self.enodes_union_find.items_mut() {
-                    *item = item.convert_link(|link| {
-                        if link.enode_id == enode_id_to_replace {
-                            // if this link points to the enode that we want to replace, make it point to the new id instead
-                            new_eclass_id
-                        } else {
-                            *link
-                        }
-                    })
-                }
-                self.enodes_union_find.orphan(enode_id_to_replace.0);
-
-                // remove it from the hash table
-                let orig_enode = &self.enodes_union_find[enode_id_to_replace.0];
-                let Entry::Occupied(orig_entry) = self
-                    .enodes_hash_table
-                    .entry(&orig_enode, &self.enodes_union_find)
-                else {
-                    unreachable!();
-                };
-                orig_entry.remove();
-
-                AddENodeRes {
-                    eclass_id: new_eclass_id,
-                    dedup_info: ENodeDedupInfo::Duplicate,
-                }
-            }
-            Entry::Vacant(entry) => {
-                // the new enode is not a duplicate of an existing node. in this case, we can just re-use the enode id of the original
-                // node to store the new node, and we must make sure to also update the hash table.
-
-                // first, insert the new enode into the hash table
-                entry.insert(ENodeHashTableEntry {
-                    enode: replace_with.clone(),
-                    id: enode_id_to_replace,
-                });
-
-                // overwrite the original enode in the union find tree with the new enode
-                let orig_enode = std::mem::replace(
-                    &mut self.enodes_union_find[enode_id_to_replace.0],
-                    replace_with,
-                );
-
-                // now remove the hash table entry of the old enode
-                let Entry::Occupied(orig_entry) = self
-                    .enodes_hash_table
-                    .entry(&orig_enode, &self.enodes_union_find)
-                else {
-                    unreachable!();
-                };
-                orig_entry.remove();
-
-                AddENodeRes {
-                    eclass_id: EClassId {
-                        enode_id: enode_id_to_replace,
-                    },
-                    dedup_info: ENodeDedupInfo::New,
-                }
-            }
-        }
+    pub fn are_eclass_ids_eq(&self, a: EClassId, b: EClassId) -> bool {
+        self.enodes_union_find.are_eq(a.enode_id.0, b.enode_id.0)
     }
 
+    /// adds a recursive node to the egraph, converting each node to an enode.
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> AddENodeRes {
         let graph_node = rec_node
             .0
@@ -262,8 +199,7 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    /// returns whether applying the rule actually added any new information to the egraph.
-    pub fn apply_rule(&mut self, rule: &RewriteRule) -> bool {
+    pub fn match_rule(&mut self, rule: &RewriteRule) -> Vec<ENodeMatch> {
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
         let mut enode_matches = Vec::new();
@@ -287,24 +223,33 @@ impl EGraph {
             }));
         }
 
-        self.handle_enode_matches(&enode_matches, rule)
+        enode_matches
     }
 
-    fn handle_enode_matches(&mut self, enode_matches: &[ENodeMatch], rule: &RewriteRule) -> bool {
-        let mut did_anything = false;
+    pub fn apply_rule(&mut self, rule: &RewriteRule) -> DidAnything {
+        let matches = self.match_rule(rule);
+        self.handle_enode_matches(&matches, rule)
+    }
+
+    fn handle_enode_matches(
+        &mut self,
+        enode_matches: &[ENodeMatch],
+        rule: &RewriteRule,
+    ) -> DidAnything {
+        let mut did_anything = DidAnything::False;
 
         // for each match, add the rerwrite result to the egraph
         for enode_match in enode_matches {
-            let new_enode =
-                self.instantiate_enode_template(&rule.rewrite, &enode_match.match_obj.rule_storage);
+            let add_res = self.instantiate_enode_template_link(
+                &rule.rewrite,
+                &enode_match.match_obj.rule_storage,
+            );
 
-            // just add the new enode and union it with the original enode
-            let add_res = self.add_enode(new_enode);
             let union_res = self
                 .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
             if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
-                did_anything = true;
+                did_anything = DidAnything::True;
             }
         }
 
@@ -441,6 +386,7 @@ impl EGraph {
         state: &mut MatchingState,
     ) {
         let effective_eclass_id = eclass.to_effective(&self.enodes_union_find);
+
         match state.rule_storage.template_var_values.get(template_var) {
             Some(existing_var_value) => {
                 if effective_eclass_id != existing_var_value.effective_eclass_id {
@@ -477,10 +423,7 @@ impl EGraph {
         state: &mut MatchingState,
     ) {
         // iterate all enodes in the eclass
-        for enode_item_id in self
-            .enodes_union_find
-            .items_eq_to_including_self(eclass.enode_id.0)
-        {
+        for enode_item_id in self.enodes_union_find.items_eq_to(eclass.enode_id.0) {
             let enode = &self.enodes_union_find[enode_item_id];
             self.match_enode_to_enode_template(enode, template, state);
         }
@@ -488,7 +431,7 @@ impl EGraph {
 
     fn eclass_as_imm(&self, eclass_id: EClassId) -> Option<Imm> {
         self.enodes_union_find
-            .items_eq_to_including_self(eclass_id.enode_id.0)
+            .items_eq_to(eclass_id.enode_id.0)
             .find_map(|item_id| {
                 let enode = &self.enodes_union_find[item_id];
                 match enode {
@@ -500,8 +443,8 @@ impl EGraph {
     }
 
     /// returns `did_anything`
-    pub fn perform_constant_folding(&mut self) -> bool {
-        let mut did_anything = false;
+    pub fn perform_constant_folding(&mut self) -> DidAnything {
+        let mut did_anything = DidAnything::False;
         for enode_id in self.enodes_union_find.item_ids() {
             let GenericNode::BinOp(BinOp { kind, lhs, rhs }) = &self.enodes_union_find[enode_id]
             else {
@@ -521,20 +464,47 @@ impl EGraph {
                 .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_id);
 
-            did_anything = union_res == UnionRes::New;
+            did_anything = DidAnything::from(union_res == UnionRes::New);
         }
         did_anything
     }
 
-    pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
+    pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet, max_iterations: Option<usize>) {
+        let mut i = 0;
         loop {
-            let mut did_anything = false;
+            let mut did_anything = DidAnything::False;
             for rule in rule_set.rules() {
                 did_anything |= self.perform_constant_folding();
                 did_anything |= self.apply_rule(rule);
             }
-            if !did_anything {
+            if !did_anything.as_bool() {
                 break;
+            }
+            if let Some(max_iterations) = max_iterations {
+                i += 1;
+                if i == max_iterations {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn instantiate_enode_template_link(
+        &mut self,
+        template_link: &TemplateLink,
+        rule_storage: &RewriteRuleStorage,
+    ) -> AddENodeRes {
+        match template_link {
+            TemplateLink::Specific(inner_template) => {
+                let enode = self.instantiate_enode_template(inner_template, rule_storage);
+                self.add_enode(enode)
+            }
+            TemplateLink::Var(template_var) => {
+                let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
+                AddENodeRes {
+                    eclass_id: var_value.eclass,
+                    dedup_info: ENodeDedupInfo::Duplicate,
+                }
             }
         }
     }
@@ -544,22 +514,16 @@ impl EGraph {
         template: &ENodeTemplate,
         rule_storage: &RewriteRuleStorage,
     ) -> ENode {
-        template.convert_link(|template_link| match template_link {
-            TemplateLink::Specific(inner_template) => {
-                let enode = self.instantiate_enode_template(inner_template, rule_storage);
-                self.add_enode(enode).eclass_id
-            }
-            TemplateLink::Var(template_var) => {
-                let var_value = rule_storage.template_var_values.get(*template_var).unwrap();
-                var_value.eclass
-            }
+        template.convert_link(|template_link| {
+            self.instantiate_enode_template_link(template_link, rule_storage)
+                .eclass_id
         })
     }
 
-    pub fn from_rec_node(rec_node: &RecNode) -> Self {
+    pub fn from_rec_node(rec_node: &RecNode) -> (Self, EClassId) {
         let mut egraph = Self::new();
-        egraph.add_rec_node(rec_node);
-        egraph
+        let add_node_res = egraph.add_rec_node(rec_node);
+        (egraph, add_node_res.eclass_id)
     }
 
     pub fn dump_dot_svg(&self, out_file_path: &str) {
@@ -570,27 +534,68 @@ impl EGraph {
             .unwrap();
     }
 
-    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
         RecNode(
-            self.enodes_union_find[eclass_id.enode_id.0].convert_link(|link_eclass_id| {
+            self.enodes_union_find[enode_id.0].convert_link(|link_eclass_id| {
                 Box::new(self.eclass_get_sample_rec_node(*link_eclass_id))
             }),
         )
     }
 
+    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+        self.enode_get_sample_rec_node(eclass_id.enode_id)
+    }
+
+    fn try_to_gexf(&self) -> gexf::Result<String> {
+        let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
+            .meta("egraph", "a visualization of an egraph");
+        for enode_item_id in self.enodes_union_find.item_ids() {
+            let enode_id = ENodeId(enode_item_id);
+            let enode = &self.enodes_union_find[enode_item_id];
+
+            let eclass_label = self
+                .enodes_union_find
+                .items_eq_to(enode_item_id)
+                .min()
+                .unwrap();
+
+            let node_label = if enode.links().is_empty() {
+                enode.structural_display()
+            } else {
+                format!(
+                    "{}    {{ {} }}",
+                    enode.structural_display(),
+                    self.enode_get_sample_rec_node(enode_id).to_string()
+                )
+            };
+
+            let node_id = enode_item_id.0.to_string();
+
+            let node = gexf::Node::new(&node_id)
+                .with_label(node_label)
+                .with_attr("eclass", eclass_label.0.to_string());
+            builder = builder.add_node(node)?;
+
+            // edges
+            for link in enode.links() {
+                builder = builder.add_edge(&node_id, link.enode_id.0.0.to_string())?;
+            }
+        }
+        builder.try_build()?.to_string()
+    }
+
+    pub fn to_gexf(&self) -> String {
+        self.try_to_gexf().unwrap()
+    }
+
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
-        fn eclass_id_to_str(eclass_id: UnionFindAnyId) -> String {
-            match eclass_id {
-                UnionFindAnyId::Item(item_id) => format!("eclass_root_item_{}", item_id.0.get()),
-                UnionFindAnyId::Parent(parent_id) => {
-                    format!("eclass_root_parent_{}", parent_id.0.get())
-                }
-            }
+        fn eclass_id_to_str(eclass_root_item_id: UnionFindItemId) -> String {
+            format!("eclass_item_{}", eclass_root_item_id.0.get())
         }
 
-        let eclasses: HashSet<UnionFindAnyId> = self
+        let eclasses: HashSet<UnionFindItemId> = self
             .enodes_union_find
             .item_ids()
             .map(|item_id| self.enodes_union_find.root_of_item(item_id))
@@ -604,27 +609,15 @@ impl EGraph {
                 eclass_id_str,
                 self.eclass_get_sample_rec_node(EClassId {
                     enode_id: ENodeId(
-                        self.enodes_union_find
-                            .items_eq_to_any_including_self(eclass)
-                            .next()
-                            .unwrap()
+                        self.enodes_union_find.root_of_item(eclass)
                     )
                 })
             )
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self
-                .enodes_union_find
-                .items_eq_to_any_including_self(eclass)
-                .enumerate()
-            {
-                let label = match &self.enodes_union_find[enode_id] {
-                    GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
-                    GenericNode::Var(var) => format!("var{}", var.0),
-                    GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
-                    GenericNode::UnOp(un_op) => un_op.kind.to_string(),
-                };
+            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
+                let label = self.enodes_union_find[enode_id].structural_display();
                 writeln!(
                     &mut out,
                     "    {}_{} [label=\"{}\"];",
@@ -639,11 +632,7 @@ impl EGraph {
         // edges from each enode to target e-class clusters
         for eclass in eclasses {
             let eclass_id_str = eclass_id_to_str(eclass);
-            for (i, enode_id) in self
-                .enodes_union_find
-                .items_eq_to_any_including_self(eclass)
-                .enumerate()
-            {
+            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
                 let enode = &self.enodes_union_find[enode_id];
                 for link in enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
@@ -684,12 +673,12 @@ impl EGraph {
 }
 
 #[derive(Debug, Clone)]
-struct Match {
+pub struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
 
 #[derive(Debug, Clone)]
-struct ENodeMatch {
+pub struct ENodeMatch {
     pub match_obj: Match,
     pub enode_id: ENodeId,
 }
@@ -818,7 +807,7 @@ mod tests {
         }
         .into();
 
-        let mut egraph = EGraph::from_rec_node(&rec_node);
+        let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
         let rule_set = RewriteRuleSet::from_rules([
             // (x & 0) => 0
@@ -909,10 +898,24 @@ mod tests {
                 keep_original: true,
                 bi_directional: false,
             },
+            // a & a => a
+            RewriteRuleParams {
+                query: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(1).into(),
+                }
+                .into(),
+                rewrite: TemplateVar::new(1).into(),
+                keep_original: true,
+                bi_directional: false,
+            },
         ]);
 
-        egraph.apply_rule_set(&rule_set);
+        let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
-        panic!();
+        assert!(!egraph.are_eclass_ids_eq(zero_eclass, root_eclass));
+        egraph.apply_rule_set(&rule_set, None);
+        assert!(egraph.are_eclass_ids_eq(zero_eclass, root_eclass));
     }
 }

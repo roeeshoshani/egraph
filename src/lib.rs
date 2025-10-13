@@ -1,3 +1,4 @@
+pub mod did_anything;
 mod egraph;
 pub mod graph;
 mod node;
