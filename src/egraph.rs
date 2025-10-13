@@ -383,10 +383,6 @@ impl EGraph {
         state: &mut MatchingState,
     ) {
         let effective_eclass_id = eclass_id.to_effective(&self.enodes_union_find);
-        if state.cur_match.has_visited_eclass(effective_eclass_id) {
-            // don't loop
-            return;
-        }
         match template_link {
             TemplateLink::Specific(enode_template) => {
                 self.match_eclass_to_specific_template_link(
@@ -452,6 +448,20 @@ impl EGraph {
         template: &ENodeTemplate,
         state: &mut MatchingState,
     ) {
+        // when matching an eclass against a specific template link, make sure that we haven't visited this eclass already, to prevent
+        // following eclass loops which will blow up the graph with redundant expressions.
+        //
+        // NOTE: this is only done in the case of matching against a specific template link, and not when matching against a template
+        // variable. this is intentional, since we want to allow loops in our templates, for example, we want to allow the following
+        // template `x & (1 + x)`.
+        // additionally, note that in the case of matching against template variables, we don't need to worry about graph blow up, since
+        // template variables don't cause expansions of eclasses, they only check for matching, unlike specific template links, which
+        // cause expansion of an eclass to each of its enode forms.
+        if state.cur_match.has_visited_eclass(effective_eclass_id) {
+            // don't loop
+            return;
+        }
+
         // iterate all enodes in the eclass
         for enode_item_id in self.enodes_union_find.items_eq_to(effective_eclass_id.0) {
             let enode = &self.enodes_union_find[enode_item_id];
