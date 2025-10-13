@@ -215,6 +215,10 @@ impl<T> UnionFind<T> {
             }
         }
 
+        // drop the borrow that we are currently holding to the item's children, since the logic below will append the new
+        // children to it, which requires modifying it.
+        drop(children);
+
         // make this item the parent of all new children
         for &child in &new_children {
             // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
