@@ -108,7 +108,7 @@ impl<T> UnionFind<T> {
     /// this assumes that the child has already been removed from the children list of the old parent.
     ///
     /// returns the old parent.
-    fn set_parent_of_item_noremove(
+    fn set_parent_of_item_no_remove(
         &self,
         item: UnionFindItemId,
         new_parent: UnionFindItemId,
@@ -126,31 +126,42 @@ impl<T> UnionFind<T> {
 
     /// unions the given two items.
     pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
-        let root_a = self.root_of_item(item_a);
-        let root_b = self.root_of_item(item_b);
+        let root_a = self.root_of_item_no_update(item_a);
+        let root_b = self.root_of_item_no_update(item_b);
         if root_a == root_b {
             // the items are already unioned.
+            //
+            // make sure that we update them to point directly to their roots.
+            self.set_parent_of_item(item_a, root_a);
+            self.set_parent_of_item(item_b, root_b);
             return UnionRes::Existing;
         }
 
         // we can union the items by making one of their roots a parent of the other root
         self.set_parent_of_item(root_b, root_a);
 
+        // make both items point directly to the new root
+        self.set_parent_of_item(item_a, root_a);
+        self.set_parent_of_item(item_b, root_a);
+
         UnionRes::New
+    }
+
+    /// finds the root item of the given item, without updating the item to point directly to its root.
+    pub fn root_of_item_no_update(&self, item: UnionFindItemId) -> UnionFindItemId {
+        let mut cur_item = item;
+        loop {
+            let parent = self.get_parent_of_item(cur_item);
+            if parent == cur_item {
+                break cur_item;
+            }
+            cur_item = parent;
+        }
     }
 
     /// finds the root item of the given item.
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
-        let root = {
-            let mut cur_item = item;
-            loop {
-                let parent = self.get_parent_of_item(cur_item);
-                if parent == cur_item {
-                    break cur_item;
-                }
-                cur_item = parent;
-            }
-        };
+        let root = self.root_of_item_no_update(item);
 
         // at this point we know the root. we can make our item point directly to the root to make future lookups faster.
         self.set_parent_of_item(item, root);
@@ -196,7 +207,7 @@ impl<T> UnionFind<T> {
         for &child in &new_children {
             // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
             // all child lists along the way.
-            self.set_parent_of_item_noremove(child, item);
+            self.set_parent_of_item_no_remove(child, item);
         }
 
         children.append(&mut new_children);
