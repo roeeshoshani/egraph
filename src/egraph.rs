@@ -61,7 +61,7 @@ impl ENode {
 
 /// a hash table entry in our enode hash table.
 #[derive(Debug, Clone)]
-struct ENodeHashTableEntry {
+pub struct ENodeHashTableEntry {
     /// the enode.
     enode: ENode,
 
@@ -71,11 +71,11 @@ struct ENodeHashTableEntry {
 
 /// a node hasher. used for implementing our enode hash table.
 #[derive(Debug, Default, Clone)]
-struct NodeHasher(DefaultHashBuilder);
+pub struct NodeHasher(DefaultHashBuilder);
 impl NodeHasher {
     /// performs structural hashing on the given node, ignoring the link. the calculated hash then allows performing lookup
     /// in the hash table.
-    fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
+    pub fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
         // hash the enode, but ignore the links. only take its structure into account.
         self.0.hash_one(node.convert_link(|_| ()))
     }
@@ -86,15 +86,15 @@ impl NodeHasher {
 /// the enodes are hashed according to their structure, ignoring the links, but contain the fully detailed enode values including
 /// the links, which allows for comparison against exact entries.
 #[derive(Clone)]
-struct ENodeHashTable {
-    table: HashTable<ENodeHashTableEntry>,
-    hasher: NodeHasher,
+pub struct ENodeHashTable {
+    pub table: HashTable<ENodeHashTableEntry>,
+    pub hasher: NodeHasher,
 }
 impl ENodeHashTable {
     /// finds the entry in the hash table for the given enode.
     ///
     /// if an exact enode already exists, returns an occupied entry. otherwise, returns a vacant entry.
-    fn entry(
+    pub fn entry(
         &mut self,
         enode: &ENode,
         enodes_union_find: &UnionFind<ENode>,
@@ -141,10 +141,10 @@ pub struct AddENodeRes {
 /// an egraph.
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
-    enodes_union_find: UnionFind<ENode>,
+    pub enodes_union_find: UnionFind<ENode>,
 
     #[dbg(skip)]
-    enodes_hash_table: ENodeHashTable,
+    pub enodes_hash_table: ENodeHashTable,
 }
 impl EGraph {
     /// returns a new empty egraph.
