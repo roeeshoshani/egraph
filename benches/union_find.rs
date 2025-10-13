@@ -117,7 +117,7 @@ fn test_are_eq(c: &mut Criterion) {
 }
 
 fn test_items_eq_to(c: &mut Criterion) {
-    let mut group = c.benchmark_group("are_eq");
+    let mut group = c.benchmark_group("items_eq_to");
 
     for &size in TREE_SIZE_OPTIONS {
         for &num_union_ops in NUM_UNION_OPS_OPTIONS {
