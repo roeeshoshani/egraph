@@ -691,4 +691,29 @@ mod tests {
             union_find.union(item_eq_to_a, c);
         }
     }
+
+    #[test]
+    fn test_nop_union_node_while_iterating_over_it_is_allowed() {
+        let mut union_find = UnionFind::new();
+
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
+        let c = union_find.create_new_item(());
+        let d = union_find.create_new_item(());
+        let e = union_find.create_new_item(());
+        let f = union_find.create_new_item(());
+        let g = union_find.create_new_item(());
+
+        union_find.union(a, b);
+        union_find.union(c, d);
+        union_find.union(e, f);
+        union_find.union(e, g);
+
+        union_find.union(b, g);
+
+        for item_eq_to_a in union_find.items_eq_to(a) {
+            // this union is redundant so it should be allowed
+            union_find.union(item_eq_to_a, b);
+        }
+    }
 }
