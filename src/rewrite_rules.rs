@@ -176,7 +176,7 @@ pub struct TemplateVarValue {
 }
 
 #[derive(Debug, Clone)]
-pub struct TemplateVarValues(Vec<Option<TemplateVarValue>>);
+pub struct TemplateVarValues(pub Vec<Option<TemplateVarValue>>);
 impl TemplateVarValues {
     pub fn new() -> Self {
         Self(Vec::new())

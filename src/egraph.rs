@@ -382,6 +382,7 @@ impl EGraph {
         state: &mut MatchingState,
     ) {
         let effective_eclass_id = eclass.to_effective(&self.enodes_union_find);
+
         match state.rule_storage.template_var_values.get(template_var) {
             Some(existing_var_value) => {
                 if effective_eclass_id != existing_var_value.effective_eclass_id {
@@ -396,6 +397,32 @@ impl EGraph {
             }
             None => {
                 // the variable currently doesn't have any value, so we can bind it and consider it a match.
+                //
+                // if we have already bound this eclass to another variable, don't bind it again to another variable, since this
+                // can cause the graph to explode when we have loops in our graphs.
+                //
+                // for example, if we have an egraph with only one eclass: [x&0, 0],
+                // and we have a rewrite rule: `a & (b & c) == (a & b) & c`,
+                // the rule may match on the egraph by looping the eclass' link into itself, and considering the expression to
+                // be `x & (x & 0)`.
+                // this will cause us to generate an expression of `(x & x) & 0`, which can be further expanded even more.
+                // this will cause our graph to explode with infinitely many options.
+                //
+                // so, we must not allow looping when matching over the graph.
+                //
+                // what we do here is kind of a weird way to prevent loops, but it works.
+                if state
+                    .rule_storage
+                    .template_var_values
+                    .0
+                    .iter()
+                    .any(|entry| {
+                        entry.is_some_and(|x| x.effective_eclass_id == effective_eclass_id)
+                    })
+                {
+                    // don't allow binding the same eclass to 2 different template variables
+                    return;
+                }
                 let mut new_rule_storage = state.rule_storage.clone();
                 new_rule_storage.template_var_values.set(
                     template_var,
