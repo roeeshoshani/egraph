@@ -508,10 +508,7 @@ impl EGraph {
                 eclass_id_str,
                 self.eclass_get_sample_rec_node(EClassId {
                     enode_id: ENodeId(
-                        self.enodes_union_find
-                            .items_eq_to(eclass)
-                            .next()
-                            .unwrap()
+                        self.enodes_union_find.root_of_item(eclass)
                     )
                 })
             )
