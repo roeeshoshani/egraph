@@ -4,7 +4,7 @@ use egraph::{
 };
 
 fn main() {
-    // 0xff & ((x & 0xff00) | (x & 0xff0000))
+    // 0xff & ((x & 0xff00) | (y & 0xff0000))
     let rec_node: RecNode = RecBinOp {
         kind: BinOpKind::And,
         lhs: 0xff.into(),
@@ -18,7 +18,7 @@ fn main() {
             .into(),
             rhs: RecBinOp {
                 kind: BinOpKind::And,
-                lhs: Var(0).into(),
+                lhs: Var(1).into(),
                 rhs: 0xff0000.into(),
             }
             .into(),
