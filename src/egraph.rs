@@ -3,7 +3,7 @@ use hashbrown::{DefaultHashBuilder, HashSet, HashTable, hash_table::Entry};
 use std::{hash::BuildHasher, io::Write as _};
 use tempfile::NamedTempFile;
 
-use crate::{union_find::*, *};
+use crate::{did_anything::DidAnything, union_find::*, *};
 use std::fmt::Write as _;
 
 /// the id of an enode.
@@ -195,8 +195,7 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    /// returns whether applying the rule actually added any new information to the egraph.
-    pub fn apply_rule(&mut self, rule: &RewriteRule) -> bool {
+    pub fn apply_rule(&mut self, rule: &RewriteRule) -> DidAnything {
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
         let mut enode_matches = Vec::new();
@@ -223,8 +222,12 @@ impl EGraph {
         self.handle_enode_matches(&enode_matches, rule)
     }
 
-    fn handle_enode_matches(&mut self, enode_matches: &[ENodeMatch], rule: &RewriteRule) -> bool {
-        let mut did_anything = false;
+    fn handle_enode_matches(
+        &mut self,
+        enode_matches: &[ENodeMatch],
+        rule: &RewriteRule,
+    ) -> DidAnything {
+        let mut did_anything = DidAnything::False;
 
         // for each match, add the rerwrite result to the egraph
         for enode_match in enode_matches {
@@ -237,7 +240,7 @@ impl EGraph {
                 .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
             if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
-                did_anything = true;
+                did_anything = DidAnything::True;
             }
         }
 
@@ -430,8 +433,8 @@ impl EGraph {
     }
 
     /// returns `did_anything`
-    pub fn perform_constant_folding(&mut self) -> bool {
-        let mut did_anything = false;
+    pub fn perform_constant_folding(&mut self) -> DidAnything {
+        let mut did_anything = DidAnything::False;
         for enode_id in self.enodes_union_find.item_ids() {
             let GenericNode::BinOp(BinOp { kind, lhs, rhs }) = &self.enodes_union_find[enode_id]
             else {
@@ -451,19 +454,19 @@ impl EGraph {
                 .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_id);
 
-            did_anything = union_res == UnionRes::New;
+            did_anything = DidAnything::from(union_res == UnionRes::New);
         }
         did_anything
     }
 
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet) {
         loop {
-            let mut did_anything = false;
+            let mut did_anything = DidAnything::False;
             for rule in rule_set.rules() {
                 did_anything |= self.perform_constant_folding();
                 did_anything |= self.apply_rule(rule);
             }
-            if !did_anything {
+            if !did_anything.as_bool() {
                 break;
             }
         }
