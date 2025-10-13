@@ -102,6 +102,28 @@ impl<T> UnionFind<T> {
         old_parent
     }
 
+    /// sets the direct parent of the given item, correctly updates the children list of the new parents, but without trying to
+    /// remove the item from the children list of the old parent.
+    ///
+    /// this assumes that the child has already been removed from the children list of the old parent.
+    ///
+    /// returns the old parent.
+    fn set_parent_of_item_noremove(
+        &self,
+        item: UnionFindItemId,
+        new_parent: UnionFindItemId,
+    ) -> UnionFindItemId {
+        let old_parent = self.parent_of_item[item.index()].replace(new_parent);
+
+        if old_parent == new_parent {
+            // nothing changed
+            return old_parent;
+        }
+
+        self.add_child(new_parent, item);
+        old_parent
+    }
+
     /// unions the given two items.
     pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         let root_a = self.root_of_item(item_a);
@@ -171,10 +193,14 @@ impl<T> UnionFind<T> {
         }
 
         for &child in &*children {
-            // make us the new parent of the child. don't try removing the child from its old parent's child list, since we empties
+            if child == item {
+                // if the item is a root, it will be a child of itself, in which case, we don't want to explore its children once more,
+                // we are already doing it.
+                continue;
+            }
+            // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
             // all child lists along the way.
-            self.parent_of_item[child.index()].set(item);
-            self.add_child(item, child);
+            self.set_parent_of_item_noremove(child, item);
         }
     }
 
