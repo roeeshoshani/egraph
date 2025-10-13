@@ -10,15 +10,17 @@ use std::fmt::Write as _;
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ENodeId(pub UnionFindItemId);
 
-// NOTE: this should NOT implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
-// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
-// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
-//
-// checking if 2 instances of this type are equal requires accessing the union find tree.
+/// the id of an eclass.
+///
+/// NOTE: this does not implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
+/// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
+/// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
+///
+/// checking if 2 instances of this type are equal requires accessing the union find tree.
 #[derive(Debug, Clone, Copy)]
 pub struct EClassId {
     /// an id of some enode which is part of this eclass.
-    /// this can be used to iterate over all
+    /// this can be used to iterate over all enodes in the eclass.
     pub enode_id: ENodeId,
 }
 impl EClassId {
@@ -34,13 +36,13 @@ pub type ENode = GenericNode<EClassId>;
 /// an effective eclass id.
 ///
 /// usually, the eclass id is represented as an id to any enode in that eclass. this is problematic since it means that we can't
-/// compare eclass ids, which means that we can't compare enodes.
+/// compare eclass ids, which means that we can't compare enodes (since they contain eclass ids).
 ///
-/// this type represents an actual eclass id which can be compared to other eclass id. this is resolved by taking the root of the enode
-/// id in the union find tree.
+/// this type represents an eclass id which can actually be compared to other eclass id. this is resolved by taking the root node
+/// of the enode id in the union find tree.
 ///
-/// this id is only true for a snapshot of the union find tree. once the tree is modified, it is no longer up to date, since the root
-/// may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
+/// this id is only true for a given snapshot of the union find tree. once the tree is modified, it is no longer up to date, since
+/// the root may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EffectiveEClassId(pub UnionFindItemId);
 
@@ -57,27 +59,41 @@ impl ENode {
     }
 }
 
+/// a hash table entry in our enode hash table.
 #[derive(Debug, Clone)]
 struct ENodeHashTableEntry {
+    /// the enode.
     enode: ENode,
+
+    /// the id of the enode.
     id: ENodeId,
 }
 
+/// a node hasher. used for implementing our enode hash table.
 #[derive(Debug, Default, Clone)]
 struct NodeHasher(DefaultHashBuilder);
 impl NodeHasher {
+    /// performs structural hashing on the given node, ignoring the link. the calculated hash then allows performing lookup
+    /// in the hash table.
     fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
         // hash the enode, but ignore the links. only take its structure into account.
         self.0.hash_one(node.convert_link(|_| ()))
     }
 }
 
+/// a hash table of enodes.
+///
+/// the enodes are hashed according to their structure, ignoring the links, but contain the fully detailed enode values including
+/// the links, which allows for comparison against exact entries.
 #[derive(Clone)]
 struct ENodeHashTable {
     table: HashTable<ENodeHashTableEntry>,
     hasher: NodeHasher,
 }
 impl ENodeHashTable {
+    /// finds the entry in the hash table for the given enode.
+    ///
+    /// if an exact enode already exists, returns an occupied entry. otherwise, returns a vacant entry.
     fn entry(
         &mut self,
         enode: &ENode,
@@ -102,7 +118,7 @@ impl ENodeHashTable {
     }
 }
 
-/// enode deduplication information when adding an enode
+/// enode deduplication information when adding an enode.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ENodeDedupInfo {
     /// the added enode is a new enode that we previously didn't have in our egraph.
@@ -122,6 +138,7 @@ pub struct AddENodeRes {
     pub dedup_info: ENodeDedupInfo,
 }
 
+/// an egraph.
 #[derive(derive_debug::Dbg, Clone)]
 pub struct EGraph {
     enodes_union_find: UnionFind<ENode>,
