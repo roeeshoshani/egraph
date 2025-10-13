@@ -134,5 +134,6 @@ fn main() {
 
     egraph.apply_rule_set(&rule_set, None);
 
-    panic!();
+    std::fs::create_dir_all("./graphs").unwrap();
+    egraph.dump_dot_svg("./graphs/graph.svg");
 }
