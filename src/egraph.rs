@@ -468,7 +468,6 @@ impl EGraph {
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet, max_iterations: Option<usize>) {
         let mut i = 0;
         loop {
-            println!("{}", i);
             let mut did_anything = DidAnything::False;
             for rule in rule_set.rules() {
                 did_anything |= self.perform_constant_folding();
