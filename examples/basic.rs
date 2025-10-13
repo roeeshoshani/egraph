@@ -42,6 +42,18 @@ fn main() {
             keep_original: false,
             bi_directional: false,
         },
+        // (x | 0) => x
+        RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: TemplateVar::new(1).into(),
+                rhs: 0.into(),
+            }
+            .into(),
+            rewrite: TemplateVar::new(1).into(),
+            keep_original: false,
+            bi_directional: false,
+        },
         // a & (b | c) => (a & b) | (a & c)
         RewriteRuleParams {
             query: BinOpTemplate {
@@ -101,6 +113,33 @@ fn main() {
             keep_original: true,
             bi_directional: false,
         },
+        // a | (b | c) => (a | b) | c
+        RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: TemplateVar::new(1).into(),
+                rhs: BinOpTemplate {
+                    kind: BinOpKind::Or,
+                    lhs: TemplateVar::new(2).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            rewrite: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: BinOpTemplate {
+                    kind: BinOpKind::Or,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(2).into(),
+                }
+                .into(),
+                rhs: TemplateVar::new(3).into(),
+            }
+            .into(),
+            keep_original: true,
+            bi_directional: false,
+        },
         // a & b => b & a
         RewriteRuleParams {
             query: BinOpTemplate {
@@ -118,10 +157,39 @@ fn main() {
             keep_original: true,
             bi_directional: false,
         },
+        // a | b => b | a
+        RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateVar::new(2).into(),
+            }
+            .into(),
+            rewrite: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: TemplateVar::new(2).into(),
+                rhs: TemplateVar::new(1).into(),
+            }
+            .into(),
+            keep_original: true,
+            bi_directional: false,
+        },
         // a & a => a
         RewriteRuleParams {
             query: BinOpTemplate {
                 kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateVar::new(1).into(),
+            }
+            .into(),
+            rewrite: TemplateVar::new(1).into(),
+            keep_original: true,
+            bi_directional: false,
+        },
+        // a | a => a
+        RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::Or,
                 lhs: TemplateVar::new(1).into(),
                 rhs: TemplateVar::new(1).into(),
             }
