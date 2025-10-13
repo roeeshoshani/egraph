@@ -618,6 +618,7 @@ mod tests {
         chk_groups(&union_find, &all_items, groups);
 
         for item_eq_to_a in union_find.items_eq_to(a) {
+            // perform "are equal" queries while iterating.
             for &x in groups[0] {
                 assert!(union_find.are_eq(item_eq_to_a, x));
             }
@@ -625,6 +626,7 @@ mod tests {
                 assert!(!union_find.are_eq(item_eq_to_a, x));
             }
 
+            // now iterate over the same group once again, while still doing the previous iteration
             for item_eq_to_b in union_find.items_eq_to(b) {
                 assert!(union_find.are_eq(item_eq_to_a, item_eq_to_b));
                 for &x in groups[0] {
@@ -632,6 +634,30 @@ mod tests {
                 }
                 for &x in groups[1] {
                     assert!(!union_find.are_eq(item_eq_to_b, x));
+                }
+
+                // now iterate over another group
+                for item_eq_to_c in union_find.items_eq_to(c) {
+                    assert!(!union_find.are_eq(item_eq_to_c, item_eq_to_a));
+                    assert!(!union_find.are_eq(item_eq_to_c, item_eq_to_b));
+                    for &x in groups[0] {
+                        assert!(!union_find.are_eq(item_eq_to_c, x));
+                    }
+                    for &x in groups[1] {
+                        assert!(union_find.are_eq(item_eq_to_c, x));
+                    }
+
+                    // iterate over the other group once more
+                    for item_eq_to_d in union_find.items_eq_to(d) {
+                        assert!(!union_find.are_eq(item_eq_to_d, item_eq_to_a));
+                        assert!(!union_find.are_eq(item_eq_to_d, item_eq_to_b));
+                        for &x in groups[0] {
+                            assert!(!union_find.are_eq(item_eq_to_d, x));
+                        }
+                        for &x in groups[1] {
+                            assert!(union_find.are_eq(item_eq_to_d, x));
+                        }
+                    }
                 }
             }
         }
