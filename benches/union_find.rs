@@ -2,8 +2,8 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use egraph::union_find::*;
 use rand::seq::IndexedRandom;
 
-const TREE_SIZE_OPTIONS: &[usize] = &[1000, 2000, 5000];
-const NUM_OPS_OPTIONS: &[usize] = &[1000, 2000, 5000];
+const TREE_SIZE_OPTIONS: &[usize] = &[1000, 5000];
+const NUM_OPS_OPTIONS: &[usize] = &[1000, 5000];
 
 struct Pair {
     a: UnionFindItemId,
@@ -134,11 +134,7 @@ struct TestItemsEqTo {
 }
 impl std::fmt::Display for TestItemsEqTo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "size={},num_union_ops={}",
-            self.size, self.num_union_ops
-        )
+        write!(f, "size={},num_union_ops={}", self.size, self.num_union_ops)
     }
 }
 
@@ -147,31 +143,28 @@ fn test_items_eq_to(c: &mut Criterion) {
 
     for &size in TREE_SIZE_OPTIONS {
         for &num_union_ops in NUM_OPS_OPTIONS {
-            for &num_are_eq_ops in NUM_OPS_OPTIONS {
-                let setup = Setup::new(size);
-                let base_tree = setup.gen_tree_with_unions(num_union_ops);
+            let setup = Setup::new(size);
+            let base_tree = setup.gen_tree_with_unions(num_union_ops);
 
-                group.bench_with_input(
-                    BenchmarkId::from_parameter(TestParamsAreEq {
-                        size,
-                        num_union_ops,
-                        num_are_eq_ops,
-                    }),
-                    &(&setup, &base_tree),
-                    |b, &(setup, base_tree)| {
-                        b.iter(|| {
-                            let tree = base_tree;
-                            for item_id in &setup.item_ids {
-                                black_box(tree.items_eq_to(black_box(*item_id)).count());
-                            }
-                        })
-                    },
-                );
-            }
+            group.bench_with_input(
+                BenchmarkId::from_parameter(TestItemsEqTo {
+                    size,
+                    num_union_ops,
+                }),
+                &(&setup, &base_tree),
+                |b, &(setup, base_tree)| {
+                    b.iter(|| {
+                        let tree = base_tree;
+                        for item_id in &setup.item_ids {
+                            black_box(tree.items_eq_to(black_box(*item_id)).count());
+                        }
+                    })
+                },
+            );
         }
     }
     group.finish();
 }
 
-criterion_group!(benches, test_union, test_are_eq);
+criterion_group!(benches, test_union, test_are_eq, test_items_eq_to);
 criterion_main!(benches);
