@@ -4,11 +4,26 @@ use egraph::{
 };
 
 fn main() {
-    // x & 0
+    // 0xff & ((x & 0xff00) | (x & 0xff0000))
     let rec_node: RecNode = RecBinOp {
         kind: BinOpKind::And,
-        lhs: 0.into(),
-        rhs: Var(0).into(),
+        lhs: 0xff.into(),
+        rhs: RecBinOp {
+            kind: BinOpKind::Or,
+            lhs: RecBinOp {
+                kind: BinOpKind::And,
+                lhs: Var(0).into(),
+                rhs: 0xff00.into(),
+            }
+            .into(),
+            rhs: RecBinOp {
+                kind: BinOpKind::And,
+                lhs: Var(0).into(),
+                rhs: 0xff0000.into(),
+            }
+            .into(),
+        }
+        .into(),
     }
     .into();
 
@@ -25,6 +40,38 @@ fn main() {
             .into(),
             rewrite: 0.into(),
             keep_original: false,
+            bi_directional: false,
+        },
+        // a & (b | c) => (a & b) | (a & c)
+        RewriteRuleParams {
+            query: BinOpTemplate {
+                kind: BinOpKind::And,
+                lhs: TemplateVar::new(1).into(),
+                rhs: BinOpTemplate {
+                    kind: BinOpKind::Or,
+                    lhs: TemplateVar::new(2).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            rewrite: BinOpTemplate {
+                kind: BinOpKind::Or,
+                lhs: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(2).into(),
+                }
+                .into(),
+                rhs: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            keep_original: true,
             bi_directional: false,
         },
         // a & (b & c) => (a & b) & c
@@ -85,9 +132,7 @@ fn main() {
         },
     ]);
 
-    egraph.apply_rule_set(&rule_set, Some(5));
+    egraph.apply_rule_set(&rule_set, None);
 
-    std::fs::create_dir_all("./graphs").unwrap();
-    std::fs::write("./graphs/graph.gexf", egraph.to_gexf()).unwrap();
-    egraph.dump_dot_svg("./graphs/graph.svg");
+    panic!();
 }
