@@ -570,4 +570,54 @@ mod tests {
         // make sure that flatenning didn't mess with the groups
         chk_groups(&union_find, &all_items, &[&[a, b, e, f, g], &[c, d]]);
     }
+
+    /// a test which makes sure that we can nest union find operations that take a `&self` reference.
+    ///
+    /// such operations may be problematic due to the refcells that we use internally.
+    ///
+    /// this test makes sure that it works ok.
+    #[test]
+    fn test_operation_nesting() {
+        let mut union_find = UnionFind::new();
+
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
+        let c = union_find.create_new_item(());
+        let d = union_find.create_new_item(());
+        let e = union_find.create_new_item(());
+        let f = union_find.create_new_item(());
+        let g = union_find.create_new_item(());
+
+        let all_items = [a, b, c, d, e, f, g];
+
+        union_find.union(a, b);
+        union_find.union(c, d);
+        union_find.union(e, f);
+        union_find.union(e, g);
+
+        union_find.union(b, g);
+
+        // sanity check the groups
+        let groups: &[&[UnionFindItemId]] = &[&[a, b, e, f, g], &[c, d]];
+        chk_groups(&union_find, &all_items, groups);
+
+        for item_eq_to_a in union_find.items_eq_to(a) {
+            for &x in groups[0] {
+                assert!(union_find.are_eq(item_eq_to_a, x));
+            }
+            for &x in groups[1] {
+                assert!(!union_find.are_eq(item_eq_to_a, x));
+            }
+
+            for item_eq_to_b in union_find.items_eq_to(b) {
+                assert!(union_find.are_eq(item_eq_to_a, item_eq_to_b));
+                for &x in groups[0] {
+                    assert!(union_find.are_eq(item_eq_to_b, x));
+                }
+                for &x in groups[1] {
+                    assert!(!union_find.are_eq(item_eq_to_b, x));
+                }
+            }
+        }
+    }
 }
