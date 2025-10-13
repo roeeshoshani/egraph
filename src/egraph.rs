@@ -520,6 +520,7 @@ impl EGraph {
             .meta("egraph", "a visualization of an egraph");
         for enode_item_id in self.enodes_union_find.item_ids() {
             let enode_id = ENodeId(enode_item_id);
+            let enode = &self.enodes_union_find[enode_item_id];
 
             let eclass_label = self
                 .enodes_union_find
@@ -527,11 +528,15 @@ impl EGraph {
                 .min()
                 .unwrap();
 
-            let node_label = format!(
-                "{}\n{}",
-                self.enodes_union_find[enode_item_id].structural_display(),
-                self.enode_get_sample_rec_node(enode_id).to_string()
-            );
+            let node_label = if enode.links().is_empty() {
+                enode.structural_display()
+            } else {
+                format!(
+                    "{}    {{ {} }}",
+                    enode.structural_display(),
+                    self.enode_get_sample_rec_node(enode_id).to_string()
+                )
+            };
 
             let node_id = enode_item_id.0.to_string();
 
@@ -541,7 +546,7 @@ impl EGraph {
             builder = builder.add_node(node)?;
 
             // edges
-            for link in self.enodes_union_find[enode_item_id].links() {
+            for link in enode.links() {
                 builder = builder.add_edge(&node_id, link.enode_id.0.0.to_string())?;
             }
         }
