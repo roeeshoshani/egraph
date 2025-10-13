@@ -171,6 +171,7 @@ impl<T> UnionFind<T> {
     /// flattens all of the descendents of the given item to be direct children of it.
     fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
         let mut children = self.children_of_item[item.index()].borrow_mut();
+        let mut new_children = Vec::new();
 
         // generate an initial exploration queue made of our sub-children
         let mut exploration_queue = Vec::new();
@@ -185,18 +186,20 @@ impl<T> UnionFind<T> {
         }
 
         while !exploration_queue.is_empty() {
+            new_children.extend_from_slice(&exploration_queue);
             for child in std::mem::take(&mut exploration_queue) {
-                children.push(child);
                 let mut sub_children = self.children_of_item[child.index()].borrow_mut();
                 exploration_queue.append(&mut *sub_children);
             }
         }
 
-        for &child in &*children {
+        for &child in &new_children {
             // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
             // all child lists along the way.
             self.set_parent_of_item_noremove(child, item);
         }
+
+        children.append(&mut new_children);
     }
 
     /// returns an iterator over all items equal to the given item, including the item itself
