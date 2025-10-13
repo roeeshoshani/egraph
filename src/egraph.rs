@@ -195,7 +195,7 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    pub fn apply_rule(&mut self, rule: &RewriteRule) -> DidAnything {
+    pub fn match_rule(&mut self, rule: &RewriteRule) -> Vec<ENodeMatch> {
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
         let mut enode_matches = Vec::new();
@@ -219,7 +219,12 @@ impl EGraph {
             }));
         }
 
-        self.handle_enode_matches(&enode_matches, rule)
+        enode_matches
+    }
+
+    pub fn apply_rule(&mut self, rule: &RewriteRule) -> DidAnything {
+        let matches = self.match_rule(rule);
+        self.handle_enode_matches(&matches, rule)
     }
 
     fn handle_enode_matches(
@@ -642,12 +647,12 @@ impl EGraph {
 }
 
 #[derive(Debug, Clone)]
-struct Match {
+pub struct Match {
     pub rule_storage: RewriteRuleStorage,
 }
 
 #[derive(Debug, Clone)]
-struct ENodeMatch {
+pub struct ENodeMatch {
     pub match_obj: Match,
     pub enode_id: ENodeId,
 }
