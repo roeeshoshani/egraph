@@ -199,7 +199,7 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
-    pub fn match_rule(&mut self, rule: &RewriteRule) -> Vec<ENodeMatch> {
+    pub fn match_rule(&self, rule: &RewriteRule) -> Vec<ENodeMatch> {
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
         let mut enode_matches = Vec::new();
