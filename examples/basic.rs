@@ -27,7 +27,7 @@ fn main() {
     }
     .into();
 
-    let mut egraph = EGraph::from_rec_node(&rec_node);
+    let (mut egraph, _root_eclass) = EGraph::from_rec_node(&rec_node);
 
     let rule_set = RewriteRuleSet::from_rules([
         // (x & 0) => 0

@@ -187,6 +187,10 @@ impl EGraph {
         }
     }
 
+    pub fn are_eclass_ids_eq(&self, a: EClassId, b: EClassId) -> bool {
+        self.enodes_union_find.are_eq(a.enode_id.0, b.enode_id.0)
+    }
+
     /// adds a recursive node to the egraph, converting each node to an enode.
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> AddENodeRes {
         let graph_node = rec_node
@@ -516,10 +520,10 @@ impl EGraph {
         })
     }
 
-    pub fn from_rec_node(rec_node: &RecNode) -> Self {
+    pub fn from_rec_node(rec_node: &RecNode) -> (Self, EClassId) {
         let mut egraph = Self::new();
-        egraph.add_rec_node(rec_node);
-        egraph
+        let add_node_res = egraph.add_rec_node(rec_node);
+        (egraph, add_node_res.eclass_id)
     }
 
     pub fn dump_dot_svg(&self, out_file_path: &str) {
@@ -803,7 +807,7 @@ mod tests {
         }
         .into();
 
-        let mut egraph = EGraph::from_rec_node(&rec_node);
+        let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
         let rule_set = RewriteRuleSet::from_rules([
             // (x & 0) => 0
@@ -894,10 +898,24 @@ mod tests {
                 keep_original: true,
                 bi_directional: false,
             },
+            // a & a => a
+            RewriteRuleParams {
+                query: BinOpTemplate {
+                    kind: BinOpKind::And,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(1).into(),
+                }
+                .into(),
+                rewrite: TemplateVar::new(1).into(),
+                keep_original: true,
+                bi_directional: false,
+            },
         ]);
 
-        egraph.apply_rule_set(&rule_set, None);
+        let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
-        panic!();
+        assert!(!egraph.are_eclass_ids_eq(zero_eclass, root_eclass));
+        egraph.apply_rule_set(&rule_set, None);
+        assert!(egraph.are_eclass_ids_eq(zero_eclass, root_eclass));
     }
 }
