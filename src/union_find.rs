@@ -280,6 +280,8 @@ impl<'a> Iterator for ItemsEqTo<'a> {
 
 #[cfg(test)]
 mod tests {
+    use assert_unordered::assert_eq_unordered;
+
     use super::*;
 
     fn collect_to_vec<I, T>(iterator: I) -> Vec<T>
@@ -313,8 +315,9 @@ mod tests {
             // itself.
             for &item in group {
                 let items_eq_to_item_including_self = collect_to_vec(union_find.items_eq_to(item));
-                assert_eq!(
-                    group, items_eq_to_item_including_self,
+                assert_eq_unordered!(
+                    group,
+                    &items_eq_to_item_including_self,
                     "item {item:?} in group {group:?} was expected to have items eq including self to of {group:?} but instead has {items_eq_to_item_including_self:?}",
                 );
             }
