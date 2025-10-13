@@ -94,4 +94,12 @@ impl<L> GenericNode<L> {
             _ => array_vec![],
         }
     }
+    pub fn structural_display(&self) -> String {
+        match self {
+            GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
+            GenericNode::Var(var) => format!("var{}", var.0),
+            GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
+            GenericNode::UnOp(un_op) => un_op.kind.to_string(),
+        }
+    }
 }

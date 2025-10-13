@@ -503,12 +503,53 @@ impl EGraph {
             .unwrap();
     }
 
-    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
         RecNode(
-            self.enodes_union_find[eclass_id.enode_id.0].convert_link(|link_eclass_id| {
+            self.enodes_union_find[enode_id.0].convert_link(|link_eclass_id| {
                 Box::new(self.eclass_get_sample_rec_node(*link_eclass_id))
             }),
         )
+    }
+
+    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+        self.enode_get_sample_rec_node(eclass_id.enode_id)
+    }
+
+    fn try_to_gexf(&self) -> gexf::Result<String> {
+        let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
+            .meta("egraph", "a visualization of an egraph");
+        for enode_item_id in self.enodes_union_find.item_ids() {
+            let enode_id = ENodeId(enode_item_id);
+
+            let eclass_label = self
+                .enodes_union_find
+                .items_eq_to(enode_item_id)
+                .min()
+                .unwrap();
+
+            let node_label = format!(
+                "{}\n{}",
+                self.enodes_union_find[enode_item_id].structural_display(),
+                self.enode_get_sample_rec_node(enode_id).to_string()
+            );
+
+            let node_id = enode_item_id.0.to_string();
+
+            let node = gexf::Node::new(&node_id)
+                .with_label(node_label)
+                .with_attr("eclass", eclass_label.0.to_string());
+            builder = builder.add_node(node)?;
+
+            // edges
+            for link in self.enodes_union_find[enode_item_id].links() {
+                builder = builder.add_edge(&node_id, link.enode_id.0.0.to_string())?;
+            }
+        }
+        builder.try_build()?.to_string()
+    }
+
+    pub fn to_gexf(&self) -> String {
+        self.try_to_gexf().unwrap()
     }
 
     pub fn to_dot(&self) -> String {
@@ -540,12 +581,7 @@ impl EGraph {
 
             // one node per enode in the class
             for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
-                let label = match &self.enodes_union_find[enode_id] {
-                    GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
-                    GenericNode::Var(var) => format!("var{}", var.0),
-                    GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
-                    GenericNode::UnOp(un_op) => un_op.kind.to_string(),
-                };
+                let label = self.enodes_union_find[enode_id].structural_display();
                 writeln!(
                     &mut out,
                     "    {}_{} [label=\"{}\"];",

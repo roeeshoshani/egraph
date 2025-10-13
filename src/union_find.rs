@@ -5,7 +5,7 @@ use std::{
 };
 
 /// the id of an item in the union find tree.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnionFindItemId(pub NonZeroUsize);
 impl UnionFindItemId {
     /// the index of the item in the items array
