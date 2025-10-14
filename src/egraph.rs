@@ -567,8 +567,12 @@ impl EGraph {
     }
 
     pub fn dump_dot_svg(&self, out_file_path: &str) {
+        let dot = self.to_dot();
+
+        std::fs::write(format!("{}.dot", out_file_path), &dot).unwrap();
+
         let mut tmpfile = NamedTempFile::with_suffix(".dot").unwrap();
-        tmpfile.write_all(self.to_dot().as_bytes()).unwrap();
+        tmpfile.write_all(dot.as_bytes()).unwrap();
         tmpfile.flush().unwrap();
 
         let tmp_path = tmpfile.into_temp_path();
@@ -635,57 +639,66 @@ impl EGraph {
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
-        fn eclass_id_to_str(eclass_root_item_id: UnionFindItemId) -> String {
-            format!("eclass_item_{}", eclass_root_item_id.0.get())
+        let find_eclass_label_of_node =
+            |item_id: UnionFindItemId| self.enodes_union_find.items_eq_to(item_id).min().unwrap();
+
+        fn eclass_dot_id(eclass_label: UnionFindItemId) -> String {
+            format!("cluster_eclass_{}", eclass_label.0)
+        }
+        fn enode_dot_id(eclass_label: UnionFindItemId, index_in_eclass: usize) -> String {
+            format!("eclass_{}_item_{}", eclass_label.0, index_in_eclass)
         }
 
-        let eclasses: HashSet<UnionFindItemId> = self
+        let eclass_labels: HashSet<UnionFindItemId> = self
             .enodes_union_find
             .item_ids()
-            .map(|item_id| self.enodes_union_find.items_eq_to(item_id).min().unwrap())
+            .map(|item_id| find_eclass_label_of_node(item_id))
             .collect();
 
-        for &eclass in &eclasses {
-            let eclass_id_str = eclass_id_to_str(eclass);
+        for &eclass_label in &eclass_labels {
+            let eclass_id = EClassId {
+                enode_id: ENodeId(eclass_label),
+            };
+
             writeln!(
                 &mut out,
-                "  subgraph cluster_{} {{\n    color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
-                eclass_id_str,
-                self.eclass_get_sample_rec_node(EClassId {
-                    enode_id: ENodeId(
-                        self.enodes_union_find.root_of_item(eclass)
-                    )
-                })
+                "subgraph {} {{",
+                eclass_dot_id(eclass_label),
+            )
+            .unwrap();
+
+            writeln!(
+                &mut out,
+                "color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
+                self.eclass_get_sample_rec_node(eclass_id)
             )
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
+            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass_label).enumerate() {
                 let label = self.enodes_union_find[enode_id].structural_display();
                 writeln!(
                     &mut out,
-                    "    {}_{} [label=\"{}\"];",
-                    eclass_id_str, i, label
+                    "{} [label=\"{}\"];",
+                    enode_dot_id(eclass_label, i), label
                 )
                 .unwrap();
             }
 
-            out.push_str("  }\n");
+            out.push_str("}\n");
         }
 
         // edges from each enode to target e-class clusters
-        for eclass in eclasses {
-            let eclass_id_str = eclass_id_to_str(eclass);
-            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass).enumerate() {
+        for &eclass_label in &eclass_labels {
+            for (i, enode_id) in self.enodes_union_find.items_eq_to(eclass_label).enumerate() {
                 let enode = &self.enodes_union_find[enode_id];
                 for link in enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
-                    let target_eclass_id = self.enodes_union_find.root_of_item(link.enode_id.0);
-                    let target_eclass_id_str = eclass_id_to_str(target_eclass_id);
+                    let target_eclass_label = find_eclass_label_of_node(link.enode_id.0);
                     writeln!(
                         &mut out,
-                        "  {}_{} -> {}_0 [lhead=cluster_{}];",
-                        eclass_id_str, i, target_eclass_id_str, target_eclass_id_str
+                        "{} -> {} [lhead={}];",
+                        enode_dot_id(eclass_label, i), enode_dot_id(target_eclass_label, 0), eclass_dot_id(target_eclass_label)
                     )
                     .unwrap();
                 }
