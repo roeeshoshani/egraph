@@ -567,9 +567,13 @@ impl EGraph {
     }
 
     pub fn dump_dot_svg(&self, out_file_path: &str) {
-        let mut tmpfile = NamedTempFile::new().unwrap();
+        let mut tmpfile = NamedTempFile::with_suffix(".dot").unwrap();
         tmpfile.write_all(self.to_dot().as_bytes()).unwrap();
-        cmd!("fdp", "-Tsvg", tmpfile.path(), "-o", out_file_path)
+        tmpfile.flush().unwrap();
+
+        let tmp_path = tmpfile.into_temp_path();
+
+        cmd!("fdp", "-Tsvg", &*tmp_path, "-o", out_file_path)
             .run()
             .unwrap();
     }
@@ -638,7 +642,7 @@ impl EGraph {
         let eclasses: HashSet<UnionFindItemId> = self
             .enodes_union_find
             .item_ids()
-            .map(|item_id| self.enodes_union_find.root_of_item(item_id))
+            .map(|item_id| self.enodes_union_find.items_eq_to(item_id).min().unwrap())
             .collect();
 
         for &eclass in &eclasses {
