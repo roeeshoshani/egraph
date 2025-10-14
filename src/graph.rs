@@ -1,4 +1,7 @@
-use std::{num::NonZeroUsize, ops::Index};
+use std::{
+    num::NonZeroUsize,
+    ops::{Index, IndexMut},
+};
 
 use hashbrown::HashMap;
 use stable_vec::StableVec;
@@ -45,8 +48,14 @@ impl Graph {
         (graph, root_node_id)
     }
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> GraphNodeId {
-        let graph_node = rec_node.0.convert_link(|link| self.add_rec_node(link));
+        let graph_node = rec_node.convert_link(|link| self.add_rec_node_link(link));
         self.add_node(graph_node)
+    }
+    pub fn add_rec_node_link(&mut self, rec_node_link: &RecNodeLink) -> GraphNodeId {
+        match rec_node_link {
+            RecNodeLink::Regular(node) => self.add_rec_node(node),
+            RecNodeLink::Loop => unreachable!(),
+        }
     }
     pub fn add_node(&mut self, node: GraphNode) -> GraphNodeId {
         if let Some(existing_id) = self.node_to_id.get(&node) {
@@ -66,5 +75,10 @@ impl Index<GraphNodeId> for Graph {
 
     fn index(&self, node_id: GraphNodeId) -> &Self::Output {
         &self.nodes[node_id.index()]
+    }
+}
+impl IndexMut<GraphNodeId> for Graph {
+    fn index_mut(&mut self, node_id: GraphNodeId) -> &mut Self::Output {
+        &mut self.nodes[node_id.index()]
     }
 }

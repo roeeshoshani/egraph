@@ -2,37 +2,41 @@ use std::fmt::Display;
 
 use crate::node::{BinOp, GenericNode, UnOp};
 
-#[derive(Debug, Clone)]
-pub struct RecNode(pub GenericNode<Box<RecNode>>);
-impl<T> From<T> for RecNode
-where
-    GenericNode<Box<RecNode>>: From<T>,
-{
-    fn from(value: T) -> Self {
-        Self(value.into())
-    }
+pub enum RecNodeLink {
+    Regular(Box<RecNode>),
+    Loop,
 }
-pub type RecBinOp = BinOp<Box<RecNode>>;
-pub type RecUnOp = UnOp<Box<RecNode>>;
 
-impl<T> From<T> for Box<RecNode>
+pub type RecNode = GenericNode<RecNodeLink>;
+pub type RecBinOp = BinOp<RecNodeLink>;
+pub type RecUnOp = UnOp<RecNodeLink>;
+
+impl<T> From<T> for RecNodeLink
 where
-    GenericNode<Box<RecNode>>: From<T>,
+    RecNode: From<T>,
 {
     fn from(value: T) -> Self {
-        Self::new(value.into())
+        Self::Regular(Box::new(value.into()))
     }
 }
 impl Display for RecNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.0 {
+        match self {
             GenericNode::Imm(_) | GenericNode::Var(_) | GenericNode::InternalVar(_) => {
-                write!(f, "{}", self.0.structural_display())
+                write!(f, "{}", self.structural_display())
             }
             GenericNode::BinOp(bin_op) => {
                 write!(f, "({}) {} ({})", bin_op.lhs, bin_op.kind, bin_op.rhs)
             }
             GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
+        }
+    }
+}
+impl Display for RecNodeLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecNodeLink::Regular(node) => write!(f, "{}", node),
+            RecNodeLink::Loop => write!(f, "..."),
         }
     }
 }

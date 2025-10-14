@@ -235,10 +235,19 @@ impl EGraph {
 
     /// adds a recursive node to the egraph, converting each node to an enode.
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> AddENodeRes {
-        let graph_node = rec_node
-            .0
-            .convert_link(|link| self.add_rec_node(link).eclass_id);
+        let graph_node = rec_node.convert_link(|link| self.add_rec_node_link(link).eclass_id);
         self.add_enode(graph_node)
+    }
+
+    /// adds a recursive node link to the egraph, converting each node to an enode.
+    pub fn add_rec_node_link(&mut self, rec_node_link: &RecNodeLink) -> AddENodeRes {
+        match rec_node_link {
+            RecNodeLink::Regular(node) => self.add_rec_node(node),
+            RecNodeLink::Loop => {
+                // recursive nodes with loop links can't be added to the graph. they are only used to represent impossible rec nodes.
+                unreachable!()
+            }
+        }
     }
 
     /// match the given rule to any enodes in the egraph and return a list of matches.
@@ -692,15 +701,26 @@ impl EGraph {
             .unwrap();
     }
 
-    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
-        RecNode(
-            self.enodes_union_find[enode_id.0].convert_link(|link_eclass_id| {
-                Box::new(self.eclass_get_sample_rec_node(*link_eclass_id))
-            }),
-        )
+    fn enode_get_sample_rec_node_inner(
+        &self,
+        enode_id: ENodeId,
+        visited_eclasses: &mut HashSet<EffectiveEClassId>,
+    ) -> RecNode {
+        self.enodes_union_find[enode_id.0].convert_link(|link_eclass_id| {
+            self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
+        })
     }
 
-    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+    fn eclass_get_sample_rec_node_link_inner(
+        &self,
+        eclass_id: EClassId,
+        visited_eclasses: &mut HashSet<EffectiveEClassId>,
+    ) -> RecNodeLink {
+        let effective_eclass_id = eclass_id.to_effective(&self.enodes_union_find);
+        if !visited_eclasses.insert(effective_eclass_id) {
+            return RecNodeLink::Loop;
+        }
+
         // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
         // any useful information.
         let chosen_enode = self
@@ -711,7 +731,25 @@ impl EGraph {
                 !enode.is_internal_var()
             })
             .unwrap();
-        self.enode_get_sample_rec_node(ENodeId(chosen_enode))
+        self.enode_get_sample_rec_node_inner(ENodeId(chosen_enode), visited_eclasses)
+            .into()
+    }
+
+    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
+        let mut visited_eclasses = HashSet::new();
+        self.enode_get_sample_rec_node_inner(enode_id, &mut visited_eclasses)
+    }
+
+    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+        let mut visited_eclasses = HashSet::new();
+        let link = self.eclass_get_sample_rec_node_link_inner(eclass_id, &mut visited_eclasses);
+        match link {
+            RecNodeLink::Regular(node) => *node,
+            RecNodeLink::Loop => {
+                // the root node link can't be a loop link
+                unreachable!()
+            }
+        }
     }
 
     fn try_to_gexf(&self) -> gexf::Result<String> {
