@@ -665,7 +665,17 @@ impl EGraph {
     }
 
     pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
-        self.enode_get_sample_rec_node(eclass_id.enode_id)
+        // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
+        // any useful information.
+        let chosen_enode = self
+            .enodes_union_find
+            .items_eq_to(eclass_id.enode_id.0)
+            .find(|&enode_item_id| {
+                let enode = &self.enodes_union_find[enode_item_id];
+                !matches!(enode, GenericNode::InternalVar(_))
+            })
+            .unwrap();
+        self.enode_get_sample_rec_node(ENodeId(chosen_enode))
     }
 
     fn try_to_gexf(&self) -> gexf::Result<String> {

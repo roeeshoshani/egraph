@@ -39,10 +39,10 @@ impl Graph {
             node_to_id: HashMap::new(),
         }
     }
-    pub fn from_rec_node(rec_node: &RecNode) -> Self {
+    pub fn from_rec_node(rec_node: &RecNode) -> (Self, GraphNodeId) {
         let mut graph = Self::new();
-        graph.add_rec_node(rec_node);
-        graph
+        let root_node_id = graph.add_rec_node(rec_node);
+        (graph, root_node_id)
     }
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> GraphNodeId {
         let graph_node = rec_node.0.convert_link(|link| self.add_rec_node(link));
