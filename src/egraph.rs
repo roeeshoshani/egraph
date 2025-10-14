@@ -823,12 +823,6 @@ struct ExtractionScore {
     base_score: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ScoredEnode {
-    enode_id: ENodeId,
-    score: ExtractionScore,
-}
-
 #[derive(Debug, Clone)]
 struct ExtractCtx {
     visited_eclasses: HashSet<EffectiveEClassId>,
