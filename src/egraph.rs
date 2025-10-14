@@ -117,7 +117,7 @@ impl ENodeHashTable {
     /// finds the entry in the hash table for the given enode.
     ///
     /// if an exact enode already exists, returns an occupied entry. otherwise, returns a vacant entry.
-    pub fn entry(
+    pub fn entry_mut(
         &mut self,
         enode: &ENode,
         enodes_union_find: &UnionFind<ENode>,
@@ -201,7 +201,7 @@ impl EGraph {
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
         let entry = self
             .enodes_hash_table
-            .entry(&enode, &self.enodes_union_find);
+            .entry_mut(&enode, &self.enodes_union_find);
 
         match entry {
             Entry::Occupied(entry) => AddENodeRes {
@@ -550,6 +550,26 @@ impl EGraph {
         did_anything
     }
 
+    /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
+    pub fn propegate_unions(&mut self) {
+        for enode_item_id in self.enodes_union_find.item_ids() {
+            let enode_id = ENodeId(enode_item_id);
+            let enode = &self.enodes_union_find[enode_item_id];
+            let enode_with_effective_eclass_id =
+                enode.to_enode_with_effective_eclass_id(&self.enodes_union_find);
+            let hash = self.enodes_hash_table.hasher.hash_node(enode);
+            for hash_table_entry in self.enodes_hash_table.table.iter_hash(hash) {
+                if hash_table_entry
+                    .enode
+                    .to_enode_with_effective_eclass_id(&self.enodes_union_find)
+                    == enode_with_effective_eclass_id
+                {
+                    self.union(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
+                }
+            }
+        }
+    }
+
     pub fn apply_rule_set(&mut self, rule_set: &RewriteRuleSet, max_iterations: Option<usize>) {
         let mut i = 0;
         loop {
@@ -561,6 +581,7 @@ impl EGraph {
             if !did_anything.as_bool() {
                 break;
             }
+            self.propegate_unions();
             if let Some(max_iterations) = max_iterations {
                 i += 1;
                 if i == max_iterations {
@@ -1209,9 +1230,12 @@ mod tests {
             )
             .eclass_id;
 
+        assert!(!egraph.are_eq(un_op_var0, un_op_var1));
+
         let union_res = egraph.union(var0, var1);
         assert_eq!(union_res, UnionRes::New);
+        egraph.propegate_unions();
 
-        assert!(egraph.are_eq(un_op_var0, un_op_var1))
+        assert!(egraph.are_eq(un_op_var0, un_op_var1));
     }
 }
