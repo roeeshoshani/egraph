@@ -949,9 +949,10 @@ impl EGraph {
         // we will fill it in later.
         //
         // we can just always use the internal var 0 since unlike the egraph, the graph doesn't do any de-duplication.
+        let internal_var = new_ctx.alloc_internal_var();
         let new_graph_id = new_ctx
             .graph
-            .add_node(GenericNode::InternalVar(InternalVar(0)));
+            .add_node(GenericNode::InternalVar(internal_var));
         new_ctx
             .eclass_to_graph_id
             .insert(effective_eclass_id, new_graph_id);
@@ -1040,6 +1041,7 @@ struct ExtractionScore {
 #[derive(Debug, Clone)]
 struct ExtractCtx {
     graph: Graph,
+    next_internal_var: InternalVar,
     eclass_to_graph_id: HashMap<EffectiveEClassId, GraphNodeId>,
 }
 impl ExtractCtx {
@@ -1047,7 +1049,14 @@ impl ExtractCtx {
         Self {
             graph: Graph::new(),
             eclass_to_graph_id: HashMap::new(),
+            next_internal_var: InternalVar(0),
         }
+    }
+
+    fn alloc_internal_var(&mut self) -> InternalVar {
+        let res = self.next_internal_var;
+        self.next_internal_var.0 += 1;
+        res
     }
 }
 
