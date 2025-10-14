@@ -1,10 +1,26 @@
+use std::{num::NonZeroUsize, ops::Index};
+
 use hashbrown::HashMap;
 use stable_vec::StableVec;
 
 use crate::*;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct GraphNodeId(pub usize);
+pub struct GraphNodeId(pub NonZeroUsize);
+impl GraphNodeId {
+    /// creates a new graph node id from the index of the node in the nodes array.
+    pub fn from_index(index: usize) -> Self {
+        Self(unsafe {
+            // SAFETY: we add 1, so it can't be 0
+            NonZeroUsize::new_unchecked(index + 1)
+        })
+    }
+
+    /// the index of the node represented by this id in the nodes array.
+    pub fn index(&self) -> usize {
+        self.0.get() - 1
+    }
+}
 
 pub type GraphNode = GenericNode<GraphNodeId>;
 
@@ -36,8 +52,19 @@ impl Graph {
         if let Some(existing_id) = self.node_to_id.get(&node) {
             return *existing_id;
         }
-        let new_id = GraphNodeId(self.nodes.push(node.clone()));
+        let index = self.nodes.push(node.clone());
+        let new_id = GraphNodeId::from_index(index);
         self.node_to_id.insert(node, new_id);
         new_id
+    }
+    pub fn valid_node_ids(&self) -> impl Iterator<Item = GraphNodeId> {
+        self.nodes.indices().map(GraphNodeId::from_index)
+    }
+}
+impl Index<GraphNodeId> for Graph {
+    type Output = GraphNode;
+
+    fn index(&self, node_id: GraphNodeId) -> &Self::Output {
+        &self.nodes[node_id.index()]
     }
 }

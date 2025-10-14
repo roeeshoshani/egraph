@@ -13,6 +13,9 @@ pub struct Imm(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Var(pub u64);
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct InternalVar(pub u64);
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum BinOpKind {
     #[display("+")]
@@ -60,6 +63,10 @@ pub struct UnOp<L> {
 pub enum GenericNode<L> {
     Imm(Imm),
     Var(Var),
+    /// a variable for internal use by the egraph engine.
+    ///
+    /// this is used for adding graphs which contain loops into an egraph, as a temporary placeholder for looping links.
+    InternalVar(InternalVar),
     BinOp(BinOp<L>),
     UnOp(UnOp<L>),
 }
@@ -76,6 +83,7 @@ impl<L> GenericNode<L> {
         match self {
             GenericNode::Imm(imm) => GenericNode::Imm(*imm),
             GenericNode::Var(var) => GenericNode::Var(*var),
+            GenericNode::InternalVar(internal_var) => GenericNode::InternalVar(*internal_var),
             GenericNode::BinOp(BinOp { kind, lhs, rhs }) => GenericNode::BinOp(BinOp {
                 kind: *kind,
                 lhs: conversion(lhs),
@@ -98,6 +106,7 @@ impl<L> GenericNode<L> {
         match self {
             GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
             GenericNode::Var(var) => format!("var{}", var.0),
+            GenericNode::InternalVar(internal_var) => format!("internal_var{}", internal_var.0),
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
         }
