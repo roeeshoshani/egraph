@@ -1,14 +1,26 @@
+use derive_more::{Add, AddAssign};
 use duct::cmd;
-use hashbrown::{DefaultHashBuilder, HashSet, HashTable, hash_table::Entry};
+use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Entry};
 use std::{hash::BuildHasher, io::Write as _};
 use tempfile::NamedTempFile;
 
-use crate::{did_anything::DidAnything, union_find::*, *};
+use crate::{
+    did_anything::DidAnything,
+    graph::{Graph, GraphNodeId},
+    union_find::*,
+    *,
+};
 use std::fmt::Write as _;
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ENodeId(pub UnionFindItemId);
+impl ENodeId {
+    /// returns an eclass id object representing the eclass which contains this enode id.
+    pub fn eclass_id(&self) -> EClassId {
+        EClassId { enode_id: *self }
+    }
+}
 
 /// the id of an eclass.
 ///
@@ -26,7 +38,9 @@ pub struct EClassId {
 impl EClassId {
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree.
     pub fn to_effective(&self, union_find: &UnionFind<ENode>) -> EffectiveEClassId {
-        EffectiveEClassId(union_find.root_of_item(self.enode_id.0))
+        EffectiveEClassId {
+            eclass_root: ENodeId(union_find.root_of_item(self.enode_id.0)),
+        }
     }
 }
 
@@ -44,13 +58,14 @@ pub type ENode = GenericNode<EClassId>;
 /// this id is only true for a given snapshot of the union find tree. once the tree is modified, it is no longer up to date, since
 /// the root may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EffectiveEClassId(pub UnionFindItemId);
+pub struct EffectiveEClassId {
+    /// the root node of the eclass in the union find tree.
+    pub eclass_root: ENodeId,
+}
 impl EffectiveEClassId {
     /// converts this effective eclass id back to an eclass id.
     pub fn to_eclass_id(&self) -> EClassId {
-        EClassId {
-            enode_id: ENodeId(self.0),
-        }
+        self.eclass_root.eclass_id()
     }
 }
 
@@ -176,9 +191,7 @@ impl EGraph {
 
         match entry {
             Entry::Occupied(entry) => AddENodeRes {
-                eclass_id: EClassId {
-                    enode_id: entry.get().id,
-                },
+                eclass_id: entry.get().id.eclass_id(),
                 dedup_info: ENodeDedupInfo::Duplicate,
             },
             Entry::Vacant(entry) => {
@@ -188,7 +201,7 @@ impl EGraph {
                     id: enode_id,
                 });
                 AddENodeRes {
-                    eclass_id: EClassId { enode_id },
+                    eclass_id: enode_id.eclass_id(),
                     dedup_info: ENodeDedupInfo::New,
                 }
             }
@@ -224,7 +237,7 @@ impl EGraph {
         for entry in self.enodes_hash_table.table.iter_hash(hash) {
             let mut matching_state_storage = MatchingStateStorage::new();
 
-            let eclass_id = EClassId { enode_id: entry.id };
+            let eclass_id = entry.id.eclass_id();
             let effective_eclass_id = eclass_id.to_effective(&self.enodes_union_find);
 
             // match the current enode
@@ -474,7 +487,10 @@ impl EGraph {
         }
 
         // iterate all enodes in the eclass
-        for enode_item_id in self.enodes_union_find.items_eq_to(effective_eclass_id.0) {
+        for enode_item_id in self
+            .enodes_union_find
+            .items_eq_to(effective_eclass_id.eclass_root.0)
+        {
             let enode = &self.enodes_union_find[enode_item_id];
             self.match_enode_to_enode_template(enode, effective_eclass_id, template, state);
         }
@@ -667,16 +683,9 @@ impl EGraph {
             .collect();
 
         for &eclass_label in &eclass_labels {
-            let eclass_id = EClassId {
-                enode_id: ENodeId(eclass_label),
-            };
+            let eclass_id = ENodeId(eclass_label).eclass_id();
 
-            writeln!(
-                &mut out,
-                "subgraph {} {{",
-                eclass_dot_id(eclass_label),
-            )
-            .unwrap();
+            writeln!(&mut out, "subgraph {} {{", eclass_dot_id(eclass_label),).unwrap();
 
             writeln!(
                 &mut out,
@@ -691,7 +700,8 @@ impl EGraph {
                 writeln!(
                     &mut out,
                     "{} [label=\"{}\"];",
-                    enode_dot_id(eclass_label, i), label
+                    enode_dot_id(eclass_label, i),
+                    label
                 )
                 .unwrap();
             }
@@ -709,7 +719,9 @@ impl EGraph {
                     writeln!(
                         &mut out,
                         "{} -> {} [lhead={}];",
-                        enode_dot_id(eclass_label, i), enode_dot_id(target_eclass_label, 0), eclass_dot_id(target_eclass_label)
+                        enode_dot_id(eclass_label, i),
+                        enode_dot_id(target_eclass_label, 0),
+                        eclass_dot_id(target_eclass_label)
                     )
                     .unwrap();
                 }
@@ -737,6 +749,95 @@ impl EGraph {
             "##,
             out
         );
+    }
+
+    fn extract_enode(&self, enode_id: ENodeId, ctx: &ExtractCtx) -> ScoredExtractionNode {
+        let enode = &self.enodes_union_find[enode_id.0];
+        let mut score = ExtractionScore {
+            looping_score: 0,
+            base_score: 1,
+        };
+        let extraction_node = enode.convert_link(|link_eclass_id| {
+            let link_effective_eclass_id = link_eclass_id.to_effective(&self.enodes_union_find);
+            let extract_link_res = self.extract_eclass_inner(link_effective_eclass_id, ctx);
+            score += extract_link_res.score;
+            extract_link_res.node
+        });
+        ScoredExtractionNode {
+            node: ExtractionLink::Regular(Box::new(extraction_node)),
+            score,
+        }
+    }
+
+    fn extract_eclass_inner(
+        &self,
+        effective_eclass_id: EffectiveEClassId,
+        ctx: &ExtractCtx,
+    ) -> ScoredExtractionNode {
+        if ctx.visited_eclasses.contains(&effective_eclass_id) {
+            // we encountered an eclass that we have already visited.
+            return ScoredExtractionNode {
+                node: ExtractionLink::Loop(effective_eclass_id),
+                score: ExtractionScore {
+                    looping_score: 1,
+                    base_score: 0,
+                },
+            };
+        }
+
+        let mut new_ctx = ctx.clone();
+        new_ctx.visited_eclasses.insert(effective_eclass_id);
+
+        self.enodes_union_find
+            .items_eq_to(effective_eclass_id.eclass_root.0)
+            .map(|enode_item_id| self.extract_enode(ENodeId(enode_item_id), &new_ctx))
+            .min_by_key(|scored_enode| scored_enode.score)
+            .unwrap()
+    }
+
+    pub fn extract_eclass(&self, eclass_id: EClassId) {
+        let ctx = ExtractCtx::new();
+        let extraction_node =
+            self.extract_eclass_inner(eclass_id.to_effective(&self.enodes_union_find), &ctx);
+        println!("{:#?}", extraction_node);
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ExtractionLink {
+    Regular(Box<ExtractionNode>),
+    Loop(EffectiveEClassId),
+}
+type ExtractionNode = GenericNode<ExtractionLink>;
+
+#[derive(Debug, Clone)]
+struct ScoredExtractionNode {
+    node: ExtractionLink,
+    score: ExtractionScore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Add, AddAssign)]
+struct ExtractionScore {
+    looping_score: usize,
+    base_score: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ScoredEnode {
+    enode_id: ENodeId,
+    score: ExtractionScore,
+}
+
+#[derive(Debug, Clone)]
+struct ExtractCtx {
+    visited_eclasses: HashSet<EffectiveEClassId>,
+}
+impl ExtractCtx {
+    fn new() -> Self {
+        Self {
+            visited_eclasses: HashSet::new(),
+        }
     }
 }
 

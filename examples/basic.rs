@@ -27,7 +27,7 @@ fn main() {
     }
     .into();
 
-    let (mut egraph, _root_eclass) = EGraph::from_rec_node(&rec_node);
+    let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
     let rule_set = RewriteRuleSet::from_rules([
         // (x & 0) => 0
@@ -204,4 +204,6 @@ fn main() {
 
     std::fs::create_dir_all("./graphs").unwrap();
     egraph.dump_dot_svg("./graphs/graph.svg");
+
+    egraph.extract_eclass(root_eclass);
 }
