@@ -552,20 +552,30 @@ impl EGraph {
 
     /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
     pub fn propegate_unions(&mut self) {
-        for enode_item_id in self.enodes_union_find.item_ids() {
-            let enode_id = ENodeId(enode_item_id);
-            let enode = &self.enodes_union_find[enode_item_id];
-            let enode_with_effective_eclass_id =
-                enode.to_enode_with_effective_eclass_id(&self.enodes_union_find);
-            let hash = self.enodes_hash_table.hasher.hash_node(enode);
-            for hash_table_entry in self.enodes_hash_table.table.iter_hash(hash) {
-                if hash_table_entry
-                    .enode
-                    .to_enode_with_effective_eclass_id(&self.enodes_union_find)
-                    == enode_with_effective_eclass_id
-                {
-                    self.union(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
+        loop {
+            let mut did_anything = DidAnything::False;
+            for enode_item_id in self.enodes_union_find.item_ids() {
+                let enode_id = ENodeId(enode_item_id);
+                let enode = &self.enodes_union_find[enode_item_id];
+                let enode_with_effective_eclass_id =
+                    enode.to_enode_with_effective_eclass_id(&self.enodes_union_find);
+                let hash = self.enodes_hash_table.hasher.hash_node(enode);
+                for hash_table_entry in self.enodes_hash_table.table.iter_hash(hash) {
+                    if hash_table_entry
+                        .enode
+                        .to_enode_with_effective_eclass_id(&self.enodes_union_find)
+                        == enode_with_effective_eclass_id
+                    {
+                        let union_res =
+                            self.union(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
+                        if union_res == UnionRes::New {
+                            did_anything = DidAnything::True;
+                        }
+                    }
                 }
+            }
+            if !did_anything.as_bool() {
+                break;
             }
         }
     }
