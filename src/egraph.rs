@@ -190,6 +190,11 @@ impl EGraph {
         res
     }
 
+    /// union the given 2 enodes.
+    pub fn union(&self, a: EClassId, b: EClassId) -> UnionRes {
+        self.enodes_union_find.union(a.enode_id.0, b.enode_id.0)
+    }
+
     /// adds an enode to the egraph, puts it in a new eclass which only contains that single enode, and returns the id of that eclass.
     ///
     /// if the exact enode already exists in the egraph, returns the id of the existing enode.
@@ -224,7 +229,7 @@ impl EGraph {
     /// that they are not equal.
     ///
     /// so, this function allows for truly comparing 2 eclass ids for a given state of the egraph.
-    pub fn are_eclass_ids_eq(&self, a: EClassId, b: EClassId) -> bool {
+    pub fn are_eq(&self, a: EClassId, b: EClassId) -> bool {
         self.enodes_union_find.are_eq(a.enode_id.0, b.enode_id.0)
     }
 
@@ -1175,8 +1180,38 @@ mod tests {
 
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
-        assert!(!egraph.are_eclass_ids_eq(zero_eclass, root_eclass));
+        assert!(!egraph.are_eq(zero_eclass, root_eclass));
         egraph.apply_rule_set(&rule_set, None);
-        assert!(egraph.are_eclass_ids_eq(zero_eclass, root_eclass));
+        assert!(egraph.are_eq(zero_eclass, root_eclass));
+    }
+
+    #[test]
+    fn test_propegate_union() {
+        let mut egraph = EGraph::new();
+        let var0 = egraph.add_enode(Var(0).into()).eclass_id;
+        let var1 = egraph.add_enode(Var(1).into()).eclass_id;
+        let un_op_var0 = egraph
+            .add_enode(
+                UnOp {
+                    kind: UnOpKind::Neg,
+                    operand: var0,
+                }
+                .into(),
+            )
+            .eclass_id;
+        let un_op_var1 = egraph
+            .add_enode(
+                UnOp {
+                    kind: UnOpKind::Neg,
+                    operand: var1,
+                }
+                .into(),
+            )
+            .eclass_id;
+
+        let union_res = egraph.union(var0, var1);
+        assert_eq!(union_res, UnionRes::New);
+
+        assert!(egraph.are_eq(un_op_var0, un_op_var1))
     }
 }
