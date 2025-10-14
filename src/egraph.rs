@@ -1238,4 +1238,72 @@ mod tests {
 
         assert!(egraph.are_eq(un_op_var0, un_op_var1));
     }
+
+    #[test]
+    fn test_propegate_union_multi_level() {
+        let mut egraph = EGraph::new();
+        let var0 = egraph.add_enode(Var(0).into()).eclass_id;
+        let var1 = egraph.add_enode(Var(1).into()).eclass_id;
+        let un_op_var0 = egraph
+            .add_enode(
+                UnOp {
+                    kind: UnOpKind::Neg,
+                    operand: var0,
+                }
+                .into(),
+            )
+            .eclass_id;
+        let un_op_var1 = egraph
+            .add_enode(
+                UnOp {
+                    kind: UnOpKind::Neg,
+                    operand: var1,
+                }
+                .into(),
+            )
+            .eclass_id;
+
+        let bin_op0 = egraph
+            .add_enode(
+                BinOp {
+                    kind: BinOpKind::Add,
+                    lhs: un_op_var0,
+                    rhs: var1,
+                }
+                .into(),
+            )
+            .eclass_id;
+        let bin_op1 = egraph
+            .add_enode(
+                BinOp {
+                    kind: BinOpKind::Add,
+                    lhs: var0,
+                    rhs: var1,
+                }
+                .into(),
+            )
+            .eclass_id;
+        let bin_op2 = egraph
+            .add_enode(
+                BinOp {
+                    kind: BinOpKind::Add,
+                    lhs: un_op_var1,
+                    rhs: un_op_var0,
+                }
+                .into(),
+            )
+            .eclass_id;
+
+        // sanity
+        assert!(!egraph.are_eq(bin_op1, bin_op2));
+
+        let union_res = egraph.union(var0, var1);
+        assert_eq!(union_res, UnionRes::New);
+        egraph.propegate_unions();
+
+        assert!(egraph.are_eq(un_op_var0, un_op_var1));
+        assert!(egraph.are_eq(bin_op0, bin_op1));
+        assert!(egraph.are_eq(bin_op1, bin_op2));
+        assert!(egraph.are_eq(bin_op0, bin_op2));
+    }
 }
