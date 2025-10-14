@@ -1,12 +1,12 @@
 use derive_more::{Add, AddAssign};
 use duct::cmd;
 use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Entry};
-use std::{hash::BuildHasher, io::Write as _, ops::Index};
+use std::{borrow::Cow, hash::BuildHasher, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
 use crate::{
     did_anything::DidAnything,
-    graph::{Graph, GraphNodeId},
+    graph::{Graph, GraphNode, GraphNodeId},
     union_find::*,
     *,
 };
@@ -882,60 +882,112 @@ impl EGraph {
         );
     }
 
-    fn extract_enode(&self, enode_id: ENodeId, ctx: &ExtractCtx) -> ScoredExtractionNode {
+    fn extract_enode<'a>(&self, enode_id: ENodeId, ctx: &'a ExtractCtx) -> ExtractENodeRes<'a> {
         let enode = &self.enodes_union_find[enode_id.0];
         let mut score = ExtractionScore {
             looping_score: 0,
             base_score: 1,
         };
-        let extraction_node = enode.convert_link(|link_eclass_id| {
+
+        // convert the enode to a graph node by extracting each link and advancing our ctx.
+        let mut cur_ctx = Cow::Borrowed(ctx);
+        let graph_node = enode.convert_link(|link_eclass_id| {
             let link_effective_eclass_id = link_eclass_id.to_effective(&self.enodes_union_find);
-            let extract_link_res = self.extract_eclass_inner(link_effective_eclass_id, ctx);
-            score += extract_link_res.score;
-            extract_link_res.node
+
+            // extract the best version of the link eclass id
+            let ExtractEClassRes {
+                res,
+                eclass_graph_node_id: extracted_link_graph_node_id,
+            } = self.extract_eclass_inner(link_effective_eclass_id, &cur_ctx);
+
+            // update the socre according to the link's score
+            score += res.score;
+
+            // update the context to the context after extracting the link if any change was made.
+            if let Cow::Owned(new_ctx) = res.ctx {
+                cur_ctx = Cow::Owned(new_ctx);
+            }
+
+            // make us point to the graph node which represents that link eclass
+            extracted_link_graph_node_id
         });
-        ScoredExtractionNode {
-            node: ExtractionLink::Regular(Box::new(extraction_node)),
-            score,
+
+        ExtractENodeRes {
+            res: ExtractRes {
+                ctx: cur_ctx,
+                score: score,
+            },
+            enode_id,
+            graph_node,
         }
     }
 
-    fn extract_eclass_inner(
+    fn extract_eclass_inner<'a>(
         &self,
         effective_eclass_id: EffectiveEClassId,
-        ctx: &ExtractCtx,
-    ) -> ScoredExtractionNode {
-        if ctx.visited_eclasses.contains(&effective_eclass_id) {
+        ctx: &'a ExtractCtx,
+    ) -> ExtractEClassRes<'a> {
+        if let Some(graph_id) = ctx.eclass_to_graph_id.get(&effective_eclass_id) {
             // we encountered an eclass that we have already visited.
-            return ScoredExtractionNode {
-                node: ExtractionLink::Loop(effective_eclass_id),
-                score: ExtractionScore {
-                    looping_score: 1,
-                    base_score: 0,
+            return ExtractEClassRes {
+                res: ExtractRes {
+                    ctx: Cow::Borrowed(ctx),
+                    score: ExtractionScore {
+                        looping_score: 1,
+                        base_score: 0,
+                    },
                 },
+                eclass_graph_node_id: *graph_id,
             };
-        }
+        };
 
         let mut new_ctx = ctx.clone();
-        new_ctx.visited_eclasses.insert(effective_eclass_id);
 
-        self.enodes_union_find
+        // for now, add a dummy node since we don't yet know which form will be chosen, but we must allocate a graph node for it
+        // so that inner nodes can point back to it in case of loops.
+        //
+        // we will fill it in later.
+        //
+        // we can just always use the internal var 0 since unlike the egraph, the graph doesn't do any de-duplication.
+        let new_graph_id = new_ctx
+            .graph
+            .add_node(GenericNode::InternalVar(InternalVar(0)));
+        new_ctx
+            .eclass_to_graph_id
+            .insert(effective_eclass_id, new_graph_id);
+
+        let best_enode_res = self
+            .enodes_union_find
             .items_eq_to(effective_eclass_id.eclass_root.0)
             .filter(|&enode_item_id| {
                 // skip internal var nodes, they are of no use to us here.
                 !self.enodes_union_find[enode_item_id].is_internal_var()
             })
             .map(|enode_item_id| self.extract_enode(ENodeId(enode_item_id), &new_ctx))
-            .min_by_key(|scored_enode| scored_enode.score)
-            .unwrap()
+            .min_by_key(|extract_enode_res| extract_enode_res.res.score)
+            .unwrap();
+
+        // now fill in our actual graph node.
+        let mut final_ctx = best_enode_res.res.ctx.into_owned();
+        final_ctx.graph[new_graph_id] = best_enode_res.graph_node;
+
+        ExtractEClassRes {
+            res: ExtractRes {
+                ctx: Cow::Owned(final_ctx),
+                score: best_enode_res.res.score,
+            },
+            eclass_graph_node_id: new_graph_id,
+        }
     }
 
-    pub fn extract_eclass(&self, eclass_id: EClassId) {
+    pub fn extract_eclass(&self, eclass_id: EClassId) -> (Graph, GraphNodeId) {
         let ctx = ExtractCtx::new();
-        let extraction_node =
+        let extract_eclass_res =
             self.extract_eclass_inner(eclass_id.to_effective(&self.enodes_union_find), &ctx);
-        println!("{:#?}", extraction_node);
-        todo!()
+        (
+            extract_eclass_res.res.ctx.into_owned().graph,
+            extract_eclass_res.eclass_graph_node_id,
+        )
     }
 }
 
@@ -962,9 +1014,21 @@ enum ExtractionLink {
 type ExtractionNode = GenericNode<ExtractionLink>;
 
 #[derive(Debug, Clone)]
-struct ScoredExtractionNode {
-    node: ExtractionLink,
+struct ExtractRes<'a> {
+    ctx: Cow<'a, ExtractCtx>,
     score: ExtractionScore,
+}
+
+#[derive(Debug, Clone)]
+struct ExtractENodeRes<'a> {
+    res: ExtractRes<'a>,
+    enode_id: ENodeId,
+    graph_node: GraphNode,
+}
+#[derive(Debug, Clone)]
+struct ExtractEClassRes<'a> {
+    res: ExtractRes<'a>,
+    eclass_graph_node_id: GraphNodeId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Add, AddAssign)]
@@ -975,12 +1039,14 @@ struct ExtractionScore {
 
 #[derive(Debug, Clone)]
 struct ExtractCtx {
-    visited_eclasses: HashSet<EffectiveEClassId>,
+    graph: Graph,
+    eclass_to_graph_id: HashMap<EffectiveEClassId, GraphNodeId>,
 }
 impl ExtractCtx {
     fn new() -> Self {
         Self {
-            visited_eclasses: HashSet::new(),
+            graph: Graph::new(),
+            eclass_to_graph_id: HashMap::new(),
         }
     }
 }

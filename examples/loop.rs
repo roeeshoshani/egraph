@@ -224,6 +224,9 @@ fn main() {
 
     egraph.apply_rule_set(&rule_set, None);
 
+    let extract_res = egraph.extract_eclass(root_eclass);
+    println!("{:#?}", extract_res);
+
     std::fs::create_dir_all("./graphs").unwrap();
     egraph.dump_dot_svg("./graphs/graph.svg");
 }
