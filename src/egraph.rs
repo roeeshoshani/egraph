@@ -195,6 +195,13 @@ impl EGraph {
         }
     }
 
+    /// checks if the given two eclass ids are equal.
+    ///
+    /// eclass ids can't be compared directly since they contain lazily evaluated data.
+    /// two eclass id instances may point to the same eclass even though structurally comparing the data stored in them will show
+    /// that they are not equal.
+    ///
+    /// so, this function allows for truly comparing 2 eclass ids for a given state of the egraph.
     pub fn are_eclass_ids_eq(&self, a: EClassId, b: EClassId) -> bool {
         self.enodes_union_find.are_eq(a.enode_id.0, b.enode_id.0)
     }
@@ -207,6 +214,7 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
+    /// match the given rule to any enodes in the egraph and return a list of matches.
     pub fn match_rule(&self, rule: &RewriteRule) -> Vec<ENodeMatch> {
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
@@ -227,12 +235,15 @@ impl EGraph {
                 &mut matching_state_storage.get_state(),
             );
 
-            enode_matches.extend(matching_state_storage.matches.into_iter().map(|match_obj| {
-                ENodeMatch {
-                    match_obj,
-                    enode_id: entry.id,
-                }
-            }));
+            enode_matches.extend(
+                matching_state_storage
+                    .match_ctxs
+                    .into_iter()
+                    .map(|match_ctx| ENodeMatch {
+                        rule_storage: match_ctx.rule_storage,
+                        enode_id: entry.id,
+                    }),
+            );
         }
 
         enode_matches
@@ -252,10 +263,8 @@ impl EGraph {
 
         // for each match, add the rerwrite result to the egraph
         for enode_match in enode_matches {
-            let add_res = self.instantiate_enode_template_link(
-                &rule.rewrite,
-                &enode_match.match_obj.rule_storage,
-            );
+            let add_res =
+                self.instantiate_enode_template_link(&rule.rewrite, &enode_match.rule_storage);
 
             let union_res = self
                 .enodes_union_find
@@ -298,7 +307,7 @@ impl EGraph {
 
         if links_amount == 0 {
             // if there are no links, the structural comparison that we performed above is enough, so this enode is a match.
-            state.matches.push(new_match);
+            state.match_ctx.push(new_match);
             return;
         }
 
@@ -307,30 +316,31 @@ impl EGraph {
         // this part is a little complicated, i'll explain it as best as i can.
         //
         // whenever we encounter a link, due to links pointing to eclasses and not enodes, each link can match multiple enodes.
-        // if we ignore template vars for a moment, this essentially means that we want a cartesian product over the matches of
-        // each of the links to generate the final list of matches.
+        // if we ignore template vars for a moment, this essentially means that we want a cartesian product over the match contexts
+        // of each of the links to generate the final list of match contexts.
         //
-        // for example, if the first link had matches [A, B], and the second link had matches [C, D], then in practice we can build
-        // 4 different structures that match the rule: (A, C), (A, D), (B, C), (B, D).
+        // for example, if the first link had match contexts [A, B], and the second link had match contexts [C, D], then in practice
+        // we can build 4 different structures that match the rule: (A, C), (A, D), (B, C), (B, D).
         //
         // now let's consider what happens when template vars are added.
         // template vars require that when matching a link, we take into account the variable values inherited from the previous link.
-        // but, the previous link could have had multiple matches, each with its own variable binding.
-        // so, for each match in the previous link, we want to try to match the current link, but taking into account the variable
-        // bindings of the match in the previous link.
+        // but, the previous link could have had multiple match contexts, each with its own variable binding.
+        // so, for each match context in the previous link, we want to try to match the current link, but taking into account the
+        // variable bindings of the match context in the previous link.
         //
         // this will still result in somewhat of a cartesian product, but this time, some of the options will be omitted due to not
         // matching the variables.
         //
-        // so, in each iteration, we first start with all matches from the previous link, which are by themselves a cartesian product
-        // of the previous link's matches with the matches of the links before it.
+        // so, in each iteration, we first start with all match contexts from the previous link, which are by themselves a cartesian
+        // product of the previous link's match contexts with the match contexts of the links before it.
         // then, we try to match each of them against each enode that matches the current link, which generates a new cartesian product
-        // of the initial list of matches with the list of matches of the current link.
+        // of the initial list of match contexts with the list of match contexts of the current link.
         // then we use the generated list for the next iteration.
         //
-        // the initial list of matches, for the first link, is basically just our current initial state when starting to match the links.
-        let mut cur_matches: Vec<Match> = vec![new_match];
-        let mut new_matches: Vec<Match> = Vec::new();
+        // the initial list of match contexts, for the first link, is basically just our current initial state when starting to
+        // match the links.
+        let mut cur_match_ctxs: Vec<MatchCtx> = vec![new_match];
+        let mut new_match_ctxs: Vec<MatchCtx> = Vec::new();
         for cur_link_idx in 0..links_amount {
             // the current template link
             let template_link = template_links[cur_link_idx];
@@ -338,11 +348,11 @@ impl EGraph {
             // the eclass that the current enode link points to
             let enode_link_eclass = *enode_links[cur_link_idx];
 
-            // we want a cartesian product over matches from previous links, so try matching the link for each previous match
-            for cur_match in &cur_matches {
+            // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
+            for cur_match in &cur_match_ctxs {
                 let mut new_matching_state = MatchingState {
                     cur_match: cur_match,
-                    matches: &mut new_matches,
+                    match_ctx: &mut new_match_ctxs,
                 };
                 self.match_eclass_to_template_link(
                     enode_link_eclass,
@@ -351,29 +361,30 @@ impl EGraph {
                 );
             }
 
-            // new matches now contains the new cartesian product over the current link with all of its previous link.
+            // new match contexts now contains the new cartesian product over the current link with all of its previous link.
             //
-            // we want to use this new list of matches for matching the next link.
+            // we want to use this new list of match contexts for matching the next link.
             //
-            // so basically we want to set `cur_matches` to `new_matches`, and to clear `new_matches` in preparation for the next
-            // iteration.
+            // so basically we want to set `cur_match_ctxs` to `new_match_ctxs`, and to clear `new_match_ctxs` in preparation for the
+            // next iteration.
             //
-            // but, doing this will lose the storage that was already allocated in the `cur_matches` vector, which we will then have
-            // to re-allocate when re-building the `new_matches` list.
+            // but, doing this will lose the storage that was already allocated in the `cur_match_ctxs` vector, which we will then have
+            // to re-allocate when re-building the `new_match_ctxs` list.
             //
             // so, instead, we perform a swap to keep both allocations.
-            std::mem::swap(&mut cur_matches, &mut new_matches);
+            std::mem::swap(&mut cur_match_ctxs, &mut new_match_ctxs);
 
-            // after the swap, `cur_matches` contains the value of `new_matches`, which is the list of matches that we just generated.
-            // and, `new_matches` now contains the value of `cur_matches`, which is the matches from the previous link.
-            // we no longer need the matches from the previous link, and each iteration assumes that `new_matches` is empty at the start
-            // of the iteration, so clear the vector.
-            new_matches.clear();
+            // after the swap, `cur_match_ctxs` contains the value of `new_match_ctxs`, which is the list of match contexts that we
+            // just generated.
+            // and, `new_match_ctxs` now contains the value of `cur_match_ctxs`, which is the match contexts from the previous link.
+            // we no longer need the match contexts from the previous link, and each iteration assumes that `new_match_ctxs` is empty
+            // at the start of the iteration, so clear the vector.
+            new_match_ctxs.clear();
         }
 
-        // the final value of `cur_matches` contains the final cartesian product of matches, which is what we want to return.
+        // the final value of `cur_match_ctxs` contains the final cartesian product of match contexts, which is what we want to return.
         // so, copy it out.
-        state.matches.append(&mut cur_matches);
+        state.match_ctx.append(&mut cur_match_ctxs);
     }
 
     fn match_eclass_to_template_link(
@@ -418,7 +429,7 @@ impl EGraph {
                 // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
                 //
                 // we add the eclass id here since we defer it until we are sure we have a match.
-                state.matches.push(
+                state.match_ctx.push(
                     state
                         .cur_match
                         .with_added_visited_eclass(effective_eclass_id),
@@ -437,7 +448,7 @@ impl EGraph {
                         effective_eclass_id,
                     },
                 );
-                state.matches.push(new_match);
+                state.match_ctx.push(new_match);
             }
         }
     }
@@ -729,21 +740,29 @@ impl EGraph {
     }
 }
 
+/// match context. this struct contains context for a single path of the e-matching process.
 #[derive(Debug, Clone)]
-pub struct Match {
+pub struct MatchCtx {
+    /// the rule storage which contains all the captured information while matching.
     pub rule_storage: RewriteRuleStorage,
+
+    /// a list of eclass ids that we have already visited along the current path that is being matched.
     pub visited_eclasses: Vec<EffectiveEClassId>,
 }
-impl Match {
+impl MatchCtx {
+    /// creates a new empty match context.
     pub fn new() -> Self {
         Self {
             rule_storage: RewriteRuleStorage::new(),
             visited_eclasses: Vec::new(),
         }
     }
+    /// checks if we have already visited the given eclass along the current path that is being matched.
     pub fn has_visited_eclass(&self, effective_eclass_id: EffectiveEClassId) -> bool {
         self.visited_eclasses.contains(&effective_eclass_id)
     }
+
+    /// creates a clone of this match context but with an added visited eclass id.
     pub fn with_added_visited_eclass(&self, effective_eclass_id: EffectiveEClassId) -> Self {
         let mut res = self.clone();
         res.visited_eclasses.push(effective_eclass_id);
@@ -751,35 +770,55 @@ impl Match {
     }
 }
 
+/// a match of a rule to a specific enode.
 #[derive(Debug, Clone)]
 pub struct ENodeMatch {
-    pub match_obj: Match,
+    /// the rule storage for this match. this contains all the information captured while matching the rule for this specific
+    /// enode match.
+    pub rule_storage: RewriteRuleStorage,
+
+    /// the enode id of the enode that matched the rule.
     pub enode_id: ENodeId,
 }
 
+/// storage for creating a matching state object, used to perform rule matching on the egraph.
 struct MatchingStateStorage {
-    initial_match: Match,
-    matches: Vec<Match>,
+    /// the initial empty match context.
+    initial_match: MatchCtx,
+
+    /// a list of match contexts which will be filled by the matching process.
+    match_ctxs: Vec<MatchCtx>,
 }
 impl MatchingStateStorage {
+    /// creates a new empty matching state storage.
     fn new() -> Self {
         Self {
-            initial_match: Match::new(),
-            matches: Vec::new(),
+            initial_match: MatchCtx::new(),
+            match_ctxs: Vec::new(),
         }
     }
+
+    /// returns a matching state object which uses this matching state storage as backing storage.
     fn get_state(&mut self) -> MatchingState<'_> {
         MatchingState {
             cur_match: &self.initial_match,
-            matches: &mut self.matches,
+            match_ctx: &mut self.match_ctxs,
         }
     }
 }
 
+/// a matching state object. passed around in all of the matching functions.
+///
+/// this object provides both access to the current match context, and access to an output list to store the newly
+/// generated match contexts.
 #[derive(Debug)]
 struct MatchingState<'a> {
-    cur_match: &'a Match,
-    matches: &'a mut Vec<Match>,
+    /// the match context along the current path that is being matched.
+    cur_match: &'a MatchCtx,
+
+    /// an output list of match contexts where newly generated match contexts should be placed, after progressing another step
+    /// in the e-matching process.
+    match_ctx: &'a mut Vec<MatchCtx>,
 }
 
 #[cfg(test)]
