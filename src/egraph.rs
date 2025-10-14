@@ -1,7 +1,7 @@
 use derive_more::{Add, AddAssign};
 use duct::cmd;
 use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Entry};
-use std::{hash::BuildHasher, io::Write as _};
+use std::{hash::BuildHasher, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
 use crate::{
@@ -661,7 +661,7 @@ impl EGraph {
             let node = &graph[graph_node_id];
 
             // conver the graph node to an enode by converting the links according to the translation map
-            let enode = node.convert_link(|link| translation_map.0[link]);
+            let enode = node.convert_link(|&link| translation_map[link]);
 
             // add the converted enode
             let add_res = self.add_enode(enode);
@@ -669,7 +669,7 @@ impl EGraph {
             // union the converted enode with the original internal var that was created for this graph node.
             self.enodes_union_find.union(
                 add_res.eclass_id.enode_id.0,
-                translation_map.0[&graph_node_id].enode_id.0,
+                translation_map[graph_node_id].enode_id.0,
             );
         }
 
@@ -902,6 +902,13 @@ pub struct GraphToEgraphTranslationMap(pub HashMap<GraphNodeId, EClassId>);
 impl GraphToEgraphTranslationMap {
     pub fn new() -> Self {
         Self(HashMap::new())
+    }
+}
+impl Index<GraphNodeId> for GraphToEgraphTranslationMap {
+    type Output = EClassId;
+
+    fn index(&self, index: GraphNodeId) -> &Self::Output {
+        &self.0[&index]
     }
 }
 
