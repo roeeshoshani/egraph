@@ -30,6 +30,8 @@ fn main() {
     let (mut graph, root_eclass) = Graph::from_rec_node(&rec_node);
     let (mut egraph, translation_map) = EGraph::from_graph(&graph);
 
+    egraph.extract_eclass(translation_map[root_eclass]);
+
     std::fs::create_dir_all("./graphs").unwrap();
     egraph.dump_dot_svg("./graphs/graph.svg");
 }

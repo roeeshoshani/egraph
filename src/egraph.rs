@@ -708,7 +708,7 @@ impl EGraph {
             .items_eq_to(eclass_id.enode_id.0)
             .find(|&enode_item_id| {
                 let enode = &self.enodes_union_find[enode_item_id];
-                !matches!(enode, GenericNode::InternalVar(_))
+                !enode.is_internal_var()
             })
             .unwrap();
         self.enode_get_sample_rec_node(ENodeId(chosen_enode))
@@ -883,6 +883,10 @@ impl EGraph {
 
         self.enodes_union_find
             .items_eq_to(effective_eclass_id.eclass_root.0)
+            .filter(|&enode_item_id| {
+                // skip internal var nodes, they are of no use to us here.
+                !self.enodes_union_find[enode_item_id].is_internal_var()
+            })
             .map(|enode_item_id| self.extract_enode(ENodeId(enode_item_id), &new_ctx))
             .min_by_key(|scored_enode| scored_enode.score)
             .unwrap()

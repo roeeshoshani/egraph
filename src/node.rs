@@ -76,6 +76,9 @@ impl<L> From<u64> for GenericNode<L> {
     }
 }
 impl<L> GenericNode<L> {
+    pub fn is_internal_var(&self) -> bool {
+        matches!(self, GenericNode::InternalVar(_))
+    }
     pub fn convert_link<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
     where
         F: FnMut(&L) -> L2,
