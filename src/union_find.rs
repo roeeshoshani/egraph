@@ -25,14 +25,27 @@ pub enum UnionRes {
 }
 
 /// a union find tree, where each node contains an item of type `T`.
+///
+/// this type uses interior mutability for its internal storage. this is needed because the union find tree's lookup functions
+/// may actually modify the structure of the tree, to optimize future lookups. for example, each root lookup makes the lookuped up
+/// item point directly to its root, so that future root lookups on this item will be `O(1)`.
+///
+/// but, we still want the lookup functions to take a `&self`, and not a `&mut self`, for flexibility of usage. so, we use interior
+/// mutability and enforce the borrowing rules at runtime.
 #[derive(Debug, Clone)]
 pub struct UnionFind<T> {
+    /// an array of all items in the union find tree, indexed by the item id indexes.
     items: Vec<T>,
+
+    /// an array of the parents of each item, indexed by the item id indexes.
     parent_of_item: Vec<Cell<UnionFindItemId>>,
+
+    /// an array of the children of each item, indexed by the item id indexes.
+    // TODO: is it better to use a hashset here?
     children_of_item: Vec<RefCell<Vec<UnionFindItemId>>>,
 }
 impl<T> UnionFind<T> {
-    /// returns a new, empty, union find tree.
+    /// returns a new empty union find tree.
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
@@ -99,6 +112,7 @@ impl<T> UnionFind<T> {
 
         self.remove_child(old_parent, item);
         self.add_child(new_parent, item);
+
         old_parent
     }
 
@@ -121,27 +135,38 @@ impl<T> UnionFind<T> {
         }
 
         self.add_child(new_parent, item);
+
         old_parent
     }
 
     /// unions the given two items.
     pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
-        let root_a = self.root_of_item_no_update(item_a);
+        // we use the "no update" version of the root lookup when looking up the root of item b, since making it point directly to
+        // root b may not be optimal here, and we can potentially do even better.
+        //
+        // when we union the items, unless they are already unioned, we will enslave root b to root a.
+        // this means that even if we use the "updating" version of the root lookup, after performing the union, item b will still
+        // require 2 iterations to reach its root, since what was its root at the point of lookup, root b, is no longer the real root,
+        // which is now root a, due to the enslaving that we performed.
+        //
+        // so, we can instead make item b point directly to root a, which is its real new root, so that future root lookups on item b
+        // will only require one iteration.
+        //
+        // as for item a, it's root doesn't change due to the union, so we can use the regular "updating" version of the root lookup.
+        let root_a = self.root_of_item(item_a);
         let root_b = self.root_of_item_no_update(item_b);
         if root_a == root_b {
             // the items are already unioned.
             //
-            // make sure that we update them to point directly to their roots.
-            self.set_parent_of_item(item_a, root_a);
+            // make sure that we update item b to point directly to its root.
             self.set_parent_of_item(item_b, root_b);
             return UnionRes::Existing;
         }
 
-        // we can union the items by making one of their roots a parent of the other root
+        // union the items by enslaving root b to root a.
         self.set_parent_of_item(root_b, root_a);
 
-        // make both items point directly to the new root
-        self.set_parent_of_item(item_a, root_a);
+        // make item b to point directly to its new root.
         self.set_parent_of_item(item_b, root_a);
 
         UnionRes::New

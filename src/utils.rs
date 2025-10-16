@@ -1,3 +1,4 @@
+/// creates an array vec containing the arguments.
 #[macro_export]
 macro_rules! array_vec {
     () => (

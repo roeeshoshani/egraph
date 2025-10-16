@@ -917,7 +917,6 @@ impl EGraph {
                 ctx: cur_ctx,
                 score: score,
             },
-            enode_id,
             graph_node,
         }
     }
@@ -1008,13 +1007,6 @@ impl Index<GraphNodeId> for GraphToEgraphTranslationMap {
 }
 
 #[derive(Debug, Clone)]
-enum ExtractionLink {
-    Regular(Box<ExtractionNode>),
-    Loop(EffectiveEClassId),
-}
-type ExtractionNode = GenericNode<ExtractionLink>;
-
-#[derive(Debug, Clone)]
 struct ExtractRes<'a> {
     ctx: Cow<'a, ExtractCtx>,
     score: ExtractionScore,
@@ -1023,7 +1015,6 @@ struct ExtractRes<'a> {
 #[derive(Debug, Clone)]
 struct ExtractENodeRes<'a> {
     res: ExtractRes<'a>,
-    enode_id: ENodeId,
     graph_node: GraphNode,
 }
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 use egraph::{
-    BinOpKind, BinOpTemplate, EGraph, GenericNode, RecBinOp, RecNode, RewriteRuleParams,
-    RewriteRuleSet, TemplateVar, Var, graph::Graph,
+    BinOpKind, BinOpTemplate, EGraph, GenericNode, Graph, RecBinOp, RecNode, RewriteRuleParams,
+    RewriteRuleSet, TemplateVar, Var,
 };
 
 fn main() {
