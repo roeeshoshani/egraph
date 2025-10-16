@@ -30,9 +30,9 @@ pub enum BinOpKind {
     #[display("*")]
     Mul,
     #[display("&")]
-    And,
+    BitAnd,
     #[display("|")]
-    Or,
+    BitOr,
 }
 
 impl BinOpKind {
@@ -41,8 +41,8 @@ impl BinOpKind {
         let res = match self {
             BinOpKind::Add => lhs.0.wrapping_add(rhs.0),
             BinOpKind::Mul => lhs.0.wrapping_mul(rhs.0),
-            BinOpKind::And => lhs.0 & rhs.0,
-            BinOpKind::Or => lhs.0 | rhs.0,
+            BinOpKind::BitAnd => lhs.0 & rhs.0,
+            BinOpKind::BitOr => lhs.0 | rhs.0,
         };
         Imm(res)
     }

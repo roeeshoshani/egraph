@@ -1210,18 +1210,18 @@ mod tests {
     fn test_basic_rewrite() {
         // 0xff & ((x & 0xff00) | (x & 0xff0000))
         let rec_node: RecNode = RecBinOp {
-            kind: BinOpKind::And,
+            kind: BinOpKind::BitAnd,
             lhs: 0xff.into(),
             rhs: RecBinOp {
-                kind: BinOpKind::Or,
+                kind: BinOpKind::BitOr,
                 lhs: RecBinOp {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: Var(0).into(),
                     rhs: 0xff00.into(),
                 }
                 .into(),
                 rhs: RecBinOp {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: Var(0).into(),
                     rhs: 0xff0000.into(),
                 }
@@ -1237,7 +1237,7 @@ mod tests {
             // (x & 0) => 0
             RewriteRuleParams {
                 query: BinOpTemplate {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: 0.into(),
                 }
@@ -1249,10 +1249,10 @@ mod tests {
             // a & (b | c) => (a & b) | (a & c)
             RewriteRuleParams {
                 query: BinOpTemplate {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: BinOpTemplate {
-                        kind: BinOpKind::Or,
+                        kind: BinOpKind::BitOr,
                         lhs: TemplateVar::new(2).into(),
                         rhs: TemplateVar::new(3).into(),
                     }
@@ -1260,15 +1260,15 @@ mod tests {
                 }
                 .into(),
                 rewrite: BinOpTemplate {
-                    kind: BinOpKind::Or,
+                    kind: BinOpKind::BitOr,
                     lhs: BinOpTemplate {
-                        kind: BinOpKind::And,
+                        kind: BinOpKind::BitAnd,
                         lhs: TemplateVar::new(1).into(),
                         rhs: TemplateVar::new(2).into(),
                     }
                     .into(),
                     rhs: BinOpTemplate {
-                        kind: BinOpKind::And,
+                        kind: BinOpKind::BitAnd,
                         lhs: TemplateVar::new(1).into(),
                         rhs: TemplateVar::new(3).into(),
                     }
@@ -1281,10 +1281,10 @@ mod tests {
             // a & (b & c) => (a & b) & c
             RewriteRuleParams {
                 query: BinOpTemplate {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: BinOpTemplate {
-                        kind: BinOpKind::And,
+                        kind: BinOpKind::BitAnd,
                         lhs: TemplateVar::new(2).into(),
                         rhs: TemplateVar::new(3).into(),
                     }
@@ -1292,9 +1292,9 @@ mod tests {
                 }
                 .into(),
                 rewrite: BinOpTemplate {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: BinOpTemplate {
-                        kind: BinOpKind::And,
+                        kind: BinOpKind::BitAnd,
                         lhs: TemplateVar::new(1).into(),
                         rhs: TemplateVar::new(2).into(),
                     }
@@ -1308,13 +1308,13 @@ mod tests {
             // a & b => b & a
             RewriteRuleParams {
                 query: BinOpTemplate {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateVar::new(2).into(),
                 }
                 .into(),
                 rewrite: BinOpTemplate {
-                    kind: BinOpKind::And,
+                    kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(2).into(),
                     rhs: TemplateVar::new(1).into(),
                 }
