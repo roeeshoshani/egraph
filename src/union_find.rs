@@ -238,13 +238,17 @@ impl<T> UnionFind<T> {
             }
         }
 
-        // we must have at least one new child, since we previously already made sure that we have at least one grand-child.
+        // we expect to have at least one new child, since we previously already made sure that we have at least one grand-child.
         assert!(!new_children.is_empty());
 
         // make this item the parent of all new children
         for &child in &new_children {
-            // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
-            // all child lists along the way.
+            // make us the new parent of the child.
+            //
+            // don't try removing the child from its old parent's child list, since we emptied all child lists along the way.
+            //
+            // also, for now don't worry about adding the child to our children list, since we will later do it in a single batch
+            // for all of the new children.
             self.parent_of_item[child.index()].replace(item);
         }
 
@@ -309,12 +313,18 @@ impl<T> IndexMut<UnionFindItemId> for UnionFind<T> {
     }
 }
 
+/// an iterator over all items equal to some given item.
 #[derive(Debug)]
 pub struct ItemsEqTo<'a> {
+    /// an immutable borrow of the list of items that are equal to the the chosen item.
     items: std::cell::Ref<'a, Vec<UnionFindItemId>>,
+
+    /// returns the index of the next child to yield in the next iteration of this iterator.
     next_index: usize,
 }
 impl<'a> ItemsEqTo<'a> {
+    /// creates a new iterator over items equal to some item. the provided argument should be a borrow to a list containing all of
+    /// the items equal to the chosen item.
     fn new(items: std::cell::Ref<'a, Vec<UnionFindItemId>>) -> Self {
         Self {
             items,
