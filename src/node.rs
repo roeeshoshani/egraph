@@ -4,18 +4,25 @@ use enum_display::EnumDisplay;
 
 use crate::array_vec;
 
+/// the max amount of links in a node.
 pub const NODE_MAX_LINKS: usize = 2;
+
+/// an array of all links of a node.
 pub type NodeLinks<'a, L> = ArrayVec<&'a L, NODE_MAX_LINKS>;
 
+/// an immediate value.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Imm(pub u64);
 
+/// a variable.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Var(pub u64);
 
+/// an internal variable. exists to serve as placeholder for nodes who don't have a proper value.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct InternalVar(pub u64);
 
+/// the kind of a binary operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum BinOpKind {
     #[display("+")]
@@ -27,59 +34,91 @@ pub enum BinOpKind {
     #[display("|")]
     Or,
 }
+
 impl BinOpKind {
-    pub fn apply_to_imms(&self, lhs: Imm, rhs: Imm) -> u64 {
-        match self {
+    /// applies this binary operation to the given immediates.
+    pub fn apply_to_imms(&self, lhs: Imm, rhs: Imm) -> Imm {
+        let res = match self {
             BinOpKind::Add => lhs.0.wrapping_add(rhs.0),
             BinOpKind::Mul => lhs.0.wrapping_mul(rhs.0),
             BinOpKind::And => lhs.0 & rhs.0,
             BinOpKind::Or => lhs.0 | rhs.0,
-        }
+        };
+        Imm(res)
     }
 }
 
+/// a binary operation. this is basically an operation with 2 operands, a lhs operand and a rhs operand.
+/// an example of a binary operation is an addition operation (`x + y`).
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BinOp<L> {
+    /// the kind of the binary operation (e.g addition, multiplication, etc)
     pub kind: BinOpKind,
+
+    /// the lhs operand.
     pub lhs: L,
+
+    /// the rhs operand.
     pub rhs: L,
 }
 
+/// the kind of a unary operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum UnOpKind {
+    /// integer arithmetic negation (as in `-x`). this is also called the 2s complement of the integer.
     #[display("-")]
     Neg,
+
+    /// integer not operation, which basically means inverting all the bits of the integer.
     #[display("!")]
     Not,
 }
 
+/// a unary operation. this is basically an operation with only a single operand.
+/// an example of a unary operation is a negation operation (`-x`).
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct UnOp<L> {
+    /// the kind of the unary operation (e.g negation, bitwise not, etc)
     pub kind: UnOpKind,
+
+    /// the operand to which the operation is applied.
     pub operand: L,
 }
 
+/// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
 pub enum GenericNode<L> {
+    /// an immediate value.
     Imm(Imm),
+
+    /// a variable
     Var(Var),
-    /// a variable for internal use by the egraph engine.
-    ///
-    /// this is used for adding graphs which contain loops into an egraph, as a temporary placeholder for looping links.
+
+    /// an internal variable. exists to serve as placeholder for nodes who don't have a proper value.
     InternalVar(InternalVar),
+
+    /// a binary operation.
     BinOp(BinOp<L>),
+
+    /// a unary operation.
     UnOp(UnOp<L>),
 }
+
+// convert from an integer value to an immediate node.
 impl<L> From<u64> for GenericNode<L> {
     fn from(value: u64) -> Self {
         Imm(value).into()
     }
 }
+
 impl<L> GenericNode<L> {
+    /// checks if this node is an internal var node.
     pub fn is_internal_var(&self) -> bool {
         matches!(self, GenericNode::InternalVar(_))
     }
-    pub fn convert_link<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
+
+    /// converts the links of the given node using the given conversion function, generating a new node with the converted link values.
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
     where
         F: FnMut(&L) -> L2,
     {
@@ -98,6 +137,8 @@ impl<L> GenericNode<L> {
             }),
         }
     }
+
+    /// returns an array of all links of this node.
     pub fn links(&self) -> NodeLinks<'_, L> {
         match self {
             GenericNode::BinOp(bin_op) => array_vec![&bin_op.lhs, &bin_op.rhs],
@@ -105,6 +146,9 @@ impl<L> GenericNode<L> {
             _ => array_vec![],
         }
     }
+
+    /// returns a string which represents a human readable formatting of this node's structure. the returned string
+    /// contains no information about the node's links, only the structure itself, which is everything other than the links.
     pub fn structural_display(&self) -> String {
         match self {
             GenericNode::Imm(imm) => format!("0x{:x}", imm.0),

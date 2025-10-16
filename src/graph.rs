@@ -48,7 +48,7 @@ impl Graph {
         (graph, root_node_id)
     }
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> GraphNodeId {
-        let graph_node = rec_node.convert_link(|link| self.add_rec_node_link(link));
+        let graph_node = rec_node.convert_links(|link| self.add_rec_node_link(link));
         self.add_node(graph_node)
     }
     pub fn add_rec_node_link(&mut self, rec_node_link: &RecNodeLink) -> GraphNodeId {

@@ -78,7 +78,7 @@ impl ENode {
         &self,
         union_find: &UnionFind<ENode>,
     ) -> ENodeWithEffectiveEClassId {
-        self.convert_link(|eclass_id| eclass_id.to_effective(union_find))
+        self.convert_links(|eclass_id| eclass_id.to_effective(union_find))
     }
 }
 
@@ -100,7 +100,7 @@ impl NodeHasher {
     /// in the hash table.
     pub fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
         // hash the enode, but ignore the links. only take its structure into account.
-        self.0.hash_one(node.convert_link(|_| ()))
+        self.0.hash_one(node.convert_links(|_| ()))
     }
 }
 
@@ -235,7 +235,7 @@ impl EGraph {
 
     /// adds a recursive node to the egraph, converting each node to an enode.
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> AddENodeRes {
-        let graph_node = rec_node.convert_link(|link| self.add_rec_node_link(link).eclass_id);
+        let graph_node = rec_node.convert_links(|link| self.add_rec_node_link(link).eclass_id);
         self.add_enode(graph_node)
     }
 
@@ -321,7 +321,7 @@ impl EGraph {
         state: &mut MatchingState,
     ) {
         // first, perform structural comparison on everything other than the link
-        if enode.convert_link(|_| ()) != template.convert_link(|_| ()) {
+        if enode.convert_links(|_| ()) != template.convert_links(|_| ()) {
             // no match
             return;
         }
@@ -549,7 +549,7 @@ impl EGraph {
             let res = kind.apply_to_imms(lhs_imm, rhs_imm);
 
             // add the imm and union it with the original enode
-            let add_res = self.add_enode(GenericNode::Imm(Imm(res)));
+            let add_res = self.add_enode(GenericNode::Imm(res));
             let union_res = self
                 .enodes_union_find
                 .union(add_res.eclass_id.enode_id.0, enode_id);
@@ -635,7 +635,7 @@ impl EGraph {
         template: &ENodeTemplate,
         rule_storage: &RewriteRuleStorage,
     ) -> ENode {
-        template.convert_link(|template_link| {
+        template.convert_links(|template_link| {
             self.instantiate_enode_template_link(template_link, rule_storage)
                 .eclass_id
         })
@@ -670,7 +670,7 @@ impl EGraph {
             let node = &graph[graph_node_id];
 
             // conver the graph node to an enode by converting the links according to the translation map
-            let enode = node.convert_link(|&link| translation_map[link]);
+            let enode = node.convert_links(|&link| translation_map[link]);
 
             // add the converted enode
             let add_res = self.add_enode(enode);
@@ -706,7 +706,7 @@ impl EGraph {
         enode_id: ENodeId,
         visited_eclasses: &mut HashSet<EffectiveEClassId>,
     ) -> RecNode {
-        self.enodes_union_find[enode_id.0].convert_link(|link_eclass_id| {
+        self.enodes_union_find[enode_id.0].convert_links(|link_eclass_id| {
             self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
         })
     }
@@ -891,7 +891,7 @@ impl EGraph {
 
         // convert the enode to a graph node by extracting each link and advancing our ctx.
         let mut cur_ctx = Cow::Borrowed(ctx);
-        let graph_node = enode.convert_link(|link_eclass_id| {
+        let graph_node = enode.convert_links(|link_eclass_id| {
             let link_effective_eclass_id = link_eclass_id.to_effective(&self.enodes_union_find);
 
             // extract the best version of the link eclass id
