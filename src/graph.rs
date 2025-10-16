@@ -13,10 +13,10 @@ pub struct GraphNodeId(pub NonZeroUsize);
 impl GraphNodeId {
     /// creates a new graph node id from the index of the node in the nodes array.
     pub fn from_index(index: usize) -> Self {
-        Self(unsafe {
+        Self(
             // SAFETY: we add 1, so it can't be 0
-            NonZeroUsize::new_unchecked(index + 1)
-        })
+            unsafe { NonZeroUsize::new_unchecked(index + 1) },
+        )
     }
 
     /// the index of the node represented by this id in the nodes array.

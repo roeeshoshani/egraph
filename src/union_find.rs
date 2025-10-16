@@ -64,10 +64,10 @@ impl<T> UnionFind<T> {
     pub fn create_new_item(&mut self, item: T) -> UnionFindItemId {
         self.items.push(item);
 
-        let id = UnionFindItemId(unsafe {
+        let id = UnionFindItemId(
             // SAFETY: we just pushed to the vector so the length can't be 0.
-            NonZeroUsize::new_unchecked(self.items.len())
-        });
+            unsafe { NonZeroUsize::new_unchecked(self.items.len()) },
+        );
 
         // initially, the item is a child of itself, and the parent of itself
         self.children_of_item.push(RefCell::new(vec![id]));
@@ -184,11 +184,10 @@ impl<T> UnionFind<T> {
         }
     }
 
-    /// finds the root item of the given item.
+    /// finds the root item of the given item. this also updates the item to point directly to its root to make future lookups faster.
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
         let root = self.root_of_item_no_update(item);
 
-        // at this point we know the root. we can make our item point directly to the root to make future lookups faster.
         self.set_parent_of_item(item, root);
 
         root
@@ -196,10 +195,10 @@ impl<T> UnionFind<T> {
 
     /// returns an iterator over all of the item ids in the tree.
     pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
-        (1..=self.items.len()).map(|i| {
+        (0..self.items.len()).map(|i| {
             UnionFindItemId(
-                // SAFETY: our iteration starts from 1, so the value can't be 0
-                unsafe { NonZeroUsize::new_unchecked(i) },
+                // SAFETY: we add 1 so it can't be 0
+                unsafe { NonZeroUsize::new_unchecked(i + 1) },
             )
         })
     }
