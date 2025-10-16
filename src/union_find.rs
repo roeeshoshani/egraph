@@ -116,29 +116,6 @@ impl<T> UnionFind<T> {
         old_parent
     }
 
-    /// sets the direct parent of the given item, correctly updates the children list of the new parents, but without trying to
-    /// remove the item from the children list of the old parent.
-    ///
-    /// this assumes that the child has already been removed from the children list of the old parent.
-    ///
-    /// returns the old parent.
-    fn set_parent_of_item_no_remove(
-        &self,
-        item: UnionFindItemId,
-        new_parent: UnionFindItemId,
-    ) -> UnionFindItemId {
-        let old_parent = self.parent_of_item[item.index()].replace(new_parent);
-
-        if old_parent == new_parent {
-            // nothing changed
-            return old_parent;
-        }
-
-        self.add_child(new_parent, item);
-
-        old_parent
-    }
-
     /// unions the given two items.
     pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         // we use the "no update" version of the root lookup when looking up the root of item b, since making it point directly to
@@ -205,11 +182,33 @@ impl<T> UnionFind<T> {
 
     /// flattens all of the descendents of the given item to be direct children of it.
     fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
-        // we intentionally start with an immutable borrow instead of a mutable borrow, to allow nested iteration in the case where
-        // all children are already flattened.
+        // we intentionally start with an immutable borrow instead of a mutable borrow, since in some cases we won't need to modify
+        // the children array at all, for example when all of the descendents of this item are already direct children of it (the
+        // item was already flattened).
+        //
+        // in those cases, we want to avoid taking a mutable borrow to the children array at all.
+        // we only take the mutable borrow when we are certain that we need to modify the array.
+        // this is important since it allows more flexible usage patterns when using the union tree data structure.
+        //
+        // as an example, let's consider the following code:
+        // ```rust
+        // for _ in union_find.items_eq_to(item_id) {
+        //     for _ in union_find.items_eq_to(item_id) {
+        //         ...
+        //     }
+        // }
+        // ```
+        // the first call to `items_eq_to` will first flatten all the descendents of the root item of `item_id`, and will then return
+        // an iterator over them, which will immutably borrow the root item's children array.
+        //
+        // the second call will also try to flatten all the descendents of the root item item of `item_id`, but, they are already
+        // flattened, so we don't really need to mutate the children array. if we were to take a mutable borrow to children anyway,
+        // the above code will panic, because the iterator returned from the first `items_eq_to` call holds an immutable borrow to it.
+        //
+        // so, due to us only taking the mutable reference when it is actually needed, the above code is allowed.
         let children = self.children_of_item[item.index()].borrow();
 
-        // generate an initial exploration queue made of our sub-children
+        // generate an initial exploration queue made of our grand-children
         let mut exploration_queue = Vec::new();
         for &child in &*children {
             if child == item {
@@ -217,12 +216,12 @@ impl<T> UnionFind<T> {
                 // we are already doing it.
                 continue;
             }
-            let mut sub_children = self.children_of_item[child.index()].borrow_mut();
-            exploration_queue.append(&mut *sub_children);
+            let mut grand_children = self.children_of_item[child.index()].borrow_mut();
+            exploration_queue.append(&mut *grand_children);
         }
 
         if exploration_queue.is_empty() {
-            // if there are no sub-children, we have nothing to do.
+            // if there are no grand-children, we have nothing to do.
             //
             // NOTE: this early return is important since it entirely skips the mutable borrow of the children, which allows nested
             // iteration.
@@ -239,20 +238,23 @@ impl<T> UnionFind<T> {
             }
         }
 
-        // drop the borrow that we are currently holding to the item's children, since the logic below will append the new
-        // children to it, which requires modifying it.
-        drop(children);
+        // we must have at least one new child, since we previously already made sure that we have at least one grand-child.
+        assert!(!new_children.is_empty());
 
         // make this item the parent of all new children
         for &child in &new_children {
             // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
             // all child lists along the way.
-            self.set_parent_of_item_no_remove(child, item);
+            self.parent_of_item[child.index()].replace(item);
         }
+
+        // drop the borrow that we are currently holding to the item's children, since the logic below will append the new
+        // children to it, which requires modifying it.
+        drop(children);
 
         // add the new children to the children array.
         //
-        // we need to reborrow children mutably since we currently only have an immutable borrow.
+        // we need to reborrow children mutably since we previously only had an immutable borrow.
         let mut children = self.children_of_item[item.index()].borrow_mut();
         children.append(&mut new_children);
     }
