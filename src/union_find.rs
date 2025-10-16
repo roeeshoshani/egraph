@@ -742,4 +742,49 @@ mod tests {
             union_find.union(item_eq_to_a, b);
         }
     }
+
+    #[test]
+    fn test_items_eq_to_doesnt_break_anything() {
+        let mut union_find = UnionFind::new();
+
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
+        let c = union_find.create_new_item(());
+        let d = union_find.create_new_item(());
+        let e = union_find.create_new_item(());
+        let f = union_find.create_new_item(());
+        let g = union_find.create_new_item(());
+
+        let all_items = [a, b, c, d, e, f, g];
+
+        union_find.union(a, b);
+        union_find.union(c, d);
+        union_find.union(e, f);
+        union_find.union(e, g);
+
+        union_find.union(b, g);
+
+        let groups: &[&[UnionFindItemId]] = &[&[a, b, e, f, g], &[c, d]];
+
+        chk_groups(&union_find, &all_items, groups);
+
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(e)).as_slice(),
+            groups[0]
+        );
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(c)).as_slice(),
+            groups[1]
+        );
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(a)).as_slice(),
+            groups[0]
+        );
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(d)).as_slice(),
+            groups[1]
+        );
+
+        chk_groups(&union_find, &all_items, groups);
+    }
 }
