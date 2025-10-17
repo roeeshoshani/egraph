@@ -110,8 +110,8 @@ impl NodeHasher {
 /// the links, which allows for comparison against exact entries.
 #[derive(Clone)]
 pub struct ENodeHashTable {
-    pub table: HashTable<ENodeHashTableEntry>,
-    pub hasher: NodeHasher,
+    table: HashTable<ENodeHashTableEntry>,
+    hasher: NodeHasher,
 }
 impl ENodeHashTable {
     /// finds the entry in the hash table for the given enode.
@@ -182,6 +182,14 @@ impl EGraph {
             },
             next_internal_var: InternalVar(0),
         }
+    }
+
+    pub fn node_hasher(&self) -> &NodeHasher {
+        &self.enodes_hash_table.hasher
+    }
+
+    pub fn enodes_union_find(&self) -> &UnionFind<ENode> {
+        &self.enodes_union_find
     }
 
     fn alloc_internal_var(&mut self) -> InternalVar {
@@ -988,6 +996,13 @@ impl EGraph {
             extract_eclass_res.res.ctx.into_owned().graph,
             extract_eclass_res.eclass_graph_node_id,
         )
+    }
+}
+impl Index<ENodeId> for EGraph {
+    type Output = ENode;
+
+    fn index(&self, index: ENodeId) -> &Self::Output {
+        &self.enodes_union_find[index.0]
     }
 }
 
