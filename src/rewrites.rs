@@ -15,7 +15,7 @@ pub trait Rewrites: Sized {
 }
 
 impl Rewrites for () {
-    const LEN: usize = 1;
+    const LEN: usize = 0;
 
     fn apply_rewrite(&self, _rewrite_index: usize, _egraph: &mut EGraph) -> DidAnything {
         unreachable!()
