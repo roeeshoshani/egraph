@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use crate::{utils::CowBox, *};
+use crate::{egraph::*, node::*, utils::CowBox};
 
 /// a variable in a template enode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,18 +72,6 @@ impl ENodeTemplate {
             .into_iter()
             .any(|link| link.does_use_template_var(template_var))
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct RewriteRuleParams {
-    pub query: ENodeTemplate,
-    pub rewrite: TemplateLink,
-
-    /// should we keep the original enode after the rule has been applied to it?
-    pub keep_original: bool,
-
-    /// is the rule bi-directional
-    pub bi_directional: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -169,7 +157,7 @@ impl RewriteRule {
         }
     }
 
-    fn swap_direction(self) -> Self {
+    pub fn swap_direction(self) -> Self {
         self.check_can_swap_direction();
         let rewrite_template = match self.rewrite {
             TemplateLink::Specific(x) => x,
@@ -182,6 +170,25 @@ impl RewriteRule {
             rewrite: TemplateLink::Specific(self.query.into()),
             keep_original: self.keep_original,
         }
+    }
+}
+impl Rewrite for RewriteRule {
+    type Ctx = TemplateRewriteCtx;
+
+    fn create_initial_ctx(&self) -> Self::Ctx {
+        TemplateRewriteCtx::new()
+    }
+
+    fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>> {
+        CowBox::Borrowed(&self.query)
+    }
+
+    fn query_structural_hash(&self, egraph: &EGraph) -> Option<u64> {
+        Some(egraph.node_hasher().hash_node(&self.query))
+    }
+
+    fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
+        todo!()
     }
 }
 
@@ -221,48 +228,6 @@ impl RewriteRuleStorage {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RewriteRuleSet {
-    rules: Vec<RewriteRule>,
-}
-impl RewriteRuleSet {
-    pub fn new() -> Self {
-        Self { rules: Vec::new() }
-    }
-
-    pub fn add(&mut self, rule: RewriteRuleParams) {
-        let basic_rule = RewriteRule::new(rule.query, rule.rewrite, rule.keep_original);
-
-        self.rules.push(basic_rule.clone());
-
-        if rule.bi_directional {
-            self.rules.push(basic_rule.swap_direction());
-        }
-    }
-
-    pub fn add_multiple<I>(&mut self, rules: I)
-    where
-        I: IntoIterator<Item = RewriteRuleParams>,
-    {
-        for rule in rules {
-            self.add(rule);
-        }
-    }
-
-    pub fn from_rules<I>(rules: I) -> Self
-    where
-        I: IntoIterator<Item = RewriteRuleParams>,
-    {
-        let mut res = Self::new();
-        res.add_multiple(rules);
-        res
-    }
-
-    pub fn rules(&self) -> &[RewriteRule] {
-        &self.rules
-    }
-}
-
 /// a re-write rule.
 pub trait Rewrite {
     /// the context that is accumulated when matching the re-write rule's query and is used to build the final re-write result.
@@ -270,9 +235,7 @@ pub trait Rewrite {
     fn create_initial_ctx(&self) -> Self::Ctx;
     fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>>;
     fn query_structural_hash(&self, egraph: &EGraph) -> Option<u64>;
-
-    // TODO: what should be the signature of this?
-    fn build_rewrite();
+    fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes;
 }
 
 pub trait QueryENodeMatcher<C> {
@@ -343,15 +306,14 @@ pub enum QueryMatchLinkRes<'a, C> {
 }
 
 #[derive(Debug, Clone)]
-struct TemplateRewriteCtx {
-    /// the rule storage which contains all the captured information while matching.
-    pub rule_storage: RewriteRuleStorage,
+pub struct TemplateRewriteCtx {
+    pub template_var_values: TemplateVarValues,
 }
 impl TemplateRewriteCtx {
     /// creates a new empty match context.
     pub fn new() -> Self {
         Self {
-            rule_storage: RewriteRuleStorage::new(),
+            template_var_values: TemplateVarValues::new(),
         }
     }
 }
@@ -409,7 +371,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                 enode_matcher: CowBox::Borrowed(&**enode_template),
             },
             TemplateLink::Var(template_var) => {
-                match ctx.rule_storage.template_var_values.get(*template_var) {
+                match ctx.template_var_values.get(*template_var) {
                     Some(existing_var_value) => {
                         if effective_eclass_id != existing_var_value.effective_eclass_id {
                             // no match
@@ -424,7 +386,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                     None => {
                         // the variable currently doesn't have any value, so we can bind it and consider it a match.
                         let mut new_ctx = ctx.clone();
-                        new_ctx.rule_storage.template_var_values.set(
+                        new_ctx.template_var_values.set(
                             *template_var,
                             TemplateVarValue {
                                 effective_eclass_id,

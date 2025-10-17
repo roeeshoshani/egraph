@@ -1,7 +1,4 @@
-use egraph::{
-    BinOpKind, BinOpTemplate, EGraph, RecBinOp, RecNode, RewriteRuleParams, RewriteRuleSet,
-    TemplateVar, Var,
-};
+use egraph::{egraph::*, node::*, rec_node::*, rewrite_rules::*, rewrites_arr};
 
 fn main() {
     // 0xff & ((x & 0xff00) | (y & 0xff0000))
@@ -29,9 +26,9 @@ fn main() {
 
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
-    let rule_set = RewriteRuleSet::from_rules([
+    let rewrites = rewrites_arr![
         // (x & 0) => 0
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -40,10 +37,9 @@ fn main() {
             .into(),
             rewrite: 0.into(),
             keep_original: false,
-            bi_directional: false,
         },
         // (x | 0) => x
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
@@ -52,10 +48,9 @@ fn main() {
             .into(),
             rewrite: TemplateVar::new(1).into(),
             keep_original: false,
-            bi_directional: false,
         },
         // a & (b | c) => (a & b) | (a & c)
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -84,10 +79,9 @@ fn main() {
             }
             .into(),
             keep_original: true,
-            bi_directional: false,
         },
         // a & (b & c) => (a & b) & c
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -111,10 +105,9 @@ fn main() {
             }
             .into(),
             keep_original: true,
-            bi_directional: false,
         },
         // a | (b | c) => (a | b) | c
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
@@ -138,10 +131,9 @@ fn main() {
             }
             .into(),
             keep_original: true,
-            bi_directional: false,
         },
         // a & b => b & a
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -155,10 +147,9 @@ fn main() {
             }
             .into(),
             keep_original: true,
-            bi_directional: false,
         },
         // a | b => b | a
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
@@ -172,10 +163,9 @@ fn main() {
             }
             .into(),
             keep_original: true,
-            bi_directional: false,
         },
         // a & a => a
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -184,10 +174,9 @@ fn main() {
             .into(),
             rewrite: TemplateVar::new(1).into(),
             keep_original: true,
-            bi_directional: false,
         },
         // a | a => a
-        RewriteRuleParams {
+        RewriteRule {
             query: BinOpTemplate {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
@@ -196,11 +185,10 @@ fn main() {
             .into(),
             rewrite: TemplateVar::new(1).into(),
             keep_original: true,
-            bi_directional: false,
         },
-    ]);
+    ];
 
-    egraph.apply_rule_set(&rule_set, None);
+    egraph.apply_rewrites(&rewrites, None);
 
     std::fs::create_dir_all("./graphs").unwrap();
     egraph.dump_dot_svg("./graphs/graph.svg");
