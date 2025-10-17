@@ -1,25 +1,32 @@
 use egraph::{
-    BinOpKind, BinOpTemplate, EGraph, RecBinOp, RecNode, RewriteRuleParams, RewriteRuleSet,
-    TemplateVar, Var,
+    BinOpKind, BinOpTemplate, EGraph, GenericNode, Graph, RecBinOp, RecNode, RewriteRuleParams,
+    RewriteRuleSet, TemplateVar, Var,
 };
 
 fn main() {
-    // 0xff & ((x & 0xff00) | (y & 0xff0000))
+    // 5 + (0xff & ((x & 0xff00) | (y & 0xff0000)))
+    //
+    // the 5 is just a placeholder which will be later replaced to make the node point to itself.
     let rec_node: RecNode = RecBinOp {
-        kind: BinOpKind::BitAnd,
-        lhs: 0xff.into(),
+        kind: BinOpKind::Add,
+        lhs: 5.into(),
         rhs: RecBinOp {
-            kind: BinOpKind::BitOr,
-            lhs: RecBinOp {
-                kind: BinOpKind::BitAnd,
-                lhs: Var(0).into(),
-                rhs: 0xff00.into(),
-            }
-            .into(),
+            kind: BinOpKind::BitAnd,
+            lhs: 0xff.into(),
             rhs: RecBinOp {
-                kind: BinOpKind::BitAnd,
-                lhs: Var(1).into(),
-                rhs: 0xff0000.into(),
+                kind: BinOpKind::BitOr,
+                lhs: RecBinOp {
+                    kind: BinOpKind::BitAnd,
+                    lhs: Var(0).into(),
+                    rhs: 0xff00.into(),
+                }
+                .into(),
+                rhs: RecBinOp {
+                    kind: BinOpKind::BitAnd,
+                    lhs: Var(1).into(),
+                    rhs: 0xff0000.into(),
+                }
+                .into(),
             }
             .into(),
         }
@@ -27,7 +34,22 @@ fn main() {
     }
     .into();
 
-    let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
+    let (mut graph, root_id) = Graph::from_rec_node(&rec_node);
+
+    // make the root bin op point to itself in its lhs.
+    //
+    // so, now it is:
+    // self + (0xff & ((x & 0xff00) | (y & 0xff0000)))
+    //
+    // which can be simplified to 0.
+    let GenericNode::BinOp(root_bin_op) = &mut graph[root_id] else {
+        unreachable!();
+    };
+    root_bin_op.lhs = root_id;
+
+    let (mut egraph, translation_map) = EGraph::from_graph(&graph);
+
+    let root_eclass = translation_map[root_id];
 
     let rule_set = RewriteRuleSet::from_rules([
         // (x & 0) => 0
@@ -202,8 +224,9 @@ fn main() {
 
     egraph.apply_rule_set(&rule_set, None);
 
+    let extract_res = egraph.extract_eclass(root_eclass);
+    println!("{:#?}", extract_res);
+
     std::fs::create_dir_all("./graphs").unwrap();
     egraph.dump_dot_svg("./graphs/graph.svg");
-
-    egraph.extract_eclass(root_eclass);
 }

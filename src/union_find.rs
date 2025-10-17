@@ -25,14 +25,27 @@ pub enum UnionRes {
 }
 
 /// a union find tree, where each node contains an item of type `T`.
+///
+/// this type uses interior mutability for its internal storage. this is needed because the union find tree's lookup functions
+/// may actually modify the structure of the tree, to optimize future lookups. for example, each root lookup makes the lookuped up
+/// item point directly to its root, so that future root lookups on this item will be `O(1)`.
+///
+/// but, we still want the lookup functions to take a `&self`, and not a `&mut self`, for flexibility of usage. so, we use interior
+/// mutability and enforce the borrowing rules at runtime.
 #[derive(Debug, Clone)]
 pub struct UnionFind<T> {
+    /// an array of all items in the union find tree, indexed by the item id indexes.
     items: Vec<T>,
+
+    /// an array of the parents of each item, indexed by the item id indexes.
     parent_of_item: Vec<Cell<UnionFindItemId>>,
+
+    /// an array of the children of each item, indexed by the item id indexes.
+    // TODO: is it better to use a hashset here?
     children_of_item: Vec<RefCell<Vec<UnionFindItemId>>>,
 }
 impl<T> UnionFind<T> {
-    /// returns a new, empty, union find tree.
+    /// returns a new empty union find tree.
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
@@ -51,10 +64,10 @@ impl<T> UnionFind<T> {
     pub fn create_new_item(&mut self, item: T) -> UnionFindItemId {
         self.items.push(item);
 
-        let id = UnionFindItemId(unsafe {
+        let id = UnionFindItemId(
             // SAFETY: we just pushed to the vector so the length can't be 0.
-            NonZeroUsize::new_unchecked(self.items.len())
-        });
+            unsafe { NonZeroUsize::new_unchecked(self.items.len()) },
+        );
 
         // initially, the item is a child of itself, and the parent of itself
         self.children_of_item.push(RefCell::new(vec![id]));
@@ -99,49 +112,38 @@ impl<T> UnionFind<T> {
 
         self.remove_child(old_parent, item);
         self.add_child(new_parent, item);
-        old_parent
-    }
 
-    /// sets the direct parent of the given item, correctly updates the children list of the new parents, but without trying to
-    /// remove the item from the children list of the old parent.
-    ///
-    /// this assumes that the child has already been removed from the children list of the old parent.
-    ///
-    /// returns the old parent.
-    fn set_parent_of_item_no_remove(
-        &self,
-        item: UnionFindItemId,
-        new_parent: UnionFindItemId,
-    ) -> UnionFindItemId {
-        let old_parent = self.parent_of_item[item.index()].replace(new_parent);
-
-        if old_parent == new_parent {
-            // nothing changed
-            return old_parent;
-        }
-
-        self.add_child(new_parent, item);
         old_parent
     }
 
     /// unions the given two items.
     pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
-        let root_a = self.root_of_item_no_update(item_a);
+        // we use the "no update" version of the root lookup when looking up the root of item b, since making it point directly to
+        // root b may not be optimal here, and we can potentially do even better.
+        //
+        // when we union the items, unless they are already unioned, we will enslave root b to root a.
+        // this means that even if we use the "updating" version of the root lookup, after performing the union, item b will still
+        // require 2 iterations to reach its root, since what was its root at the point of lookup, root b, is no longer the real root,
+        // which is now root a, due to the enslaving that we performed.
+        //
+        // so, we can instead make item b point directly to root a, which is its real new root, so that future root lookups on item b
+        // will only require one iteration.
+        //
+        // as for item a, it's root doesn't change due to the union, so we can use the regular "updating" version of the root lookup.
+        let root_a = self.root_of_item(item_a);
         let root_b = self.root_of_item_no_update(item_b);
         if root_a == root_b {
             // the items are already unioned.
             //
-            // make sure that we update them to point directly to their roots.
-            self.set_parent_of_item(item_a, root_a);
+            // make sure that we update item b to point directly to its root.
             self.set_parent_of_item(item_b, root_b);
             return UnionRes::Existing;
         }
 
-        // we can union the items by making one of their roots a parent of the other root
+        // union the items by enslaving root b to root a.
         self.set_parent_of_item(root_b, root_a);
 
-        // make both items point directly to the new root
-        self.set_parent_of_item(item_a, root_a);
+        // make item b to point directly to its new root.
         self.set_parent_of_item(item_b, root_a);
 
         UnionRes::New
@@ -159,11 +161,10 @@ impl<T> UnionFind<T> {
         }
     }
 
-    /// finds the root item of the given item.
+    /// finds the root item of the given item. this also updates the item to point directly to its root to make future lookups faster.
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
         let root = self.root_of_item_no_update(item);
 
-        // at this point we know the root. we can make our item point directly to the root to make future lookups faster.
         self.set_parent_of_item(item, root);
 
         root
@@ -171,21 +172,43 @@ impl<T> UnionFind<T> {
 
     /// returns an iterator over all of the item ids in the tree.
     pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
-        (1..=self.items.len()).map(|i| {
+        (0..self.items.len()).map(|i| {
             UnionFindItemId(
-                // SAFETY: our iteration starts from 1, so the value can't be 0
-                unsafe { NonZeroUsize::new_unchecked(i) },
+                // SAFETY: we add 1 so it can't be 0
+                unsafe { NonZeroUsize::new_unchecked(i + 1) },
             )
         })
     }
 
     /// flattens all of the descendents of the given item to be direct children of it.
     fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
-        // we intentionally start with an immutable borrow instead of a mutable borrow, to allow nested iteration in the case where
-        // all children are already flattened.
+        // we intentionally start with an immutable borrow instead of a mutable borrow, since in some cases we won't need to modify
+        // the children array at all, for example when all of the descendents of this item are already direct children of it (the
+        // item was already flattened).
+        //
+        // in those cases, we want to avoid taking a mutable borrow to the children array at all.
+        // we only take the mutable borrow when we are certain that we need to modify the array.
+        // this is important since it allows more flexible usage patterns when using the union tree data structure.
+        //
+        // as an example, let's consider the following code:
+        // ```rust
+        // for _ in union_find.items_eq_to(item_id) {
+        //     for _ in union_find.items_eq_to(item_id) {
+        //         ...
+        //     }
+        // }
+        // ```
+        // the first call to `items_eq_to` will first flatten all the descendents of the root item of `item_id`, and will then return
+        // an iterator over them, which will immutably borrow the root item's children array.
+        //
+        // the second call will also try to flatten all the descendents of the root item item of `item_id`, but, they are already
+        // flattened, so we don't really need to mutate the children array. if we were to take a mutable borrow to children anyway,
+        // the above code will panic, because the iterator returned from the first `items_eq_to` call holds an immutable borrow to it.
+        //
+        // so, due to us only taking the mutable reference when it is actually needed, the above code is allowed.
         let children = self.children_of_item[item.index()].borrow();
 
-        // generate an initial exploration queue made of our sub-children
+        // generate an initial exploration queue made of our grand-children
         let mut exploration_queue = Vec::new();
         for &child in &*children {
             if child == item {
@@ -193,12 +216,12 @@ impl<T> UnionFind<T> {
                 // we are already doing it.
                 continue;
             }
-            let mut sub_children = self.children_of_item[child.index()].borrow_mut();
-            exploration_queue.append(&mut *sub_children);
+            let mut grand_children = self.children_of_item[child.index()].borrow_mut();
+            exploration_queue.append(&mut *grand_children);
         }
 
         if exploration_queue.is_empty() {
-            // if there are no sub-children, we have nothing to do.
+            // if there are no grand-children, we have nothing to do.
             //
             // NOTE: this early return is important since it entirely skips the mutable borrow of the children, which allows nested
             // iteration.
@@ -215,20 +238,27 @@ impl<T> UnionFind<T> {
             }
         }
 
+        // we expect to have at least one new child, since we previously already made sure that we have at least one grand-child.
+        assert!(!new_children.is_empty());
+
+        // make this item the parent of all new children
+        for &child in &new_children {
+            // make us the new parent of the child.
+            //
+            // don't try removing the child from its old parent's child list, since we emptied all child lists along the way.
+            //
+            // also, for now don't worry about adding the child to our children list, since we will later do it in a single batch
+            // for all of the new children.
+            self.parent_of_item[child.index()].replace(item);
+        }
+
         // drop the borrow that we are currently holding to the item's children, since the logic below will append the new
         // children to it, which requires modifying it.
         drop(children);
 
-        // make this item the parent of all new children
-        for &child in &new_children {
-            // make us the new parent of the child. don't try removing the child from its old parent's child list, since we emptied
-            // all child lists along the way.
-            self.set_parent_of_item_no_remove(child, item);
-        }
-
         // add the new children to the children array.
         //
-        // we need to reborrow children mutably since we currently only have an immutable borrow.
+        // we need to reborrow children mutably since we previously only had an immutable borrow.
         let mut children = self.children_of_item[item.index()].borrow_mut();
         children.append(&mut new_children);
     }
@@ -283,12 +313,18 @@ impl<T> IndexMut<UnionFindItemId> for UnionFind<T> {
     }
 }
 
+/// an iterator over all items equal to some given item.
 #[derive(Debug)]
 pub struct ItemsEqTo<'a> {
+    /// an immutable borrow of the list of items that are equal to the the chosen item.
     items: std::cell::Ref<'a, Vec<UnionFindItemId>>,
+
+    /// returns the index of the next child to yield in the next iteration of this iterator.
     next_index: usize,
 }
 impl<'a> ItemsEqTo<'a> {
+    /// creates a new iterator over items equal to some item. the provided argument should be a borrow to a list containing all of
+    /// the items equal to the chosen item.
     fn new(items: std::cell::Ref<'a, Vec<UnionFindItemId>>) -> Self {
         Self {
             items,
@@ -715,5 +751,50 @@ mod tests {
             // this union is redundant so it should be allowed
             union_find.union(item_eq_to_a, b);
         }
+    }
+
+    #[test]
+    fn test_items_eq_to_doesnt_break_anything() {
+        let mut union_find = UnionFind::new();
+
+        let a = union_find.create_new_item(());
+        let b = union_find.create_new_item(());
+        let c = union_find.create_new_item(());
+        let d = union_find.create_new_item(());
+        let e = union_find.create_new_item(());
+        let f = union_find.create_new_item(());
+        let g = union_find.create_new_item(());
+
+        let all_items = [a, b, c, d, e, f, g];
+
+        union_find.union(a, b);
+        union_find.union(c, d);
+        union_find.union(e, f);
+        union_find.union(e, g);
+
+        union_find.union(b, g);
+
+        let groups: &[&[UnionFindItemId]] = &[&[a, b, e, f, g], &[c, d]];
+
+        chk_groups(&union_find, &all_items, groups);
+
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(e)).as_slice(),
+            groups[0]
+        );
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(c)).as_slice(),
+            groups[1]
+        );
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(a)).as_slice(),
+            groups[0]
+        );
+        assert_eq_unordered!(
+            collect_to_vec(union_find.items_eq_to(d)).as_slice(),
+            groups[1]
+        );
+
+        chk_groups(&union_find, &all_items, groups);
     }
 }

@@ -114,9 +114,9 @@ impl RewriteRule {
                 // make sure that there are no gaps in the variable ids
                 for i in 1..=max_var_id.get() {
                     let does_use_var = self.query.does_use_template_var(TemplateVar {
-                        id: unsafe {
+                        id: {
                             // SAFETY: we start iterating from 1
-                            NonZeroUsize::new_unchecked(i)
+                            unsafe { NonZeroUsize::new_unchecked(i) }
                         },
                     });
                     assert!(does_use_var);
@@ -154,9 +154,9 @@ impl RewriteRule {
                 // make sure that both the query and the rewrite use all template vars
                 for i in 1..=max_var_id.get() {
                     let var = TemplateVar {
-                        id: unsafe {
+                        id: {
                             // SAFETY: we start iterating from 1
-                            NonZeroUsize::new_unchecked(i)
+                            unsafe { NonZeroUsize::new_unchecked(i) }
                         },
                     };
                     assert!(self.query.does_use_template_var(var));

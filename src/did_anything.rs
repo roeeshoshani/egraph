@@ -2,7 +2,7 @@ use std::ops::{BitOr, BitOrAssign, Not};
 
 /// an enum which represents whether an operation actually did anything.
 ///
-/// this is useful for cases where we want to continue iterating as long as we did anything.
+/// this is useful for cases where we want to continue iterating as long as we did anything, until we have nothing left to do.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum DidAnything {
     /// yes, we did anything.
