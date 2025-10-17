@@ -1,5 +1,6 @@
 use derive_more::{Add, AddAssign};
 use duct::cmd;
+use either::Either;
 use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Entry};
 use std::{borrow::Cow, hash::BuildHasher, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
@@ -259,7 +260,7 @@ impl EGraph {
     }
 
     /// match the given rule to any enodes in the egraph and return a list of matches.
-    pub fn match_rule(&self, rule: &RewriteRule) -> Vec<ENodeMatch> {
+    pub fn match_rule(&self, rule: &RewriteRule) -> Vec<ENodeMatch<RewriteRuleStorage>> {
         let hash = self.enodes_hash_table.hasher.hash_node(&rule.query);
 
         let mut enode_matches = Vec::new();
@@ -284,13 +285,198 @@ impl EGraph {
                     .match_ctxs
                     .into_iter()
                     .map(|match_ctx| ENodeMatch {
-                        rule_storage: match_ctx.rule_storage,
+                        final_ctx: match_ctx.rule_storage,
                         enode_id: entry.id,
                     }),
             );
         }
 
         enode_matches
+    }
+
+    pub fn match_rewrite<R: Rewrite>(&self, rewrite: &R) -> Vec<ENodeMatch<R::Ctx>> {
+        let mut enode_matches = Vec::new();
+
+        let entries = match rewrite.query_structural_hash(self) {
+            Some(hash) => Either::Left(self.enodes_hash_table.table.iter_hash(hash)),
+            None => Either::Right(self.enodes_hash_table.table.iter()),
+        };
+
+        let initial_ctx = rewrite.create_initial_ctx();
+        let query = rewrite.query();
+        let recursed_eclasses = RecursedEClasses::new();
+
+        // find the first enode that matches the rule.
+        for entry in entries {
+            let mut match_ctxs = Vec::new();
+
+            // match the current enode
+            self.match_enode(
+                entry.id,
+                &entry.enode,
+                &*query,
+                &initial_ctx,
+                &recursed_eclasses,
+                &mut match_ctxs,
+            );
+
+            enode_matches.extend(match_ctxs.into_iter().map(|ctx| ENodeMatch {
+                final_ctx: ctx,
+                enode_id: entry.id,
+            }));
+        }
+
+        enode_matches
+    }
+    fn match_enode_link<C>(
+        &self,
+        link_eclass_id: EClassId,
+        effective_eclass_id: EffectiveEClassId,
+        link_matcher: &dyn QueryLinkMatcher<C>,
+        ctx: &C,
+        recursed_eclasses: &RecursedEClasses,
+        match_ctxs: &mut Vec<C>,
+    ) {
+        match link_matcher.match_link(link_eclass_id, self, ctx) {
+            QueryMatchLinkRes::NoMatch => {
+                return;
+            }
+            QueryMatchLinkRes::Match(QueryMatch { new_ctx }) => {
+                match_ctxs.push(new_ctx);
+            }
+            QueryMatchLinkRes::RecurseIntoENodes {
+                new_ctx,
+                enode_matcher,
+            } => {
+                // when matching recursing into the enodes of an eclass, make sure that we haven't recursed this eclass already,
+                // to prevent following eclass loops which will blow up the graph with redundant expressions.
+                if recursed_eclasses.has_recursed_eclass(effective_eclass_id) {
+                    // don't loop
+                    return;
+                }
+
+                // mark the eclass as recursed
+                let new_recursed_eclasses =
+                    recursed_eclasses.with_added_recursed_eclass(effective_eclass_id);
+
+                for enode_item_id in self
+                    .enodes_union_find
+                    .items_eq_to(link_eclass_id.enode_id.0)
+                {
+                    let enode_id = ENodeId(enode_item_id);
+                    let enode = &self.enodes_union_find[enode_item_id];
+                    self.match_enode(
+                        enode_id,
+                        enode,
+                        &*enode_matcher,
+                        &new_ctx,
+                        &new_recursed_eclasses,
+                        match_ctxs,
+                    )
+                }
+            }
+        }
+    }
+    fn match_enode_links<C>(
+        &self,
+        enode: &ENode,
+        links_matcher: &dyn QueryLinksMatcher<C>,
+        ctx: C,
+        recursed_eclasses: &RecursedEClasses,
+        match_ctxs: &mut Vec<C>,
+    ) {
+        let enode_links = enode.links();
+        let links_amount = enode_links.len();
+
+        let Some(links_amount_match) = links_matcher.match_links_amount(links_amount, ctx) else {
+            // no match
+            return;
+        };
+        let QueryMatch { new_ctx } = links_amount_match;
+
+        if links_amount == 0 {
+            // no links, so we got a match
+            match_ctxs.push(new_ctx);
+            return;
+        }
+
+        // now match the links.
+        let mut cur_match_ctxs: Vec<C> = vec![new_ctx];
+        let mut new_match_ctxs: Vec<C> = Vec::new();
+        for cur_link_idx in 0..links_amount {
+            let link_matcher = links_matcher.get_link_matcher(cur_link_idx);
+
+            // the eclass that the current enode link points to
+            let link_eclass_id = *enode_links[cur_link_idx];
+            let effective_eclass_id = link_eclass_id.to_effective(&self.enodes_union_find);
+
+            // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
+            for cur_ctx in &cur_match_ctxs {
+                self.match_enode_link(
+                    link_eclass_id,
+                    effective_eclass_id,
+                    &*link_matcher,
+                    cur_ctx,
+                    recursed_eclasses,
+                    match_ctxs,
+                );
+            }
+
+            // new match contexts now contains the new cartesian product over the current link with all of its previous link.
+            //
+            // we want to use this new list of match contexts for matching the next link.
+            //
+            // so basically we want to set `cur_match_ctxs` to `new_match_ctxs`, and to clear `new_match_ctxs` in preparation for the
+            // next iteration.
+            //
+            // but, doing this will lose the storage that was already allocated in the `cur_match_ctxs` vector, which we will then have
+            // to re-allocate when re-building the `new_match_ctxs` list.
+            //
+            // so, instead, we perform a swap to keep both allocations.
+            std::mem::swap(&mut cur_match_ctxs, &mut new_match_ctxs);
+
+            // after the swap, `cur_match_ctxs` contains the value of `new_match_ctxs`, which is the list of match contexts that we
+            // just generated.
+            // and, `new_match_ctxs` now contains the value of `cur_match_ctxs`, which is the match contexts from the previous link.
+            // we no longer need the match contexts from the previous link, and each iteration assumes that `new_match_ctxs` is empty
+            // at the start of the iteration, so clear the vector.
+            new_match_ctxs.clear();
+        }
+
+        // the final value of `cur_match_ctxs` contains the final cartesian product of match contexts, which is what we want to return.
+        // so, copy it out.
+        match_ctxs.append(&mut cur_match_ctxs);
+    }
+
+    fn match_enode<C>(
+        &self,
+        enode_id: ENodeId,
+        enode: &ENode,
+        matcher: &dyn QueryENodeMatcher<C>,
+        ctx: &C,
+        recursed_eclasses: &RecursedEClasses,
+        match_ctxs: &mut Vec<C>,
+    ) {
+        match matcher.match_enode(enode_id, enode, self, ctx) {
+            QueryMatchENodeRes::NoMatch => {
+                return;
+            }
+            QueryMatchENodeRes::Match(QueryMatch { new_ctx }) => {
+                match_ctxs.push(new_ctx);
+            }
+            QueryMatchENodeRes::RecurseIntoLinks {
+                new_ctx,
+                links_matcher,
+            } => {
+                self.match_enode_links(
+                    enode,
+                    &*links_matcher,
+                    new_ctx,
+                    recursed_eclasses,
+                    match_ctxs,
+                );
+            }
+        }
     }
 
     pub fn apply_rule(&mut self, rule: &RewriteRule) -> DidAnything {
@@ -300,7 +486,7 @@ impl EGraph {
 
     fn handle_enode_matches(
         &mut self,
-        enode_matches: &[ENodeMatch],
+        enode_matches: &[ENodeMatch<RewriteRuleStorage>],
         rule: &RewriteRule,
     ) -> DidAnything {
         let mut did_anything = DidAnything::False;
@@ -308,7 +494,7 @@ impl EGraph {
         // for each match, add the rerwrite result to the egraph
         for enode_match in enode_matches {
             let add_res =
-                self.instantiate_enode_template_link(&rule.rewrite, &enode_match.rule_storage);
+                self.instantiate_enode_template_link(&rule.rewrite, &enode_match.final_ctx);
 
             let union_res = self
                 .enodes_union_find
@@ -1098,10 +1284,9 @@ impl MatchCtx {
 
 /// a match of a rule to a specific enode.
 #[derive(Debug, Clone)]
-pub struct ENodeMatch {
-    /// the rule storage for this match. this contains all the information captured while matching the rule for this specific
-    /// enode match.
-    pub rule_storage: RewriteRuleStorage,
+pub struct ENodeMatch<C> {
+    /// the final ctx of this match.
+    pub final_ctx: C,
 
     /// the enode id of the enode that matched the rule.
     pub enode_id: ENodeId,
@@ -1145,6 +1330,28 @@ struct MatchingState<'a> {
     /// an output list of match contexts where newly generated match contexts should be placed, after progressing another step
     /// in the e-matching process.
     match_ctx: &'a mut Vec<MatchCtx>,
+}
+
+/// a list of eclasses that we have already recursed into their enodes.
+#[derive(Debug, Clone)]
+struct RecursedEClasses(Vec<EffectiveEClassId>);
+impl RecursedEClasses {
+    /// creates a new empty recursed classes object
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// checks if we have already recursed the given eclass.
+    pub fn has_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> bool {
+        self.0.contains(&effective_eclass_id)
+    }
+
+    /// creates a clone of this object but with an added recursed eclass id.
+    pub fn with_added_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> Self {
+        let mut res = self.clone();
+        res.0.push(effective_eclass_id);
+        res
+    }
 }
 
 #[cfg(test)]

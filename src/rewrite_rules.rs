@@ -267,16 +267,26 @@ impl RewriteRuleSet {
 pub trait Rewrite {
     /// the context that is accumulated when matching the re-write rule's query and is used to build the final re-write result.
     type Ctx;
-    type Query: QueryENodeMatcher<Self::Ctx>;
-    fn build_rewrite();
+    fn create_initial_ctx(&self) -> Self::Ctx;
+    fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>>;
     fn query_structural_hash(&self, egraph: &EGraph) -> Option<u64>;
+
+    // TODO: what should be the signature of this?
+    fn build_rewrite();
 }
 
 pub trait QueryENodeMatcher<C> {
-    fn match_enode(&self, enode_id: ENodeId, egraph: &EGraph, ctx: &C) -> QueryMatchENodeRes<C>;
+    fn match_enode(
+        &self,
+        enode_id: ENodeId,
+        enode: &ENode,
+        egraph: &EGraph,
+        ctx: &C,
+    ) -> QueryMatchENodeRes<'_, C>;
+}
 
-    fn links_amount(&self) -> usize;
-
+pub trait QueryLinksMatcher<C> {
+    fn match_links_amount(&self, links_amount: usize, ctx: C) -> Option<QueryMatch<C>>;
     fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryLinkMatcher<C>>;
 }
 
@@ -289,25 +299,28 @@ pub trait QueryLinkMatcher<C> {
     ) -> QueryMatchLinkRes<'_, C>;
 }
 
-/// a partial match of a rewrite rule query. this is a match against some part of the query.
-pub struct QueryPartialMatch<C> {
-    /// the resulting context after matching the matched part.
+/// a match of a rewrite rule query.
+pub struct QueryMatch<C> {
+    /// the resulting context after matching.
     pub new_ctx: C,
 }
 
 /// the result of matching an enode against a re-write query.
-pub enum QueryMatchENodeRes<C> {
+pub enum QueryMatchENodeRes<'a, C> {
     /// the enode did not match the query.
     NoMatch,
 
     /// the enode fully matched the query.
-    Match(QueryPartialMatch<C>),
+    Match(QueryMatch<C>),
 
     /// the enode structually matched, but now we want to also match all of its links against the query.
     RecurseIntoLinks {
         /// the new ctx to use as a starting point when matching the links of this enode.
         // TODO: can we use `Cow` here instead of cloning it every single time?
         new_ctx: C,
+
+        /// the links matcher to use when matching the enode's links.
+        links_matcher: CowBox<'a, dyn QueryLinksMatcher<C>>,
     },
 }
 
@@ -317,7 +330,7 @@ pub enum QueryMatchLinkRes<'a, C> {
     NoMatch,
 
     /// the eclass fully matched the query
-    Match(QueryPartialMatch<C>),
+    Match(QueryMatch<C>),
 
     /// the eclass may potentially match, so recurse into each of its enodes and try to match each of them.
     RecurseIntoENodes {
@@ -333,50 +346,45 @@ pub enum QueryMatchLinkRes<'a, C> {
 struct TemplateRewriteCtx {
     /// the rule storage which contains all the captured information while matching.
     pub rule_storage: RewriteRuleStorage,
-
-    /// a list of eclass ids that we have already recursed along the current path that is being matched.
-    pub recursed_eclasses: Vec<EffectiveEClassId>,
 }
 impl TemplateRewriteCtx {
     /// creates a new empty match context.
     pub fn new() -> Self {
         Self {
             rule_storage: RewriteRuleStorage::new(),
-            recursed_eclasses: Vec::new(),
         }
-    }
-    /// checks if we have already recursed the given eclass along the current path that is being matched.
-    pub fn has_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> bool {
-        self.recursed_eclasses.contains(&effective_eclass_id)
-    }
-
-    /// creates a clone of this match context but with an added recursed eclass id.
-    pub fn with_added_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> Self {
-        let mut res = self.clone();
-        res.recursed_eclasses.push(effective_eclass_id);
-        res
     }
 }
 
 impl QueryENodeMatcher<TemplateRewriteCtx> for ENodeTemplate {
     fn match_enode(
         &self,
-        enode_id: ENodeId,
-        egraph: &EGraph,
+        _enode_id: ENodeId,
+        enode: &ENode,
+        _egraph: &EGraph,
         ctx: &TemplateRewriteCtx,
-    ) -> QueryMatchENodeRes<TemplateRewriteCtx> {
-        let enode = &egraph[enode_id];
+    ) -> QueryMatchENodeRes<'_, TemplateRewriteCtx> {
         if enode.convert_links(|_| ()) != self.convert_links(|_| ()) {
             // no match
             return QueryMatchENodeRes::NoMatch;
         }
         QueryMatchENodeRes::RecurseIntoLinks {
             new_ctx: ctx.clone(),
+            links_matcher: CowBox::Borrowed(self),
         }
     }
+}
 
-    fn links_amount(&self) -> usize {
-        self.links().len()
+impl QueryLinksMatcher<TemplateRewriteCtx> for ENodeTemplate {
+    fn match_links_amount(
+        &self,
+        links_amount: usize,
+        ctx: TemplateRewriteCtx,
+    ) -> Option<QueryMatch<TemplateRewriteCtx>> {
+        if links_amount != self.links().len() {
+            return None;
+        }
+        Some(QueryMatch { new_ctx: ctx })
     }
 
     fn get_link_matcher(
@@ -396,26 +404,10 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
     ) -> QueryMatchLinkRes<'_, TemplateRewriteCtx> {
         let effective_eclass_id = link_eclass_id.to_effective(egraph.enodes_union_find());
         match self {
-            TemplateLink::Specific(enode_template) => {
-                // when matching an eclass against a specific template link, make sure that we haven't recursed this eclass already,
-                // to prevent following eclass loops which will blow up the graph with redundant expressions.
-                //
-                // NOTE: this is only done in the case of matching against a specific template link, and not when matching against
-                // a template variable. this is intentional, since we want to allow loops in our templates, for example, we want to
-                // allow the following template `x & (1 + x)`.
-                // additionally, note that in the case of matching against template variables, we don't need to worry about graph
-                // blow up, since template variables don't cause expansions of eclasses, they only check for matching, unlike specific
-                // template links, which cause expansion of an eclass to each of its enode forms.
-                if ctx.has_recursed_eclass(effective_eclass_id) {
-                    // don't loop
-                    return QueryMatchLinkRes::NoMatch;
-                }
-
-                QueryMatchLinkRes::RecurseIntoENodes {
-                    new_ctx: ctx.with_added_recursed_eclass(effective_eclass_id),
-                    enode_matcher: CowBox::Borrowed(&**enode_template),
-                }
-            }
+            TemplateLink::Specific(enode_template) => QueryMatchLinkRes::RecurseIntoENodes {
+                new_ctx: ctx.clone(),
+                enode_matcher: CowBox::Borrowed(&**enode_template),
+            },
             TemplateLink::Var(template_var) => {
                 match ctx.rule_storage.template_var_values.get(*template_var) {
                     Some(existing_var_value) => {
@@ -425,7 +417,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                         }
 
                         // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
-                        QueryMatchLinkRes::Match(QueryPartialMatch {
+                        QueryMatchLinkRes::Match(QueryMatch {
                             new_ctx: ctx.clone(),
                         })
                     }
@@ -438,7 +430,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                                 effective_eclass_id,
                             },
                         );
-                        QueryMatchLinkRes::Match(QueryPartialMatch { new_ctx })
+                        QueryMatchLinkRes::Match(QueryMatch { new_ctx })
                     }
                 }
             }

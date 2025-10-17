@@ -31,3 +31,11 @@ impl<'a, T: ?Sized> Deref for CowBox<'a, T> {
         }
     }
 }
+impl<'a, T: ?Sized> AsRef<T> for CowBox<'a, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            CowBox::Borrowed(borrowed) => borrowed,
+            CowBox::Owned(owned) => owned,
+        }
+    }
+}
