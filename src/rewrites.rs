@@ -40,7 +40,7 @@ impl<A: Rewrite, B: Rewrites> Rewrites for (A, B) {
             egraph.apply_rewrite(&self.0)
         } else {
             // apply some inner rule, recurse
-            self.1.apply_rewrite(rewrite_index - 1, egraph)
+            self.1.apply_rewrite(rewrite_index, egraph)
         }
     }
 }
