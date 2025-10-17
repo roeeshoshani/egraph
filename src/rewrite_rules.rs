@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use crate::*;
 
@@ -261,4 +261,69 @@ impl RewriteRuleSet {
     pub fn rules(&self) -> &[RewriteRule] {
         &self.rules
     }
+}
+
+/// a re-write rule.
+pub trait Rewrite {
+    /// the context that is accumulated when matching the re-write rule and is used to build the final re-write result.
+    type Ctx;
+}
+
+/// the query part of a re-write rule. `C` is the context.
+pub trait RewriteQuery<C> {
+    fn structural_hash(&self, egraph: &EGraph) -> Option<u64>;
+
+    fn structual_match_enode(
+        &self,
+        enode_id: ENodeId,
+        egraph: &EGraph,
+        ctx: &C,
+    ) -> Option<QueryPartialMatch<C>>;
+
+    fn get_link_query(&self, link_index: usize) -> NestedQuery<'_, C>;
+
+    fn match_eclass(&self, eclass_id: EClassId, egraph: &EGraph, ctx: &C)
+    -> QueryMatchEClassRes<C>;
+}
+
+/// a pointer to a nested query inside another query.
+pub enum NestedQuery<'a, C> {
+    Borrowed(&'a dyn RewriteQuery<C>),
+    Owned(Box<dyn RewriteQuery<C>>),
+}
+
+/// a partial match of a rewrite rule query. this is a match against some part of the query.
+pub struct QueryPartialMatch<C> {
+    /// the resulting context after matching the matched part.
+    pub new_ctx: C,
+}
+
+/// the result of matching an enode against a re-write query.
+pub enum QueryMatchENodeRes<C> {
+    /// the enode did not match the query.
+    NoMatch,
+
+    /// the enode fully matched the query.
+    Match(QueryPartialMatch<C>),
+
+    /// the enode structually matched, but now we want to also match all of its links against the query.
+    RecurseIntoLinks {
+        /// the new ctx to use as a starting point when matching the links of this enode.
+        new_ctx: C,
+    },
+}
+
+/// the result of matching an eclass against a re-write query.
+pub enum QueryMatchEClassRes<C> {
+    /// the eclass did not match the query.
+    NoMatch,
+
+    /// the eclass fully matched the query
+    Match(QueryPartialMatch<C>),
+
+    /// the eclass may potentially match, so recurse into each of its enodes and try to match each of them.
+    RecurseIntoENodes {
+        /// the new ctx to use as a starting point when matching the enodes of this eclass.
+        new_ctx: C,
+    },
 }
