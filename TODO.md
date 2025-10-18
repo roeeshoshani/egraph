@@ -14,3 +14,10 @@
   for each of those enodes, we remove them from the egraph. this will also require us to remove every enode which uses the removed enodes, recursively, which is nice since it may kill a bunch of enodes in our graph and make it smaller.
 
   this does require figuring out how removing nodes should be properly done in the egraph, which traditionally is append only.
+
+- when implementing rewrites, avoid forcing the implementation to clone the context every single time. this is currently necessary since the trait functions receive a &Ctx as argumnet, but should return an owned Ctx, which requires a lot of cloning.
+
+  maybe we can somehow make it so that they can avoid the cloning, for example by returning `None` indicating that the original ctx should be used or something like that. need to see if it works with rust's annoying borrow checker.
+
+- implement a constant-folding re-write. this will help us see if the rewrite traits that i implemented are actually generic enough.
+
