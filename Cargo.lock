@@ -316,9 +316,9 @@ dependencies = [
 
 [[package]]
 name = "enum_variant_accessors"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4c98f4c2b410175611e732acab3ade85a8f545e3fbb82f54c6d2efb6648ec98"
+checksum = "8d5a52c3d393ec734a84447e8f8c72f9a194d73ed5d85bca9a94902680478c9e"
 dependencies = [
  "heck",
  "proc-macro2",

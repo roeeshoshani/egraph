@@ -188,6 +188,14 @@ impl EGraph {
         &self.enodes_union_find
     }
 
+    pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = ENodeId> {
+        self.enodes_union_find.items_eq_to(enode_id.0).map(ENodeId)
+    }
+
+    pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = ENodeId> {
+        self.enodes_eq_to(eclass_id.enode_id)
+    }
+
     fn alloc_internal_var(&mut self) -> InternalVar {
         let res = self.next_internal_var;
         self.next_internal_var.0 += 1;
