@@ -192,6 +192,17 @@ impl EGraph {
         self.enodes_eq_to(eclass_id.enode_id)
     }
 
+    pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> {
+        self.enodes_union_find.item_ids().map(ENodeId)
+    }
+
+    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> {
+        self.enodes_union_find
+            .item_ids()
+            .map(ENodeId)
+            .map(|enode_id| (enode_id, &self[enode_id]))
+    }
+
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree of the egraph.
     pub fn eclass_id_to_effective(&self, eclass_id: EClassId) -> EffectiveEClassId {
         EffectiveEClassId {
@@ -297,9 +308,7 @@ impl EGraph {
         for enode_match in enode_matches {
             let add_res = rewrite.build_rewrite(enode_match.final_ctx, self);
 
-            let union_res = self
-                .enodes_union_find
-                .union(add_res.eclass_id.enode_id.0, enode_match.enode_id.0);
+            let union_res = self.union_enodes(add_res.eclass_id.enode_id, enode_match.enode_id);
             if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
                 did_anything = DidAnything::True;
             }
@@ -499,9 +508,7 @@ impl EGraph {
     pub fn propegate_unions(&mut self) {
         loop {
             let mut did_anything = DidAnything::False;
-            for enode_item_id in self.enodes_union_find.item_ids() {
-                let enode_id = ENodeId(enode_item_id);
-                let enode = &self.enodes_union_find[enode_item_id];
+            for (enode_id, enode) in self.enodes() {
                 let enode_with_effective_eclass_id =
                     enode.to_enode_with_effective_eclass_id(&self.enodes_union_find);
                 let hash = self.enodes_structural_hash_table.hasher.hash_node(enode);
