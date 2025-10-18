@@ -977,7 +977,7 @@ impl RecursedEClasses {
 
 #[cfg(test)]
 mod tests {
-    use crate::{rewrites, template_rewrite::*};
+    use crate::{const_fold::BinOpConstFoldRewrite, rewrites, template_rewrite::*};
 
     use super::*;
 
@@ -1163,6 +1163,7 @@ mod tests {
                 .into(),
             }
             .build(),
+            BinOpConstFoldRewrite,
         ];
 
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;
