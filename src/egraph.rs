@@ -507,19 +507,19 @@ impl EGraph {
     }
 
     pub fn apply_rewrites<R: Rewrites>(&mut self, rewrites: &R, max_iterations: Option<usize>) {
-        let mut i = 0;
+        let mut cur_iteration_index = 0;
         loop {
             let mut did_anything = DidAnything::False;
-            for i in 0..rewrites.len() {
-                did_anything |= rewrites.apply_rewrite(i, self);
+            for rewrite_index in 0..rewrites.len() {
+                did_anything |= rewrites.apply_rewrite(rewrite_index, self);
             }
             if !did_anything.as_bool() {
                 break;
             }
             self.propegate_unions();
             if let Some(max_iterations) = max_iterations {
-                i += 1;
-                if i == max_iterations {
+                cur_iteration_index += 1;
+                if cur_iteration_index == max_iterations {
                     break;
                 }
             }
