@@ -3,17 +3,19 @@ use std::num::NonZeroUsize;
 use crate::{egraph::*, node::*, rewrite::*, utils::CowBox};
 
 /// a template variable, used as a wildcard which matches everything when writing templates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TemplateVar {
     pub id: NonZeroUsize,
 }
 impl TemplateVar {
+    /// creates a new template variable with the given id. the id must be non-zero.
     pub fn new(id: usize) -> Self {
         Self {
             id: NonZeroUsize::new(id).unwrap(),
         }
     }
-    /// the index of the variable in a variables vector
+
+    /// the index of the variable in a variables array
     fn index(&self) -> usize {
         self.id.get() - 1
     }
@@ -22,16 +24,23 @@ impl TemplateVar {
 /// a link in a template node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TemplateLink {
-    Specific(Box<Template>),
+    /// this link matches another nested structure.
+    Specific(Box<TemplateNode>),
+
+    /// this link is a wildcard variable. it can match any value, and it will be substituted when instantiating the template.
     Var(TemplateVar),
 }
+
 impl TemplateLink {
+    /// returns the id of the template var with the highest id that is contained in this template link.
     fn max_template_var_id(&self) -> Option<NonZeroUsize> {
         match self {
             TemplateLink::Specific(generic_node) => generic_node.max_template_var_id(),
             TemplateLink::Var(template_var) => Some(template_var.id),
         }
     }
+
+    /// checks if this template link uses the given template var.
     fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
         match self {
             TemplateLink::Specific(generic_node) => {
@@ -41,32 +50,20 @@ impl TemplateLink {
         }
     }
 }
-impl From<TemplateVar> for TemplateLink {
-    fn from(x: TemplateVar) -> Self {
-        Self::Var(x)
-    }
-}
-impl<T> From<T> for TemplateLink
-where
-    Template: From<T>,
-{
-    fn from(x: T) -> Self {
-        Self::Specific(Box::new(x.into()))
-    }
-}
 
-pub type BinOpTemplate = BinOp<TemplateLink>;
-pub type UnOpTemplate = UnOp<TemplateLink>;
+/// a template node which represents some node structure with wildcard variables.
+pub type TemplateNode = GenericNode<TemplateLink>;
 
-/// a template which represents some node structure with wildcard variables.
-pub type Template = GenericNode<TemplateLink>;
-impl Template {
+impl TemplateNode {
+    /// returns the id of the template var with the highest id that is contained in this template node.
     fn max_template_var_id(&self) -> Option<NonZeroUsize> {
         self.links()
             .into_iter()
             .filter_map(|link| link.max_template_var_id())
             .max()
     }
+
+    /// checks if this template node uses the given template var.
     fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
         self.links()
             .into_iter()
@@ -74,28 +71,43 @@ impl Template {
     }
 }
 
-/// the rewrite context of a template.
-///
-/// this is used to keep track of template variables that are matched during the matching process, and is used to instantiate the
-/// re-write template with the right substitutions for the template variables.
-#[derive(Debug, Clone)]
-pub struct TemplateRewriteCtx {
-    template_var_values: TemplateVarValues,
-}
-impl TemplateRewriteCtx {
-    fn new() -> Self {
-        Self {
-            template_var_values: TemplateVarValues::new(),
-        }
+// convert a template var to a template link.
+impl From<TemplateVar> for TemplateLink {
+    fn from(x: TemplateVar) -> Self {
+        Self::Var(x)
     }
 }
 
+// anything that can be converted to a template node should also be convertible to a template link.
+impl<T> From<T> for TemplateLink
+where
+    TemplateNode: From<T>,
+{
+    fn from(x: T) -> Self {
+        Self::Specific(Box::new(x.into()))
+    }
+}
+
+/// a bin op which uses template nodes.
+pub type TemplateBinOp = BinOp<TemplateLink>;
+
+/// a un op which uses template nodes.
+pub type TemplateUnOp = UnOp<TemplateLink>;
+
+/// a template re-write.
+///
+/// this is a re-write rule that is specified by directly specifying the expected structure, and it allows specifying wildcard
+/// variables in place of links in the expected structure, and using those variables to substitute values into the rewrite template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateRewrite {
-    pub query: Template,
+    /// the structure that should be matched.
+    pub query: TemplateNode,
+
+    /// the template to instantiate to generate the re-write of the enode that matched the query.
     pub rewrite: TemplateLink,
 }
 impl TemplateRewrite {
+    /// builds this template rewrite into a built template rewrite object, which can directly be applied to the egraph.
     pub fn build(self) -> BuiltTemplateRewrite {
         self.check();
         BuiltTemplateRewrite {
@@ -135,9 +147,6 @@ impl TemplateRewrite {
         }
     }
 
-    // checks that this re-write rule can swap directions (swap the query and the rewrite).
-    //
-    // this assumes that the rule was already checked using the basic sanity checks.
     fn check_can_swap_direction(&self) {
         match self.query.max_template_var_id() {
             Some(max_var_id) => {
@@ -176,40 +185,65 @@ impl TemplateRewrite {
     }
 }
 
+/// a built template rewrite, which is a template rewrite which was verified to be valid, and can be directly applied to an egraph.
 #[derive(Debug, Clone)]
 pub struct BuiltTemplateRewrite {
-    query: Template,
+    query: TemplateNode,
     rewrite: TemplateLink,
 }
 
-fn instantiate_template_link(
-    template_link: &TemplateLink,
-    ctx: &TemplateRewriteCtx,
-    egraph: &mut EGraph,
-) -> AddENodeRes {
-    match template_link {
-        TemplateLink::Specific(inner_template) => {
-            let enode = instantiate_template(inner_template, ctx, egraph);
-            egraph.add_enode(enode)
+/// the value of a template variable that was captured while matching it to some eclass.
+#[derive(Debug, Clone, Copy)]
+struct TemplateVarValue {
+    /// the effective eclass id that matched this variable.
+    effective_eclass_id: EffectiveEClassId,
+}
+
+/// a data structure which maintains captured values of template variables when matching a template.
+#[derive(Debug, Clone)]
+struct TemplateVarValues(pub Vec<Option<TemplateVarValue>>);
+
+impl TemplateVarValues {
+    /// creates a new empty template var values which initially has no value for any of the variables.
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// returns the captured value of the given template variable.
+    fn get(&self, var: TemplateVar) -> Option<TemplateVarValue> {
+        self.0.get(var.index()).copied()?
+    }
+
+    /// sets the captured value of the given template variable.
+    ///
+    /// this function will panic if you set the value of the same variable twice.
+    fn set(&mut self, var: TemplateVar, value: TemplateVarValue) {
+        let index = var.index();
+        if !(index < self.0.len()) {
+            // the vector is not large enough
+            self.0.resize(index + 1, None);
         }
-        TemplateLink::Var(template_var) => {
-            let var_value = ctx.template_var_values.get(*template_var).unwrap();
-            AddENodeRes {
-                eclass_id: var_value.effective_eclass_id.to_eclass_id(),
-                dedup_info: ENodeDedupInfo::Duplicate,
-            }
-        }
+        let slot = &mut self.0[index];
+        assert!(slot.is_none());
+        *slot = Some(value);
     }
 }
 
-fn instantiate_template(
-    template: &Template,
-    ctx: &TemplateRewriteCtx,
-    egraph: &mut EGraph,
-) -> ENode {
-    template.convert_links(|template_link| {
-        instantiate_template_link(template_link, ctx, egraph).eclass_id
-    })
+/// the rewrite context of a template.
+///
+/// this is used to keep track of template variables that are matched during the matching process, and is used to instantiate the
+/// re-write template with the right substitutions, according to the values matched to the variables during matching.
+#[derive(Debug, Clone)]
+pub struct TemplateRewriteCtx {
+    template_var_values: TemplateVarValues,
+}
+impl TemplateRewriteCtx {
+    /// creates a new empty context
+    fn new() -> Self {
+        Self {
+            template_var_values: TemplateVarValues::new(),
+        }
+    }
 }
 
 impl Rewrite for BuiltTemplateRewrite {
@@ -232,43 +266,7 @@ impl Rewrite for BuiltTemplateRewrite {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TemplateVarValue {
-    pub effective_eclass_id: EffectiveEClassId,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateVarValues(pub Vec<Option<TemplateVarValue>>);
-impl TemplateVarValues {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-    pub fn get(&self, var: TemplateVar) -> Option<TemplateVarValue> {
-        self.0.get(var.index()).copied()?
-    }
-    pub fn set(&mut self, var: TemplateVar, value: TemplateVarValue) {
-        let index = var.index();
-        if !(index < self.0.len()) {
-            // the vector is not large enough
-            self.0.resize(index + 1, None);
-        }
-        self.0[index] = Some(value);
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RewriteRuleStorage {
-    pub template_var_values: TemplateVarValues,
-}
-impl RewriteRuleStorage {
-    pub fn new() -> Self {
-        Self {
-            template_var_values: TemplateVarValues::new(),
-        }
-    }
-}
-
-impl QueryENodeMatcher<TemplateRewriteCtx> for Template {
+impl QueryENodeMatcher<TemplateRewriteCtx> for TemplateNode {
     fn match_enode(
         &self,
         _enode_id: ENodeId,
@@ -287,7 +285,7 @@ impl QueryENodeMatcher<TemplateRewriteCtx> for Template {
     }
 }
 
-impl QueryLinksMatcher<TemplateRewriteCtx> for Template {
+impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
     fn match_links_amount(
         &self,
         links_amount: usize,
@@ -328,7 +326,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                             return QueryMatchLinkRes::NoMatch;
                         }
 
-                        // we got a match, and we don't need to change the rule storage at all since we didn't bind any new template vars.
+                        // we got a match, and we don't need to change the context at all since we didn't bind any new template vars.
                         QueryMatchLinkRes::Match(QueryMatch {
                             new_ctx: ctx.clone(),
                         })
@@ -348,4 +346,36 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
             }
         }
     }
+}
+
+/// instantiates the given template link by substituting variables according to the given context.
+fn instantiate_template_link(
+    template_link: &TemplateLink,
+    ctx: &TemplateRewriteCtx,
+    egraph: &mut EGraph,
+) -> AddENodeRes {
+    match template_link {
+        TemplateLink::Specific(inner_template) => {
+            let enode = instantiate_template_node(inner_template, ctx, egraph);
+            egraph.add_enode(enode)
+        }
+        TemplateLink::Var(template_var) => {
+            let var_value = ctx.template_var_values.get(*template_var).unwrap();
+            AddENodeRes {
+                eclass_id: var_value.effective_eclass_id.to_eclass_id(),
+                dedup_info: ENodeDedupInfo::Duplicate,
+            }
+        }
+    }
+}
+
+/// instantiates the given template node by substituting variables according to the given context.
+fn instantiate_template_node(
+    template: &TemplateNode,
+    ctx: &TemplateRewriteCtx,
+    egraph: &mut EGraph,
+) -> ENode {
+    template.convert_links(|template_link| {
+        instantiate_template_link(template_link, ctx, egraph).eclass_id
+    })
 }
