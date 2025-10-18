@@ -70,7 +70,7 @@ pub type ENodeWithEffectiveEClassId = GenericNode<EffectiveEClassId>;
 
 impl ENode {
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree.
-    pub fn to_enode_with_effective_eclass_id(
+    fn to_enode_with_effective_eclass_id(
         &self,
         union_find: &UnionFind<ENode>,
     ) -> ENodeWithEffectiveEClassId {
@@ -184,16 +184,25 @@ impl EGraph {
         &self.enodes_structural_hash_table.hasher
     }
 
-    pub fn enodes_union_find(&self) -> &UnionFind<ENode> {
-        &self.enodes_union_find
-    }
-
     pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = ENodeId> {
         self.enodes_union_find.items_eq_to(enode_id.0).map(ENodeId)
     }
 
     pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = ENodeId> {
         self.enodes_eq_to(eclass_id.enode_id)
+    }
+
+    /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree of the egraph.
+    pub fn eclass_id_to_effective(&self, eclass_id: EClassId) -> EffectiveEClassId {
+        EffectiveEClassId {
+            eclass_root: ENodeId(self.enodes_union_find.root_of_item(eclass_id.enode_id.0)),
+        }
+    }
+
+    /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree of
+    /// the graph.
+    pub fn enode_to_effective(&self, enode: &ENode) -> ENodeWithEffectiveEClassId {
+        enode.convert_links(|eclass_id| self.eclass_id_to_effective(*eclass_id))
     }
 
     fn alloc_internal_var(&mut self) -> InternalVar {

@@ -312,7 +312,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
         egraph: &EGraph,
         ctx: &TemplateRewriteCtx,
     ) -> QueryMatchLinkRes<'_, TemplateRewriteCtx> {
-        let effective_eclass_id = link_eclass_id.to_effective(egraph.enodes_union_find());
+        let effective_eclass_id = egraph.eclass_id_to_effective(link_eclass_id);
         match self {
             TemplateLink::Specific(enode_template) => QueryMatchLinkRes::RecurseIntoENodes {
                 new_ctx: ctx.clone(),
