@@ -1,4 +1,4 @@
-use crate::{did_anything::DidAnything, egraph::EGraph, rewrite_rules::Rewrite};
+use crate::{did_anything::DidAnything, egraph::EGraph, rewrite::Rewrite};
 
 pub trait Rewrites: Sized {
     const LEN: usize;

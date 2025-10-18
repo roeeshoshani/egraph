@@ -6,8 +6,7 @@ use std::{borrow::Cow, hash::BuildHasher, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
 use crate::{
-    did_anything::*, graph::*, node::*, rec_node::*, rewrite_rules::*, rewrites::Rewrites,
-    union_find::*,
+    did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, rewrites::Rewrites, union_find::*,
 };
 use std::fmt::Write as _;
 
