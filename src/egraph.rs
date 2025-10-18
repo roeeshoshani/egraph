@@ -185,28 +185,23 @@ impl EGraph {
         self.enodes_eq_to(eclass_id.enode_id)
     }
 
-    pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> {
+    pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<> {
         self.enodes_union_find.item_ids().map(ENodeId)
     }
 
-    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> {
-        self.enodes_union_find
-            .item_ids()
-            .map(ENodeId)
-            .map(|enode_id| (enode_id, &self[enode_id]))
+    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
+        self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
     }
 
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree of the egraph.
     pub fn eclass_id_to_effective(&self, eclass_id: EClassId) -> EffectiveEClassId {
-        EffectiveEClassId {
-            eclass_root: ENodeId(self.enodes_union_find.root_of_item(eclass_id.enode_id.0)),
-        }
+        eclass_id.to_effective(&self.enodes_union_find)
     }
 
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree of
     /// the graph.
     pub fn enode_to_effective(&self, enode: &ENode) -> EffectiveENode {
-        enode.convert_links(|eclass_id| self.eclass_id_to_effective(*eclass_id))
+        enode.to_effective(&self.enodes_union_find)
     }
 
     fn alloc_internal_var(&mut self) -> InternalVar {
@@ -376,12 +371,8 @@ impl EGraph {
                 let new_recursed_eclasses =
                     recursed_eclasses.with_added_recursed_eclass(effective_eclass_id);
 
-                for enode_item_id in self
-                    .enodes_union_find
-                    .items_eq_to(link_eclass_id.enode_id.0)
-                {
-                    let enode_id = ENodeId(enode_item_id);
-                    let enode = &self.enodes_union_find[enode_item_id];
+                for enode_id in self.enodes_in_eclass(link_eclass_id) {
+                    let enode = &self[enode_id];
                     self.match_enode(
                         enode_id,
                         enode,
@@ -426,7 +417,7 @@ impl EGraph {
 
             // the eclass that the current enode link points to
             let link_eclass_id = *enode_links[cur_link_idx];
-            let effective_eclass_id = link_eclass_id.to_effective(&self.enodes_union_find);
+            let effective_eclass_id = self.eclass_id_to_effective(link_eclass_id);
 
             // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
             for cur_ctx in &cur_match_ctxs {
@@ -505,9 +496,7 @@ impl EGraph {
                 let effective_enode = self.enode_to_effective(enode);
                 let hash = self.enodes_structural_hash_table.hasher.hash_node(enode);
                 for hash_table_entry in self.enodes_structural_hash_table.table.iter_hash(hash) {
-                    if hash_table_entry.enode.to_effective(&self.enodes_union_find)
-                        == effective_enode
-                    {
+                    if self.enode_to_effective(&hash_table_entry.enode) == effective_enode {
                         let union_res = self
                             .union_eclasses(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
                         if union_res == UnionRes::New {
@@ -617,7 +606,7 @@ impl EGraph {
         eclass_id: EClassId,
         visited_eclasses: &mut HashSet<EffectiveEClassId>,
     ) -> RecNodeLink {
-        let effective_eclass_id = eclass_id.to_effective(&self.enodes_union_find);
+        let effective_eclass_id = self.eclass_id_to_effective(eclass_id);
         if !visited_eclasses.insert(effective_eclass_id) {
             return RecNodeLink::Loop;
         }
@@ -793,7 +782,7 @@ impl EGraph {
         // convert the enode to a graph node by extracting each link and advancing our ctx.
         let mut cur_ctx = Cow::Borrowed(ctx);
         let graph_node = enode.convert_links(|link_eclass_id| {
-            let link_effective_eclass_id = link_eclass_id.to_effective(&self.enodes_union_find);
+            let link_effective_eclass_id = self.eclass_id_to_effective(*link_eclass_id);
 
             // extract the best version of the link eclass id
             let ExtractEClassRes {
@@ -883,8 +872,8 @@ impl EGraph {
 
     pub fn extract_eclass(&self, eclass_id: EClassId) -> (Graph, GraphNodeId) {
         let ctx = ExtractCtx::new();
-        let extract_eclass_res =
-            self.extract_eclass_inner(eclass_id.to_effective(&self.enodes_union_find), &ctx);
+        let effective_eclass_id = self.eclass_id_to_effective(eclass_id);
+        let extract_eclass_res = self.extract_eclass_inner(effective_eclass_id, &ctx);
         (
             extract_eclass_res.res.ctx.into_owned().graph,
             extract_eclass_res.eclass_graph_node_id,
