@@ -21,3 +21,10 @@
 
 - implement a constant-folding re-write. this will help us see if the rewrite traits that i implemented are actually generic enough.
 
+- modify the rewrite trait such that the context is always `Box`ed or `Rc`ed so that we can convert it to a trait object, which will allow us to get rid of the annoying `Rewrites` trait which limits flexibility.
+
+  this will then allow us to add a `bi_directional` field to the template re-write, and have the `build` function return either one or two rules without losing my shit.
+
+  NOTE: maybe we can instead have a `build_bi_directional` function?
+
+  how expensive is the `Box`ing and `Rc`ing? it will certainly make this trait much easier to work with, but is it worth it?
