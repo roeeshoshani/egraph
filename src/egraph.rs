@@ -65,15 +65,12 @@ impl EffectiveEClassId {
     }
 }
 
-/// an enode with an effective eclass id. this allows comparing the enode to other enodes.
-pub type ENodeWithEffectiveEClassId = GenericNode<EffectiveEClassId>;
+/// an effective enode, which is an enode which uses effective eclass ids for its links. this allows comparing the enode to other enodes.
+pub type EffectiveENode = GenericNode<EffectiveEClassId>;
 
 impl ENode {
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree.
-    fn to_enode_with_effective_eclass_id(
-        &self,
-        union_find: &UnionFind<ENode>,
-    ) -> ENodeWithEffectiveEClassId {
+    fn to_effective(&self, union_find: &UnionFind<ENode>) -> EffectiveENode {
         self.convert_links(|eclass_id| eclass_id.to_effective(union_find))
     }
 }
@@ -118,13 +115,9 @@ impl ENodesStructuralHashTable {
         enode: &ENode,
         enodes_union_find: &UnionFind<ENode>,
     ) -> hashbrown::hash_table::Entry<'_, ENodeHashTableEntry> {
-        let enode_with_effective_eclass_id =
-            enode.to_enode_with_effective_eclass_id(enodes_union_find);
+        let effective_enode = enode.to_effective(enodes_union_find);
         let eq_fn = |entry: &ENodeHashTableEntry| {
-            entry
-                .enode
-                .to_enode_with_effective_eclass_id(enodes_union_find)
-                == enode_with_effective_eclass_id
+            entry.enode.to_effective(enodes_union_find) == effective_enode
         };
 
         let hash_fn = |entry: &ENodeHashTableEntry| self.hasher.hash_node(&entry.enode);
@@ -212,7 +205,7 @@ impl EGraph {
 
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree of
     /// the graph.
-    pub fn enode_to_effective(&self, enode: &ENode) -> ENodeWithEffectiveEClassId {
+    pub fn enode_to_effective(&self, enode: &ENode) -> EffectiveENode {
         enode.convert_links(|eclass_id| self.eclass_id_to_effective(*eclass_id))
     }
 
@@ -509,14 +502,11 @@ impl EGraph {
         loop {
             let mut did_anything = DidAnything::False;
             for (enode_id, enode) in self.enodes() {
-                let enode_with_effective_eclass_id =
-                    enode.to_enode_with_effective_eclass_id(&self.enodes_union_find);
+                let effective_enode = self.enode_to_effective(enode);
                 let hash = self.enodes_structural_hash_table.hasher.hash_node(enode);
                 for hash_table_entry in self.enodes_structural_hash_table.table.iter_hash(hash) {
-                    if hash_table_entry
-                        .enode
-                        .to_enode_with_effective_eclass_id(&self.enodes_union_find)
-                        == enode_with_effective_eclass_id
+                    if hash_table_entry.enode.to_effective(&self.enodes_union_find)
+                        == effective_enode
                     {
                         let union_res = self
                             .union_eclasses(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
