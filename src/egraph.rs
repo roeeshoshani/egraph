@@ -5,9 +5,7 @@ use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Ent
 use std::{borrow::Cow, hash::BuildHasher, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
-use crate::{
-    did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, rewrites::Rewrites, union_find::*,
-};
+use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
 use std::fmt::Write as _;
 
 /// the id of an enode.
