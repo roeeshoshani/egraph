@@ -1,4 +1,7 @@
-use egraph::{egraph::*, node::*, rec_node::*, rewrites, template_rewrite::*};
+use egraph::{
+    const_fold::BinOpConstFoldRewrite, egraph::*, node::*, rec_node::*, rewrites,
+    template_rewrite::*,
+};
 
 fn main() {
     // 0xff & ((x & 0xff00) | (y & 0xff0000))
@@ -186,6 +189,7 @@ fn main() {
             rewrite: TemplateVar::new(1).into(),
         }
         .build(),
+        BinOpConstFoldRewrite
     ];
 
     egraph.apply_rewrites(&rewrites, None);
