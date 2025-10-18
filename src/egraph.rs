@@ -1072,7 +1072,7 @@ mod tests {
 
         let rule_set = rewrites![
             // (x & 0) => 0
-            RewriteRule {
+            TemplateRewrite {
                 query: BinOpTemplate {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
@@ -1080,10 +1080,10 @@ mod tests {
                 }
                 .into(),
                 rewrite: 0.into(),
-                keep_original: false,
-            },
+            }
+            .build(),
             // a & (b | c) => (a & b) | (a & c)
-            RewriteRule {
+            TemplateRewrite {
                 query: BinOpTemplate {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
@@ -1111,10 +1111,10 @@ mod tests {
                     .into(),
                 }
                 .into(),
-                keep_original: true,
-            },
+            }
+            .build(),
             // a & (b & c) => (a & b) & c
-            RewriteRule {
+            TemplateRewrite {
                 query: BinOpTemplate {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
@@ -1137,10 +1137,10 @@ mod tests {
                     rhs: TemplateVar::new(3).into(),
                 }
                 .into(),
-                keep_original: true,
-            },
+            }
+            .build(),
             // a & b => b & a
-            RewriteRule {
+            TemplateRewrite {
                 query: BinOpTemplate {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
@@ -1153,8 +1153,8 @@ mod tests {
                     rhs: TemplateVar::new(1).into(),
                 }
                 .into(),
-                keep_original: true,
-            },
+            }
+            .build(),
         ];
 
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;

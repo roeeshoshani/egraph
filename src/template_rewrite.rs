@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use crate::{egraph::*, node::*, rewrite::*, utils::CowBox};
 
-/// a variable in a template enode
+/// a template variable, used as a wildcard which matches everything when writing templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TemplateVar {
     pub id: NonZeroUsize,
@@ -19,10 +19,10 @@ impl TemplateVar {
     }
 }
 
-/// a link in a template enode.
-#[derive(Debug, Clone)]
+/// a link in a template node.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TemplateLink {
-    Specific(Box<ENodeTemplate>),
+    Specific(Box<Template>),
     Var(TemplateVar),
 }
 impl TemplateLink {
@@ -48,7 +48,7 @@ impl From<TemplateVar> for TemplateLink {
 }
 impl<T> From<T> for TemplateLink
 where
-    ENodeTemplate: From<T>,
+    Template: From<T>,
 {
     fn from(x: T) -> Self {
         Self::Specific(Box::new(x.into()))
@@ -58,9 +58,9 @@ where
 pub type BinOpTemplate = BinOp<TemplateLink>;
 pub type UnOpTemplate = UnOp<TemplateLink>;
 
-/// an enode template.
-pub type ENodeTemplate = GenericNode<TemplateLink>;
-impl ENodeTemplate {
+/// a template which represents some node structure with wildcard variables.
+pub type Template = GenericNode<TemplateLink>;
+impl Template {
     fn max_template_var_id(&self) -> Option<NonZeroUsize> {
         self.links()
             .into_iter()
@@ -74,39 +74,37 @@ impl ENodeTemplate {
     }
 }
 
+/// the rewrite context of a template.
+///
+/// this is used to keep track of template variables that are matched during the matching process, and is used to instantiate the
+/// re-write template with the right substitutions for the template variables.
 #[derive(Debug, Clone)]
 pub struct TemplateRewriteCtx {
-    pub template_var_values: TemplateVarValues,
+    template_var_values: TemplateVarValues,
 }
 impl TemplateRewriteCtx {
-    /// creates a new empty match context.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             template_var_values: TemplateVarValues::new(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RewriteRule {
-    pub query: ENodeTemplate,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateRewrite {
+    pub query: Template,
     pub rewrite: TemplateLink,
-
-    /// should we keep the original enode after the rule has been applied to it?
-    pub keep_original: bool,
 }
-impl RewriteRule {
-    pub fn new(query: ENodeTemplate, rewrite: TemplateLink, keep_original: bool) -> Self {
-        let res = Self {
-            query,
-            rewrite,
-            keep_original,
-        };
-        res.check();
-        res
+impl TemplateRewrite {
+    pub fn build(self) -> BuiltTemplateRewrite {
+        self.check();
+        BuiltTemplateRewrite {
+            query: self.query,
+            rewrite: self.rewrite,
+        }
     }
 
-    // checks that this re-write rule even makes sense to exist.
+    // checks that this template rewrite even makes sense to exist.
     fn check(&self) {
         match self.query.max_template_var_id() {
             Some(max_var_id) => {
@@ -141,13 +139,6 @@ impl RewriteRule {
     //
     // this assumes that the rule was already checked using the basic sanity checks.
     fn check_can_swap_direction(&self) {
-        // swapping direction without setting `keep_original` doesn't make sense, since not setting `keep_original` means that the
-        // original representation is worthless, and now we suddenly want to swap direction to generate that original representation?
-        //
-        // additionally, in the context of bi-directional rules, swapping direction without setting `keep_original` doesn't make
-        // sense, since it will just make the egraph go back and forth between two representations, which is completely pointless.
-        assert!(self.keep_original);
-
         match self.query.max_template_var_id() {
             Some(max_var_id) => {
                 // the query uses some variables
@@ -181,9 +172,14 @@ impl RewriteRule {
         Self {
             query: *rewrite_template,
             rewrite: TemplateLink::Specific(self.query.into()),
-            keep_original: self.keep_original,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BuiltTemplateRewrite {
+    query: Template,
+    rewrite: TemplateLink,
 }
 
 fn instantiate_template_link(
@@ -207,7 +203,7 @@ fn instantiate_template_link(
 }
 
 fn instantiate_template(
-    template: &ENodeTemplate,
+    template: &Template,
     ctx: &TemplateRewriteCtx,
     egraph: &mut EGraph,
 ) -> ENode {
@@ -216,7 +212,7 @@ fn instantiate_template(
     })
 }
 
-impl Rewrite for RewriteRule {
+impl Rewrite for BuiltTemplateRewrite {
     type Ctx = TemplateRewriteCtx;
 
     fn create_initial_ctx(&self) -> Self::Ctx {
@@ -272,7 +268,7 @@ impl RewriteRuleStorage {
     }
 }
 
-impl QueryENodeMatcher<TemplateRewriteCtx> for ENodeTemplate {
+impl QueryENodeMatcher<TemplateRewriteCtx> for Template {
     fn match_enode(
         &self,
         _enode_id: ENodeId,
@@ -291,7 +287,7 @@ impl QueryENodeMatcher<TemplateRewriteCtx> for ENodeTemplate {
     }
 }
 
-impl QueryLinksMatcher<TemplateRewriteCtx> for ENodeTemplate {
+impl QueryLinksMatcher<TemplateRewriteCtx> for Template {
     fn match_links_amount(
         &self,
         links_amount: usize,
