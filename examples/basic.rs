@@ -1,4 +1,4 @@
-use egraph::{egraph::*, node::*, rec_node::*, rewrites_arr, template_rewrite::*};
+use egraph::{egraph::*, node::*, rec_node::*, rewrites, template_rewrite::*};
 
 fn main() {
     // 0xff & ((x & 0xff00) | (y & 0xff0000))
@@ -26,7 +26,7 @@ fn main() {
 
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
-    let rewrites = rewrites_arr![
+    let rewrites = rewrites![
         // (x & 0) => 0
         RewriteRule {
             query: BinOpTemplate {

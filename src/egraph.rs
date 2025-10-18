@@ -969,7 +969,7 @@ impl RecursedEClasses {
 
 #[cfg(test)]
 mod tests {
-    use crate::{rewrites_arr, template_rewrite::*};
+    use crate::{rewrites, template_rewrite::*};
 
     use super::*;
 
@@ -1070,7 +1070,7 @@ mod tests {
 
         let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
-        let rule_set = rewrites_arr![
+        let rule_set = rewrites![
             // (x & 0) => 0
             RewriteRule {
                 query: BinOpTemplate {

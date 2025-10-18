@@ -122,11 +122,11 @@ impl<A: Rewrite, B: Rewrites> Rewrites for (A, B) {
 }
 
 #[macro_export]
-macro_rules! rewrites_arr {
+macro_rules! rewrites {
     () => { () };
     (...$rest:expr) => { $rest };
-    ($a:expr) => { $crate::rewrites_arr![$a,] };
+    ($a:expr) => { $crate::rewrites![$a,] };
     ($a:expr, $($tok:tt)*) => {
-        ($a, $crate::rewrites_arr![$($tok)*])
+        ($a, $crate::rewrites![$($tok)*])
     };
 }
