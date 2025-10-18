@@ -410,7 +410,7 @@ impl EGraph {
                     &*link_matcher,
                     cur_ctx,
                     recursed_eclasses,
-                    match_ctxs,
+                    &mut new_match_ctxs,
                 );
             }
 
