@@ -211,9 +211,14 @@ impl EGraph {
         res
     }
 
-    /// union the given 2 enodes.
-    pub fn union(&self, a: EClassId, b: EClassId) -> UnionRes {
-        self.enodes_union_find.union(a.enode_id.0, b.enode_id.0)
+    /// union the given two enodes, merging their eclasses into a single eclass.
+    pub fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
+        self.enodes_union_find.union(a.0, b.0)
+    }
+
+    /// union the given two eclasses, merging them into a single eclass.
+    pub fn union_eclasses(&self, a: EClassId, b: EClassId) -> UnionRes {
+        self.union_enodes(a.enode_id, b.enode_id)
     }
 
     /// adds an enode to the egraph, puts it in a new eclass which only contains that single enode, and returns the id of that eclass.
@@ -243,15 +248,20 @@ impl EGraph {
         }
     }
 
-    /// checks if the given two eclass ids are equal.
+    /// checks if the given two eclass ids point to the same eclass.
     ///
     /// eclass ids can't be compared directly since they contain lazily evaluated data.
     /// two eclass id instances may point to the same eclass even though structurally comparing the data stored in them will show
     /// that they are not equal.
     ///
     /// so, this function allows for truly comparing 2 eclass ids for a given state of the egraph.
-    pub fn are_eq(&self, a: EClassId, b: EClassId) -> bool {
+    pub fn are_eclasses_eq(&self, a: EClassId, b: EClassId) -> bool {
         self.enodes_union_find.are_eq(a.enode_id.0, b.enode_id.0)
+    }
+
+    /// checks if the given two enodes are equal according to the current state of the egraph.
+    pub fn are_enodes_eq(&self, a: ENodeId, b: ENodeId) -> bool {
+        self.are_eclasses_eq(a.eclass_id(), b.eclass_id())
     }
 
     /// adds a recursive node to the egraph, converting each node to an enode.
@@ -501,8 +511,8 @@ impl EGraph {
                         .to_enode_with_effective_eclass_id(&self.enodes_union_find)
                         == enode_with_effective_eclass_id
                     {
-                        let union_res =
-                            self.union(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
+                        let union_res = self
+                            .union_eclasses(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
                         if union_res == UnionRes::New {
                             did_anything = DidAnything::True;
                         }
@@ -1177,9 +1187,9 @@ mod tests {
 
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
-        assert!(!egraph.are_eq(zero_eclass, root_eclass));
+        assert!(!egraph.are_eclasses_eq(zero_eclass, root_eclass));
         egraph.apply_rewrites(&rule_set, None);
-        assert!(egraph.are_eq(zero_eclass, root_eclass));
+        assert!(egraph.are_eclasses_eq(zero_eclass, root_eclass));
     }
 
     #[test]
@@ -1206,13 +1216,13 @@ mod tests {
             )
             .eclass_id;
 
-        assert!(!egraph.are_eq(un_op_var0, un_op_var1));
+        assert!(!egraph.are_eclasses_eq(un_op_var0, un_op_var1));
 
-        let union_res = egraph.union(var0, var1);
+        let union_res = egraph.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
         egraph.propegate_unions();
 
-        assert!(egraph.are_eq(un_op_var0, un_op_var1));
+        assert!(egraph.are_eclasses_eq(un_op_var0, un_op_var1));
     }
 
     #[test]
@@ -1261,13 +1271,13 @@ mod tests {
             .eclass_id;
 
         // sanity
-        assert!(!egraph.are_eq(bin_op0, bin_op1));
+        assert!(!egraph.are_eclasses_eq(bin_op0, bin_op1));
 
-        let union_res = egraph.union(var0, var1);
+        let union_res = egraph.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
         egraph.propegate_unions();
 
-        assert!(egraph.are_eq(un_op_var0, un_op_var1));
-        assert!(egraph.are_eq(bin_op0, bin_op1));
+        assert!(egraph.are_eclasses_eq(un_op_var0, un_op_var1));
+        assert!(egraph.are_eclasses_eq(bin_op0, bin_op1));
     }
 }
