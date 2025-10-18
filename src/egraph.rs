@@ -100,16 +100,16 @@ impl NodeHasher {
     }
 }
 
-/// a hash table of enodes.
+/// a structual hash table of enodes.
 ///
 /// the enodes are hashed according to their structure, ignoring the links, but contain the fully detailed enode values including
 /// the links, which allows for comparison against exact entries.
 #[derive(Clone)]
-pub struct ENodeHashTable {
+pub struct ENodesStructuralHashTable {
     table: HashTable<ENodeHashTableEntry>,
     hasher: NodeHasher,
 }
-impl ENodeHashTable {
+impl ENodesStructuralHashTable {
     /// finds the entry in the hash table for the given enode.
     ///
     /// if an exact enode already exists, returns an occupied entry. otherwise, returns a vacant entry.
@@ -165,14 +165,14 @@ pub struct EGraph {
     next_internal_var: InternalVar,
 
     #[dbg(skip)]
-    enodes_hash_table: ENodeHashTable,
+    enodes_structural_hash_table: ENodesStructuralHashTable,
 }
 impl EGraph {
     /// returns a new empty egraph.
     pub fn new() -> Self {
         Self {
             enodes_union_find: UnionFind::new(),
-            enodes_hash_table: ENodeHashTable {
+            enodes_structural_hash_table: ENodesStructuralHashTable {
                 table: HashTable::new(),
                 hasher: NodeHasher::default(),
             },
@@ -181,7 +181,7 @@ impl EGraph {
     }
 
     pub fn node_hasher(&self) -> &NodeHasher {
-        &self.enodes_hash_table.hasher
+        &self.enodes_structural_hash_table.hasher
     }
 
     pub fn enodes_union_find(&self) -> &UnionFind<ENode> {
@@ -212,7 +212,7 @@ impl EGraph {
     /// if the exact enode already exists in the egraph, returns the id of the existing enode.
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
         let entry = self
-            .enodes_hash_table
+            .enodes_structural_hash_table
             .entry_mut(&enode, &self.enodes_union_find);
 
         match entry {
@@ -293,8 +293,8 @@ impl EGraph {
         let mut enode_matches = Vec::new();
 
         let entries = match rewrite.query_structural_hash(self) {
-            Some(hash) => Either::Left(self.enodes_hash_table.table.iter_hash(hash)),
-            None => Either::Right(self.enodes_hash_table.table.iter()),
+            Some(hash) => Either::Left(self.enodes_structural_hash_table.table.iter_hash(hash)),
+            None => Either::Right(self.enodes_structural_hash_table.table.iter()),
         };
 
         let initial_ctx = rewrite.create_initial_ctx();
@@ -485,8 +485,8 @@ impl EGraph {
                 let enode = &self.enodes_union_find[enode_item_id];
                 let enode_with_effective_eclass_id =
                     enode.to_enode_with_effective_eclass_id(&self.enodes_union_find);
-                let hash = self.enodes_hash_table.hasher.hash_node(enode);
-                for hash_table_entry in self.enodes_hash_table.table.iter_hash(hash) {
+                let hash = self.enodes_structural_hash_table.hasher.hash_node(enode);
+                for hash_table_entry in self.enodes_structural_hash_table.table.iter_hash(hash) {
                     if hash_table_entry
                         .enode
                         .to_enode_with_effective_eclass_id(&self.enodes_union_find)
