@@ -1,4 +1,4 @@
-use egraph::{egraph::*, graph::*, node::*, rec_node::*, rewrite::*, rewrites_arr};
+use egraph::{egraph::*, graph::*, node::*, rec_node::*, rewrites_arr, template_rewrite::*};
 
 fn main() {
     // 5 + (0xff & ((x & 0xff00) | (y & 0xff0000)))

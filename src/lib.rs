@@ -4,5 +4,6 @@ pub mod graph;
 pub mod node;
 pub mod rec_node;
 pub mod rewrite;
+pub mod template_rewrite;
 pub mod union_find;
 mod utils;

@@ -969,7 +969,7 @@ impl RecursedEClasses {
 
 #[cfg(test)]
 mod tests {
-    use crate::rewrites_arr;
+    use crate::{rewrites_arr, template_rewrite::*};
 
     use super::*;
 
