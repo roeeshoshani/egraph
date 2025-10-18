@@ -172,6 +172,37 @@ impl RewriteRule {
         }
     }
 }
+
+fn instantiate_template_link(
+    template_link: &TemplateLink,
+    ctx: &TemplateRewriteCtx,
+    egraph: &mut EGraph,
+) -> AddENodeRes {
+    match template_link {
+        TemplateLink::Specific(inner_template) => {
+            let enode = instantiate_template(inner_template, ctx, egraph);
+            egraph.add_enode(enode)
+        }
+        TemplateLink::Var(template_var) => {
+            let var_value = ctx.template_var_values.get(*template_var).unwrap();
+            AddENodeRes {
+                eclass_id: var_value.effective_eclass_id.to_eclass_id(),
+                dedup_info: ENodeDedupInfo::Duplicate,
+            }
+        }
+    }
+}
+
+fn instantiate_template(
+    template: &ENodeTemplate,
+    ctx: &TemplateRewriteCtx,
+    egraph: &mut EGraph,
+) -> ENode {
+    template.convert_links(|template_link| {
+        instantiate_template_link(template_link, ctx, egraph).eclass_id
+    })
+}
+
 impl Rewrite for RewriteRule {
     type Ctx = TemplateRewriteCtx;
 
@@ -188,7 +219,7 @@ impl Rewrite for RewriteRule {
     }
 
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
-        todo!()
+        instantiate_template_link(&self.rewrite, &ctx, egraph)
     }
 }
 
