@@ -76,6 +76,14 @@ impl<T> UnionFind<T> {
         id
     }
 
+    /// peeks the next item id without allocating it.
+    pub fn peek_next_item_id(&self) -> UnionFindItemId {
+        UnionFindItemId(
+            // SAFETY: we add 1 so it can't be 0
+            unsafe { NonZeroUsize::new_unchecked(self.items.len() + 1) },
+        )
+    }
+
     /// adds the given child to the list of children of the given parent.
     fn add_child(&self, parent: UnionFindItemId, child: UnionFindItemId) {
         self.children_of_item[parent.index()]

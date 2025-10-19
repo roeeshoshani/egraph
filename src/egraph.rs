@@ -127,8 +127,18 @@ impl ENodesUnionFind {
         ENodeId(self.0.create_new_item(enode))
     }
 
+    fn peek_next_enode_id(&self) -> ENodeId {
+        ENodeId(self.0.peek_next_item_id())
+    }
+
+    /// union the given two enodes, merging their eclasses into a single eclass.
     fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
         self.0.union(a.0, b.0)
+    }
+
+    /// union the given two eclasses, merging them into a single eclass.
+    pub fn union_eclasses(&self, a: EClassId, b: EClassId) -> UnionRes {
+        self.union_enodes(a.enode_id, b.enode_id)
     }
 
     /// checks if the given two eclass ids point to the same eclass.
@@ -205,40 +215,6 @@ impl EGraph {
         res
     }
 
-    /// union the given two enodes, merging their eclasses into a single eclass.
-    pub fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
-        if self.union_find.are_enodes_eq(a, b) {
-            return UnionRes::Existing;
-        }
-
-        let mut bimap = self.bimap.borrow_mut();
-
-        // if they were previously not equal, the root of all items equal to b is now about to change. so, first, remove them
-        // from the hashmap, and later we'll re-add them with the correct values.
-        let mut removed_enodes = Vec::new();
-        for enode_id in self.union_find.enodes_eq_to(b) {
-            bimap.remove_by_right(&enode_id);
-            removed_enodes.push(enode_id);
-        }
-
-        let res = self.union_find.union_enodes(a, b);
-
-        // sanity. we have previously already manually checked if they are equal, so at this point we expect this union to be new.
-        debug_assert_eq!(res, UnionRes::New);
-
-        // re-add the removed items to the hashmap
-        for enode_id in removed_enodes {
-            bimap.insert(self.enode_to_effective(&self[enode_id]), enode_id);
-        }
-
-        res
-    }
-
-    /// union the given two eclasses, merging them into a single eclass.
-    pub fn union_eclasses(&self, a: EClassId, b: EClassId) -> UnionRes {
-        self.union_enodes(a.enode_id, b.enode_id)
-    }
-
     /// adds an enode to the egraph, puts it in a new eclass which only contains that single enode, and returns the id of that eclass.
     ///
     /// if the exact enode already exists in the egraph, returns the id of the existing enode.
@@ -246,18 +222,21 @@ impl EGraph {
         let effective_enode = self.enode_to_effective(&enode);
         let mut bimap = self.bimap.borrow_mut();
 
-        if let Some(existing_id) = bimap.get_by_left(&effective_enode) {
-            return AddENodeRes {
-                eclass_id: existing_id.eclass_id(),
-                dedup_info: ENodeDedupInfo::Duplicate,
-            };
-        };
-
-        let enode_id = self.union_find.create_new_enode(enode.clone());
-        bimap.insert(effective_enode, enode_id);
-        AddENodeRes {
-            eclass_id: enode_id.eclass_id(),
-            dedup_info: ENodeDedupInfo::New,
+        match bimap.insert_no_overwrite(effective_enode, self.union_find.peek_next_enode_id()) {
+            Ok(()) => {
+                let enode_id = self.union_find.create_new_enode(enode);
+                AddENodeRes {
+                    eclass_id: enode_id.eclass_id(),
+                    dedup_info: ENodeDedupInfo::New,
+                }
+            }
+            Err((_, existing_id)) => {
+                // the node already exists
+                AddENodeRes {
+                    eclass_id: existing_id.eclass_id(),
+                    dedup_info: ENodeDedupInfo::Duplicate,
+                }
+            }
         }
     }
 
@@ -294,7 +273,9 @@ impl EGraph {
         for enode_match in enode_matches {
             let add_res = rewrite.build_rewrite(enode_match.final_ctx, self);
 
-            let union_res = self.union_enodes(add_res.eclass_id.enode_id, enode_match.enode_id);
+            let union_res = self
+                .union_find
+                .union_enodes(add_res.eclass_id.enode_id, enode_match.enode_id);
             if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
                 did_anything = DidAnything::True;
             }
@@ -487,14 +468,33 @@ impl EGraph {
         loop {
             let mut did_anything = DidAnything::False;
             for (enode_id, enode) in self.union_find.enodes() {
-                let prev_effective_enode = bimap.get_by_right(&enode_id).unwrap();
+                let Some(prev_effective_enode) = bimap.get_by_right(&enode_id) else {
+                    // nodes that became duplicates of other nodes are removed from the bimap and don't have a proper entry.
+                    // ignore those nodes.
+                    continue;
+                };
                 let new_effective_enode = self.enode_to_effective(enode);
 
                 // the links of this enodes have changed due to the unioning operations. re-hash it.
                 if *prev_effective_enode != new_effective_enode {
                     bimap.remove_by_right(&enode_id);
-                    bimap.insert(new_effective_enode, enode_id);
-                    did_anything = DidAnything::True;
+                    if let Err((_, existing_enode_id)) =
+                        bimap.insert_no_overwrite(new_effective_enode, enode_id)
+                    {
+                        // after converting the node back to an effecitve node, it now collides with another existing node.
+                        // the union made them now point to the same eclasses, so they are the same node now.
+                        //
+                        // so, we should union them.
+                        //
+                        // also, we can't add this node to the bimap anymore, since that will lead to duplicate values.
+                        // but, we don't even need to add it, since the bimap is only used for deduping, and a single entry
+                        // per node value is enough.
+                        if self.union_find.union_enodes(existing_enode_id, enode_id)
+                            == UnionRes::New
+                        {
+                            did_anything = DidAnything::True;
+                        }
+                    }
                 }
             }
             if !did_anything.as_bool() {
@@ -558,7 +558,8 @@ impl EGraph {
             let add_res = self.add_enode(enode);
 
             // union the converted enode with the original internal var that was created for this graph node.
-            self.union_eclasses(add_res.eclass_id, translation_map[graph_node_id]);
+            self.union_find
+                .union_eclasses(add_res.eclass_id, translation_map[graph_node_id]);
         }
 
         translation_map
@@ -1186,7 +1187,7 @@ mod tests {
 
         assert!(!egraph.union_find.are_eclasses_eq(un_op_var0, un_op_var1));
 
-        let union_res = egraph.union_eclasses(var0, var1);
+        let union_res = egraph.union_find.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
         egraph.propegate_unions();
 
@@ -1241,7 +1242,7 @@ mod tests {
         // sanity
         assert!(!egraph.union_find.are_eclasses_eq(bin_op0, bin_op1));
 
-        let union_res = egraph.union_eclasses(var0, var1);
+        let union_res = egraph.union_find.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
         egraph.propegate_unions();
 
