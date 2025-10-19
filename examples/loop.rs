@@ -2,6 +2,10 @@ use egraph::{
     const_fold::BinOpConstFoldRewrite, egraph::*, graph::*, node::*, rec_node::*, rewrites,
     template_rewrite::*,
 };
+use rsleigh::{
+    SleighCtx,
+    specs::{PSPEC_X86_64, SLA_SPEC_X86_64},
+};
 
 fn main() {
     // 5 + (0xff & ((x & 0xff00) | (y & 0xff0000)))
@@ -158,6 +162,8 @@ fn main() {
     let extract_res = egraph.extract_eclass(root_eclass);
     println!("{:#?}", extract_res);
 
+    let sleigh_ctx = SleighCtx::new(SLA_SPEC_X86_64, PSPEC_X86_64).unwrap();
+
     std::fs::create_dir_all("./graphs").unwrap();
-    egraph.dump_dot_svg("./graphs/graph.svg");
+    egraph.dump_dot_svg("./graphs/graph.svg", &sleigh_ctx);
 }

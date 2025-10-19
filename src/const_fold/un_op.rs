@@ -35,7 +35,7 @@ impl Rewrite for ConstFoldRewrite {
         let Some(operand) = ctx.operand else {
             unreachable!()
         };
-        let res = kind.apply_to_imm(operand);
+        let res = Imm::apply_un_op(kind, operand);
         egraph.add_enode(res.into())
     }
 }

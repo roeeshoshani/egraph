@@ -343,7 +343,7 @@ impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
         &self,
         link_index: usize,
     ) -> CowBox<'_, dyn QueryLinkMatcher<TemplateRewriteCtx>> {
-        CowBox::Borrowed(self.links()[link_index])
+        CowBox::Borrowed(self.links().get(link_index))
     }
 }
 

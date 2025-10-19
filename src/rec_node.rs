@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use rsleigh::SleighCtx;
 
 use crate::node::{BinOp, GenericNode, UnOp};
 
@@ -39,24 +39,28 @@ where
         Self::Regular(Box::new(value.into()))
     }
 }
-impl Display for RecNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GenericNode::Imm(_) | GenericNode::Var(_) | GenericNode::InternalVar(_) => {
-                write!(f, "{}", self.structural_display())
-            }
-            GenericNode::BinOp(bin_op) => {
-                write!(f, "({}) {} ({})", bin_op.lhs, bin_op.kind, bin_op.rhs)
-            }
-            GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
+impl RecNode {
+    pub fn display(&self, sleigh_ctx: &SleighCtx) -> String {
+        let structural_display = self.structural_display(sleigh_ctx);
+        let links = self.links();
+        if links.is_empty() {
+            return structural_display;
         }
+
+        let links_display = links
+            .iter()
+            .map(|link| link.display(sleigh_ctx))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        format!("{}({})", structural_display, links_display)
     }
 }
-impl Display for RecNodeLink {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl RecNodeLink {
+    pub fn display(&self, sleigh_ctx: &SleighCtx) -> String {
         match self {
-            RecNodeLink::Regular(node) => write!(f, "{}", node),
-            RecNodeLink::Loop => write!(f, "..."),
+            RecNodeLink::Regular(node) => node.display(sleigh_ctx),
+            RecNodeLink::Loop => "...".into(),
         }
     }
 }

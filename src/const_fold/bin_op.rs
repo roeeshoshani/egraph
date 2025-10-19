@@ -37,7 +37,7 @@ impl Rewrite for ConstFoldRewrite {
         let [lhs, rhs] = &ctx.operands[..] else {
             unreachable!()
         };
-        let res = kind.apply_to_imms(*lhs, *rhs);
+        let res = Imm::apply_bin_op(*lhs, kind, *rhs);
         egraph.add_enode(res.into())
     }
 }

@@ -2,6 +2,7 @@ use bimap::BiHashMap;
 use derive_more::{Add, AddAssign};
 use duct::cmd;
 use hashbrown::{HashMap, HashSet};
+use rsleigh::SleighCtx;
 use std::{borrow::Cow, cell::RefCell, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
@@ -391,7 +392,7 @@ impl EGraph {
             let link_matcher = links_matcher.get_link_matcher(cur_link_idx);
 
             // the eclass that the current enode link points to
-            let link_eclass_id = enode_links[cur_link_idx];
+            let link_eclass_id = *enode_links.get(cur_link_idx);
             let effective_eclass_id = self.eclass_id_to_effective(link_eclass_id);
 
             // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
@@ -569,8 +570,8 @@ impl EGraph {
         translation_map
     }
 
-    pub fn dump_dot_svg(&self, out_file_path: &str) {
-        let dot = self.to_dot();
+    pub fn dump_dot_svg(&self, out_file_path: &str, sleigh_ctx: &SleighCtx) {
+        let dot = self.to_dot(sleigh_ctx);
 
         std::fs::write(format!("{}.dot", out_file_path), &dot).unwrap();
 
@@ -637,7 +638,7 @@ impl EGraph {
         }
     }
 
-    fn try_to_gexf(&self) -> gexf::Result<String> {
+    fn try_to_gexf(&self, sleigh_ctx: &SleighCtx) -> gexf::Result<String> {
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
         for enode_id in self.union_find.enode_ids() {
@@ -646,12 +647,12 @@ impl EGraph {
             let eclass_label = self.union_find.enodes_eq_to(enode_id).min().unwrap();
 
             let node_label = if enode.links().is_empty() {
-                enode.structural_display()
+                enode.structural_display(sleigh_ctx)
             } else {
                 format!(
                     "{}    {{ {} }}",
-                    enode.structural_display(),
-                    self.enode_get_sample_rec_node(enode_id).to_string()
+                    enode.structural_display(sleigh_ctx),
+                    self.enode_get_sample_rec_node(enode_id).display(sleigh_ctx)
                 )
             };
 
@@ -670,11 +671,11 @@ impl EGraph {
         builder.try_build()?.to_string()
     }
 
-    pub fn to_gexf(&self) -> String {
-        self.try_to_gexf().unwrap()
+    pub fn to_gexf(&self, sleigh_ctx: &SleighCtx) -> String {
+        self.try_to_gexf(sleigh_ctx).unwrap()
     }
 
-    pub fn to_dot(&self) -> String {
+    pub fn to_dot(&self, sleigh_ctx: &SleighCtx) -> String {
         let mut out = String::new();
 
         let find_eclass_label_of_node =
@@ -702,12 +703,13 @@ impl EGraph {
                 &mut out,
                 "color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
                 self.eclass_get_sample_rec_node(eclass_id)
+                    .display(sleigh_ctx)
             )
             .unwrap();
 
             // one node per enode in the class
             for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
-                let label = self[enode_id].structural_display();
+                let label = self[enode_id].structural_display(sleigh_ctx);
                 writeln!(
                     &mut out,
                     "{} [label=\"{}\"];",
@@ -972,6 +974,8 @@ impl RecursedEClasses {
 
 #[cfg(test)]
 mod tests {
+    use rsleigh::{Vn, VnAddr, VnSpace};
+
     use crate::{const_fold::BinOpConstFoldRewrite, rewrites, template_rewrite::*};
 
     use super::*;
@@ -979,7 +983,10 @@ mod tests {
     #[test]
     fn test_dedup_basic() {
         let mut egraph = EGraph::new();
-        let enode = ENode::Var(Var(5));
+        let enode = ENode::Imm(Imm {
+            val: 5,
+            size_in_bytes: 2,
+        });
         let res1 = egraph.add_enode(enode.clone());
         let res2 = egraph.add_enode(enode.clone());
         assert_eq!(res1.dedup_info, ENodeDedupInfo::New);
@@ -991,11 +998,17 @@ mod tests {
     #[test]
     fn test_dedup_nested() {
         let mut egraph = EGraph::new();
-        let var1_res = egraph.add_enode(ENode::Var(Var(1)));
-        let var2_res = egraph.add_enode(ENode::Var(Var(2)));
+        let var1_res = egraph.add_enode(ENode::Imm(Imm {
+            val: 5,
+            size_in_bytes: 2,
+        }));
+        let var2_res = egraph.add_enode(ENode::Imm(Imm {
+            val: 6,
+            size_in_bytes: 2,
+        }));
 
         let enode = ENode::BinOp(BinOp {
-            kind: BinOpKind::Add,
+            kind: BinOpKind::IntAdd,
             lhs: var1_res.eclass_id,
             rhs: var2_res.eclass_id,
         });
@@ -1003,7 +1016,10 @@ mod tests {
         let res1 = egraph.add_enode(enode.clone());
 
         // add something in between just to add some noise
-        let var3_res = egraph.add_enode(ENode::Var(Var(3)));
+        let var3_res = egraph.add_enode(ENode::Imm(Imm {
+            val: 7,
+            size_in_bytes: 2,
+        }));
 
         // re-add the same enode
         let res2 = egraph.add_enode(enode.clone());
@@ -1016,7 +1032,7 @@ mod tests {
 
         // now do some more
         let enode = ENode::UnOp(UnOp {
-            kind: UnOpKind::Neg,
+            kind: UnOpKind::IntNeg,
             operand: var1_res.eclass_id,
         });
 
@@ -1031,7 +1047,7 @@ mod tests {
 
         // even more
         let enode = ENode::BinOp(BinOp {
-            kind: BinOpKind::Mul,
+            kind: BinOpKind::IntMul,
             lhs: var3_res.eclass_id,
             rhs: var2_res.eclass_id,
         });
@@ -1049,21 +1065,40 @@ mod tests {
     #[test]
     fn test_basic_rewrite() {
         // 0xff & ((x & 0xff00) | (x & 0xff0000))
+        let vn = Vn {
+            size: 8,
+            addr: VnAddr {
+                off: 0,
+                space: VnSpace::REGISTER,
+            },
+        };
         let rec_node: RecNode = RecBinOp {
-            kind: BinOpKind::BitAnd,
-            lhs: 0xff.into(),
+            kind: BinOpKind::IntAnd,
+            lhs: Imm {
+                val: 0xff,
+                size_in_bytes: 8,
+            }
+            .into(),
             rhs: RecBinOp {
-                kind: BinOpKind::BitOr,
+                kind: BinOpKind::IntOr,
                 lhs: RecBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: Var(0).into(),
-                    rhs: 0xff00.into(),
+                    kind: BinOpKind::IntAnd,
+                    lhs: vn.into(),
+                    rhs: Imm {
+                        val: 0xff00,
+                        size_in_bytes: 8,
+                    }
+                    .into(),
                 }
                 .into(),
                 rhs: RecBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: Var(0).into(),
-                    rhs: 0xff0000.into(),
+                    kind: BinOpKind::IntAnd,
+                    lhs: vn.into(),
+                    rhs: Imm {
+                        val: 0xff0000,
+                        size_in_bytes: 8,
+                    }
+                    .into(),
                 }
                 .into(),
             }
@@ -1077,21 +1112,29 @@ mod tests {
             // (x & 0) => 0
             TemplateRewrite {
                 query: TemplateBinOp {
-                    kind: BinOpKind::BitAnd,
+                    kind: BinOpKind::IntAnd,
                     lhs: TemplateVar::new(1).into(),
-                    rhs: 0.into(),
+                    rhs: Imm {
+                        val: 0,
+                        size_in_bytes: 8,
+                    }
+                    .into(),
                 }
                 .into(),
-                rewrite: 0.into(),
+                rewrite: Imm {
+                    val: 0,
+                    size_in_bytes: 8,
+                }
+                .into(),
             }
             .build(),
             // a & (b | c) => (a & b) | (a & c)
             TemplateRewrite {
                 query: TemplateBinOp {
-                    kind: BinOpKind::BitAnd,
+                    kind: BinOpKind::IntAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateBinOp {
-                        kind: BinOpKind::BitOr,
+                        kind: BinOpKind::IntOr,
                         lhs: TemplateVar::new(2).into(),
                         rhs: TemplateVar::new(3).into(),
                     }
@@ -1099,15 +1142,15 @@ mod tests {
                 }
                 .into(),
                 rewrite: TemplateBinOp {
-                    kind: BinOpKind::BitOr,
+                    kind: BinOpKind::IntOr,
                     lhs: TemplateBinOp {
-                        kind: BinOpKind::BitAnd,
+                        kind: BinOpKind::IntAnd,
                         lhs: TemplateVar::new(1).into(),
                         rhs: TemplateVar::new(2).into(),
                     }
                     .into(),
                     rhs: TemplateBinOp {
-                        kind: BinOpKind::BitAnd,
+                        kind: BinOpKind::IntAnd,
                         lhs: TemplateVar::new(1).into(),
                         rhs: TemplateVar::new(3).into(),
                     }
@@ -1117,13 +1160,21 @@ mod tests {
             }
             .build(),
             // a & (b & c) => (a & b) & c
-            TemplateRewrite::bin_op_associativity(BinOpKind::BitAnd).build(),
+            TemplateRewrite::bin_op_associativity(BinOpKind::IntAnd).build(),
             // a & b => b & a
-            TemplateRewrite::bin_op_commutativity(BinOpKind::BitAnd).build(),
+            TemplateRewrite::bin_op_commutativity(BinOpKind::IntAnd).build(),
             BinOpConstFoldRewrite,
         ];
 
-        let zero_eclass = egraph.add_enode(0.into()).eclass_id;
+        let zero_eclass = egraph
+            .add_enode(
+                Imm {
+                    val: 0,
+                    size_in_bytes: 8,
+                }
+                .into(),
+            )
+            .eclass_id;
 
         assert!(!egraph.union_find.are_eclasses_eq(zero_eclass, root_eclass));
         egraph.apply_rewrites(&rule_set, None);
@@ -1133,12 +1184,26 @@ mod tests {
     #[test]
     fn test_propegate_union() {
         let mut egraph = EGraph::new();
-        let var0 = egraph.add_enode(Var(0).into()).eclass_id;
-        let var1 = egraph.add_enode(Var(1).into()).eclass_id;
+        let vn0 = Vn {
+            size: 8,
+            addr: VnAddr {
+                off: 0,
+                space: VnSpace::REGISTER,
+            },
+        };
+        let vn1 = Vn {
+            size: 8,
+            addr: VnAddr {
+                off: 8,
+                space: VnSpace::REGISTER,
+            },
+        };
+        let var0 = egraph.add_enode(vn0.into()).eclass_id;
+        let var1 = egraph.add_enode(vn1.into()).eclass_id;
         let un_op_var0 = egraph
             .add_enode(
                 UnOp {
-                    kind: UnOpKind::Neg,
+                    kind: UnOpKind::IntNeg,
                     operand: var0,
                 }
                 .into(),
@@ -1147,7 +1212,7 @@ mod tests {
         let un_op_var1 = egraph
             .add_enode(
                 UnOp {
-                    kind: UnOpKind::Neg,
+                    kind: UnOpKind::IntNeg,
                     operand: var1,
                 }
                 .into(),
@@ -1166,12 +1231,26 @@ mod tests {
     #[test]
     fn test_propegate_union_multi_level() {
         let mut egraph = EGraph::new();
-        let var0 = egraph.add_enode(Var(0).into()).eclass_id;
-        let var1 = egraph.add_enode(Var(1).into()).eclass_id;
+        let vn0 = Vn {
+            size: 8,
+            addr: VnAddr {
+                off: 0,
+                space: VnSpace::REGISTER,
+            },
+        };
+        let vn1 = Vn {
+            size: 8,
+            addr: VnAddr {
+                off: 8,
+                space: VnSpace::REGISTER,
+            },
+        };
+        let var0 = egraph.add_enode(vn0.into()).eclass_id;
+        let var1 = egraph.add_enode(vn1.into()).eclass_id;
         let un_op_var0 = egraph
             .add_enode(
                 UnOp {
-                    kind: UnOpKind::Neg,
+                    kind: UnOpKind::IntNeg,
                     operand: var0,
                 }
                 .into(),
@@ -1180,7 +1259,7 @@ mod tests {
         let un_op_var1 = egraph
             .add_enode(
                 UnOp {
-                    kind: UnOpKind::Neg,
+                    kind: UnOpKind::IntNeg,
                     operand: var1,
                 }
                 .into(),
@@ -1190,7 +1269,7 @@ mod tests {
         let bin_op0 = egraph
             .add_enode(
                 BinOp {
-                    kind: BinOpKind::Add,
+                    kind: BinOpKind::IntAdd,
                     lhs: un_op_var0,
                     rhs: var1,
                 }
@@ -1200,7 +1279,7 @@ mod tests {
         let bin_op1 = egraph
             .add_enode(
                 BinOp {
-                    kind: BinOpKind::Add,
+                    kind: BinOpKind::IntAdd,
                     lhs: un_op_var1,
                     rhs: var0,
                 }
