@@ -221,7 +221,7 @@ impl EGraph {
         enode.to_effective(&self.union_find)
     }
 
-    fn alloc_internal_var(&mut self) -> InternalVar {
+    pub fn alloc_internal_var(&mut self) -> InternalVar {
         let res = self.next_internal_var;
         self.next_internal_var.0 += 1;
         res

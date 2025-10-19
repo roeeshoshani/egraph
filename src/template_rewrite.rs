@@ -435,12 +435,38 @@ fn instantiate_template_link(
             let enode = instantiate_template_node(inner_template, ctx, egraph);
             egraph.add_enode(enode)
         }
-        TemplateLink::Var(template_var) | TemplateLink::SpecificBind(template_var, _) => {
+        TemplateLink::Var(template_var) => {
             let var_value = ctx.template_var_values.get(*template_var).unwrap();
             AddENodeRes {
                 eclass_id: var_value.effective_eclass_id.to_eclass_id(),
                 dedup_info: ENodeDedupInfo::Duplicate,
             }
+        }
+        TemplateLink::SpecificBind(template_var, inner_template) => {
+            // in this case, we are binding an output variable.
+            // this is used to allow for expressing loops in the rewrite.
+
+            // make sure that this variable doesn't already have a value. it should be output only.
+            assert!(ctx.template_var_values.get(*template_var).is_none());
+            let mut new_ctx = ctx.clone();
+
+            // allocate an eclass for this new instantiated enode. we must do this before we instantiate it since it
+            // may use itself.
+            let internal_var = egraph.alloc_internal_var();
+            let placeholder_eclass_id = egraph.add_enode(internal_var.into()).eclass_id;
+            new_ctx.template_var_values.set(
+                *template_var,
+                TemplateVarValue {
+                    effective_eclass_id: egraph.eclass_id_to_effective(placeholder_eclass_id),
+                },
+            );
+
+            let enode = instantiate_template_node(inner_template, &new_ctx, egraph);
+            let add_res = egraph.add_enode(enode);
+            egraph
+                .union_find()
+                .union_eclasses(add_res.eclass_id, placeholder_eclass_id);
+            add_res
         }
     }
 }
