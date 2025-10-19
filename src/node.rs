@@ -72,7 +72,17 @@ pub enum UnOpKind {
 
     /// integer not operation, which basically means inverting all the bits of the integer.
     #[display("!")]
-    Not,
+    BitNot,
+}
+impl UnOpKind {
+    /// applies this unary operation to the given immediate.
+    pub fn apply_to_imm(&self, operand: Imm) -> Imm {
+        let res = match self {
+            UnOpKind::Neg => operand.0.wrapping_neg(),
+            UnOpKind::BitNot => !operand.0,
+        };
+        Imm(res)
+    }
 }
 
 /// a unary operation. this is basically an operation with only a single operand.
