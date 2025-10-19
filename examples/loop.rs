@@ -1,4 +1,7 @@
-use egraph::{egraph::*, graph::*, node::*, rec_node::*, rewrites, template_rewrite::*};
+use egraph::{
+    const_fold::BinOpConstFoldRewrite, egraph::*, graph::*, node::*, rec_node::*, rewrites,
+    template_rewrite::*,
+};
 
 fn main() {
     // 5 + (0xff & ((x & 0xff00) | (y & 0xff0000)))
@@ -64,6 +67,17 @@ fn main() {
         TemplateRewrite {
             query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
+                lhs: TemplateVar::new(1).into(),
+                rhs: 0.into(),
+            }
+            .into(),
+            rewrite: TemplateVar::new(1).into(),
+        }
+        .build(),
+        // (x + 0) => x
+        TemplateRewrite {
+            query: TemplateBinOp {
+                kind: BinOpKind::Add,
                 lhs: TemplateVar::new(1).into(),
                 rhs: 0.into(),
             }
@@ -208,6 +222,7 @@ fn main() {
             rewrite: TemplateVar::new(1).into(),
         }
         .build(),
+        BinOpConstFoldRewrite,
     ];
 
     egraph.apply_rewrites(&rule_set, None);
