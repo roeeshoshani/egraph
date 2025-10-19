@@ -287,11 +287,14 @@ impl EGraph {
 
         let initial_ctx = rewrite.create_initial_ctx();
         let query = rewrite.query();
-        let recursed_eclasses = RecursedEClasses::new();
 
         // find the first enode that matches the rule.
         for enode_id in self.union_find.enode_ids() {
             let mut match_ctxs = Vec::new();
+
+            let effective_eclass_id = self.eclass_id_to_effective(enode_id.eclass_id());
+            let recursed_eclasses =
+                RecursedEClasses::new().with_added_recursed_eclass(effective_eclass_id);
 
             // match the current enode
             self.match_enode(
