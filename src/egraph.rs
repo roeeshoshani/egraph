@@ -127,7 +127,7 @@ impl ENodesUnionFind {
         ENodeId(self.0.create_new_item(enode))
     }
 
-    fn peek_next_enode_id(&self) -> ENodeId {
+    pub fn peek_next_enode_id(&self) -> ENodeId {
         ENodeId(self.0.peek_next_item_id())
     }
 
@@ -476,21 +476,24 @@ impl EGraph {
                 // the links of this enodes have changed due to the unioning operations. re-hash it.
                 if *prev_effective_enode != new_effective_enode {
                     bimap.remove_by_right(&enode_id);
-                    if let Err((_, existing_enode_id)) =
-                        bimap.insert_no_overwrite(new_effective_enode, enode_id)
-                    {
-                        // after converting the node back to an effecitve node, it now collides with another existing node.
-                        // the union made them now point to the same eclasses, so they are the same node now.
-                        //
-                        // so, we should union them.
-                        //
-                        // also, we can't add this node to the bimap anymore, since that will lead to duplicate values.
-                        // but, we don't even need to add it, since the bimap is only used for deduping, and a single entry
-                        // per node value is enough.
-                        if self.union_find.union_enodes(existing_enode_id, enode_id)
-                            == UnionRes::New
-                        {
-                            did_anything = DidAnything::True;
+                    match bimap.get_by_left(&new_effective_enode) {
+                        Some(existing_enode_id) => {
+                            // after converting the node back to an effecitve node, it now collides with another existing node.
+                            // the union made them now point to the same eclasses, so they are the same node now.
+                            //
+                            // so, we should union them.
+                            //
+                            // also, we can't add this node to the bimap anymore, since that will lead to duplicate values.
+                            // but, we don't even need to add it, since the bimap is only used for deduping, and a single entry
+                            // per node value is enough.
+                            if self.union_find.union_enodes(*existing_enode_id, enode_id)
+                                == UnionRes::New
+                            {
+                                did_anything = DidAnything::True;
+                            }
+                        }
+                        None => {
+                            bimap.insert(new_effective_enode, enode_id);
                         }
                     }
                 }
