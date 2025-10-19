@@ -466,6 +466,7 @@ fn instantiate_template_link(
             egraph
                 .union_find()
                 .union_eclasses(add_res.eclass_id, placeholder_eclass_id);
+            egraph.propegate_unions();
             add_res
         }
     }
