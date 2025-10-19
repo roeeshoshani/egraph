@@ -636,23 +636,13 @@ impl<L> GenericNode<L> {
 
     /// returns an array of all links of this node.
     pub fn links(&self) -> NodeLinks<'_, L> {
-        match self {
-            GenericNode::BinOp(bin_op) => array_vec![&bin_op.lhs, &bin_op.rhs],
-            GenericNode::UnOp(un_op) => array_vec![&un_op.operand],
-            _ => array_vec![],
-        }
+        todo!()
     }
 
     /// returns a string which represents a human readable formatting of this node's structure. the returned string
     /// contains no information about the node's links, only the structure itself, which is everything other than the links.
     pub fn structural_display(&self) -> String {
-        match self {
-            GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
-            GenericNode::InternalVar(internal_var) => format!("internal_var{}", internal_var.0),
-            GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
-            GenericNode::UnOp(un_op) => un_op.kind.to_string(),
-            _ => todo!(),
-        }
+        todo!()
     }
 }
 
