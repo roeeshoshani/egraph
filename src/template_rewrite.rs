@@ -107,6 +107,52 @@ pub struct TemplateRewrite {
     pub rewrite: TemplateLink,
 }
 impl TemplateRewrite {
+    /// creates a rewrite for the commutativity of the bin op with the given kind (`a <op> b == b <op> a`).
+    pub fn bin_op_commutativity(bin_op_kind: BinOpKind) -> Self {
+        TemplateRewrite {
+            query: TemplateBinOp {
+                kind: bin_op_kind,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateVar::new(2).into(),
+            }
+            .into(),
+            rewrite: TemplateBinOp {
+                kind: bin_op_kind,
+                lhs: TemplateVar::new(2).into(),
+                rhs: TemplateVar::new(1).into(),
+            }
+            .into(),
+        }
+    }
+
+    /// creates a rewrite for the associativity of the bin op with the given kind (`a <op> (b <op> c) == (a <op> b) <op> c`).
+    pub fn bin_op_associativity(bin_op_kind: BinOpKind) -> Self {
+        TemplateRewrite {
+            query: TemplateBinOp {
+                kind: bin_op_kind,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateBinOp {
+                    kind: bin_op_kind,
+                    lhs: TemplateVar::new(2).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            rewrite: TemplateBinOp {
+                kind: bin_op_kind,
+                lhs: TemplateBinOp {
+                    kind: bin_op_kind,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(2).into(),
+                }
+                .into(),
+                rhs: TemplateVar::new(3).into(),
+            }
+            .into(),
+        }
+    }
+
     /// builds this template rewrite into a built template rewrite object, which can directly be applied to the egraph.
     pub fn build(self) -> BuiltTemplateRewrite {
         self.check();

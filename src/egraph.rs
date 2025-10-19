@@ -1117,47 +1117,9 @@ mod tests {
             }
             .build(),
             // a & (b & c) => (a & b) & c
-            TemplateRewrite {
-                query: TemplateBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateBinOp {
-                        kind: BinOpKind::BitAnd,
-                        lhs: TemplateVar::new(2).into(),
-                        rhs: TemplateVar::new(3).into(),
-                    }
-                    .into(),
-                }
-                .into(),
-                rewrite: TemplateBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: TemplateBinOp {
-                        kind: BinOpKind::BitAnd,
-                        lhs: TemplateVar::new(1).into(),
-                        rhs: TemplateVar::new(2).into(),
-                    }
-                    .into(),
-                    rhs: TemplateVar::new(3).into(),
-                }
-                .into(),
-            }
-            .build(),
+            TemplateRewrite::bin_op_associativity(BinOpKind::BitAnd).build(),
             // a & b => b & a
-            TemplateRewrite {
-                query: TemplateBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(2).into(),
-                }
-                .into(),
-                rewrite: TemplateBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(2).into(),
-                    rhs: TemplateVar::new(1).into(),
-                }
-                .into(),
-            }
-            .build(),
+            TemplateRewrite::bin_op_commutativity(BinOpKind::BitAnd).build(),
             BinOpConstFoldRewrite,
         ];
 
