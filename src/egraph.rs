@@ -222,28 +222,19 @@ impl EGraph {
         let effective_enode = self.enode_to_effective(&enode);
         let mut bimap = self.bimap.borrow_mut();
 
-        match bimap.insert(effective_enode, self.union_find.peek_next_enode_id()) {
-            bimap::Overwritten::Neither => {
-                let enode_id = self.union_find.create_new_enode(enode);
-                AddENodeRes {
-                    eclass_id: enode_id.eclass_id(),
-                    dedup_info: ENodeDedupInfo::New,
-                }
-            }
-            bimap::Overwritten::Left(_, existing_id) => {
-                // the node already exists
-                AddENodeRes {
-                    eclass_id: existing_id.eclass_id(),
-                    dedup_info: ENodeDedupInfo::Duplicate,
-                }
-            }
-            bimap::Overwritten::Right(_, _)
-            | bimap::Overwritten::Pair(_, _)
-            | bimap::Overwritten::Both(_, _) => {
-                // all of these are unreachable since they mean that we found a collision with the right value, which is the enode id,
-                // but it doesn't make sense since we used a new enode id value.
-                unreachable!()
-            }
+        if let Some(existing_id) = bimap.get_by_left(&effective_enode) {
+            // the node already exists
+            return AddENodeRes {
+                eclass_id: existing_id.eclass_id(),
+                dedup_info: ENodeDedupInfo::Duplicate,
+            };
+        }
+
+        let enode_id = self.union_find.create_new_enode(enode);
+        bimap.insert(effective_enode, enode_id);
+        AddENodeRes {
+            eclass_id: enode_id.eclass_id(),
+            dedup_info: ENodeDedupInfo::New,
         }
     }
 
