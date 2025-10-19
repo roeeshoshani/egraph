@@ -1,6 +1,7 @@
 use arrayvec::ArrayVec;
 use derive_more::From;
 use enum_display::EnumDisplay;
+use enum_variant_accessors::{EnumAsVariant, EnumIsVariant};
 
 use crate::array_vec;
 
@@ -86,7 +87,7 @@ pub struct UnOp<L> {
 }
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
 pub enum GenericNode<L> {
     /// an immediate value.
     Imm(Imm),
@@ -112,11 +113,6 @@ impl<L> From<u64> for GenericNode<L> {
 }
 
 impl<L> GenericNode<L> {
-    /// checks if this node is an internal var node.
-    pub fn is_internal_var(&self) -> bool {
-        matches!(self, GenericNode::InternalVar(_))
-    }
-
     /// converts the links of the given node using the given conversion function, generating a new node with the converted link values.
     pub fn convert_links<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
     where

@@ -5,10 +5,12 @@ edition = "2024"
 
 [dependencies]
 arrayvec = "0.7.6"
+bimap = "0.6.3"
 derive-debug = "0.1.2"
 derive_more = { version = "2.0.1", features = ["full"] }
 duct = "1.1.0"
 enum-display = "0.2.1"
+enum_variant_accessors = "1.0.1"
 gexf = "0.1.1"
 hashbrown = "0.16.0"
 stable-vec = "0.4.1"

@@ -1,7 +1,4 @@
-use egraph::{
-    BinOpKind, BinOpTemplate, EGraph, GenericNode, Graph, RecBinOp, RecNode, RewriteRuleParams,
-    RewriteRuleSet, TemplateVar, Var,
-};
+use egraph::{egraph::*, graph::*, node::*, rec_node::*, rewrites, template_rewrite::*};
 
 fn main() {
     // 5 + (0xff & ((x & 0xff00) | (y & 0xff0000)))
@@ -51,37 +48,35 @@ fn main() {
 
     let root_eclass = translation_map[root_id];
 
-    let rule_set = RewriteRuleSet::from_rules([
+    let rule_set = rewrites![
         // (x & 0) => 0
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
                 rhs: 0.into(),
             }
             .into(),
             rewrite: 0.into(),
-            keep_original: false,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // (x | 0) => x
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
                 rhs: 0.into(),
             }
             .into(),
             rewrite: TemplateVar::new(1).into(),
-            keep_original: false,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a & (b | c) => (a & b) | (a & c)
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
-                rhs: BinOpTemplate {
+                rhs: TemplateBinOp {
                     kind: BinOpKind::BitOr,
                     lhs: TemplateVar::new(2).into(),
                     rhs: TemplateVar::new(3).into(),
@@ -89,15 +84,15 @@ fn main() {
                 .into(),
             }
             .into(),
-            rewrite: BinOpTemplate {
+            rewrite: TemplateBinOp {
                 kind: BinOpKind::BitOr,
-                lhs: BinOpTemplate {
+                lhs: TemplateBinOp {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateVar::new(2).into(),
                 }
                 .into(),
-                rhs: BinOpTemplate {
+                rhs: TemplateBinOp {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateVar::new(3).into(),
@@ -105,15 +100,14 @@ fn main() {
                 .into(),
             }
             .into(),
-            keep_original: true,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a & (b & c) => (a & b) & c
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
-                rhs: BinOpTemplate {
+                rhs: TemplateBinOp {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(2).into(),
                     rhs: TemplateVar::new(3).into(),
@@ -121,9 +115,9 @@ fn main() {
                 .into(),
             }
             .into(),
-            rewrite: BinOpTemplate {
+            rewrite: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
-                lhs: BinOpTemplate {
+                lhs: TemplateBinOp {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateVar::new(2).into(),
@@ -132,15 +126,14 @@ fn main() {
                 rhs: TemplateVar::new(3).into(),
             }
             .into(),
-            keep_original: true,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a | (b | c) => (a | b) | c
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
-                rhs: BinOpTemplate {
+                rhs: TemplateBinOp {
                     kind: BinOpKind::BitOr,
                     lhs: TemplateVar::new(2).into(),
                     rhs: TemplateVar::new(3).into(),
@@ -148,9 +141,9 @@ fn main() {
                 .into(),
             }
             .into(),
-            rewrite: BinOpTemplate {
+            rewrite: TemplateBinOp {
                 kind: BinOpKind::BitOr,
-                lhs: BinOpTemplate {
+                lhs: TemplateBinOp {
                     kind: BinOpKind::BitOr,
                     lhs: TemplateVar::new(1).into(),
                     rhs: TemplateVar::new(2).into(),
@@ -159,70 +152,65 @@ fn main() {
                 rhs: TemplateVar::new(3).into(),
             }
             .into(),
-            keep_original: true,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a & b => b & a
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
                 rhs: TemplateVar::new(2).into(),
             }
             .into(),
-            rewrite: BinOpTemplate {
+            rewrite: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(2).into(),
                 rhs: TemplateVar::new(1).into(),
             }
             .into(),
-            keep_original: true,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a | b => b | a
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
                 rhs: TemplateVar::new(2).into(),
             }
             .into(),
-            rewrite: BinOpTemplate {
+            rewrite: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(2).into(),
                 rhs: TemplateVar::new(1).into(),
             }
             .into(),
-            keep_original: true,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a & a => a
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
                 rhs: TemplateVar::new(1).into(),
             }
             .into(),
             rewrite: TemplateVar::new(1).into(),
-            keep_original: true,
-            bi_directional: false,
-        },
+        }
+        .build(),
         // a | a => a
-        RewriteRuleParams {
-            query: BinOpTemplate {
+        TemplateRewrite {
+            query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
                 rhs: TemplateVar::new(1).into(),
             }
             .into(),
             rewrite: TemplateVar::new(1).into(),
-            keep_original: true,
-            bi_directional: false,
-        },
-    ]);
+        }
+        .build(),
+    ];
 
-    egraph.apply_rule_set(&rule_set, None);
+    egraph.apply_rewrites(&rule_set, None);
 
     let extract_res = egraph.extract_eclass(root_eclass);
     println!("{:#?}", extract_res);

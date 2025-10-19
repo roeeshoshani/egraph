@@ -6,7 +6,7 @@ use std::{
 use hashbrown::HashMap;
 use stable_vec::StableVec;
 
-use crate::*;
+use crate::{node::*, rec_node::*};
 
 /// the id of a node in a graph.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
