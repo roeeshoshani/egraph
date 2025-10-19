@@ -6,11 +6,73 @@ use rsleigh::{Vn, VnSpace};
 
 use crate::array_vec;
 
-/// the max amount of links in a node.
-pub const NODE_MAX_LINKS: usize = 2;
+/// the max amount of fixed links in a node.
+pub const NODE_MAX_FIXED_LINKS: usize = 3;
 
 /// an array of all links of a node.
-pub type NodeLinks<'a, L> = ArrayVec<&'a L, NODE_MAX_LINKS>;
+#[derive(Debug)]
+pub struct NodeLinks<'a, L> {
+    pub fixed: ArrayVec<&'a L, NODE_MAX_FIXED_LINKS>,
+    pub dynamic: &'a [L],
+}
+impl<'a, L> NodeLinks<'a, L> {
+    pub fn len(&self) -> usize {
+        self.fixed.len() + self.dynamic.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fixed.is_empty() && self.dynamic.is_empty()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &'a L> {
+        self.fixed.iter().copied().chain(self.dynamic.iter())
+    }
+}
+impl<'a, L> std::ops::Index<usize> for NodeLinks<'a, L> {
+    type Output = L;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if let Some(dynamic_index) = index.checked_sub(self.fixed.len()) {
+            &self.dynamic[dynamic_index]
+        } else {
+            &self.fixed[index]
+        }
+    }
+}
+impl<'a, L> std::ops::Add for NodeLinks<'a, L> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let dynamic = match (self.dynamic.is_empty(), rhs.dynamic.is_empty()) {
+            (true, true) => {
+                // both are empty, so keep it empty
+                &[]
+            }
+            (true, false) => {
+                // use the rhs
+                rhs.dynamic
+            }
+            (false, true) => {
+                // use the lhs
+                rhs.dynamic
+            }
+            (false, false) => {
+                // both of them already have a dynamic part, so we can't combine them
+                panic!("attempted to add two node links which both already have a dynamic part");
+            }
+        };
+
+        // combine the fixed parts
+        let mut combined_fixed = self.fixed;
+        combined_fixed
+            .try_extend_from_slice(&rhs.fixed[..])
+            .unwrap();
+
+        Self {
+            fixed: combined_fixed,
+            dynamic,
+        }
+    }
+}
 
 /// an immediate value.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -60,6 +122,19 @@ pub struct BinOp<L> {
     pub rhs: L,
 }
 
+impl<L> BinOp<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> BinOp<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        BinOp {
+            kind: self.kind,
+            lhs: conversion(&self.lhs),
+            rhs: conversion(&self.rhs),
+        }
+    }
+}
+
 /// the kind of a unary operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum UnOpKind {
@@ -93,6 +168,18 @@ pub struct UnOp<L> {
     pub operand: L,
 }
 
+impl<L> UnOp<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> UnOp<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        UnOp {
+            kind: self.kind,
+            operand: conversion(&self.operand),
+        }
+    }
+}
+
 /// a node which represents an extension calculation, which increases the bit length of a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExtNode<L> {
@@ -101,11 +188,36 @@ pub struct ExtNode<L> {
     pub operand: L,
 }
 
+impl<L> ExtNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> ExtNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        ExtNode {
+            new_size: self.new_size,
+            kind: self.kind,
+            operand: conversion(&self.operand),
+        }
+    }
+}
+
 /// a node which represents a truncation calculation, which shortens the bit length of a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TruncNode<L> {
     pub new_size: u32,
     pub operand: L,
+}
+
+impl<L> TruncNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> TruncNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        TruncNode {
+            new_size: self.new_size,
+            operand: conversion(&self.operand),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -139,6 +251,20 @@ pub struct LoadNode<L> {
     pub cf_input: L,
 }
 
+impl<L> LoadNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> LoadNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        LoadNode {
+            space: self.space,
+            size: self.size,
+            address: conversion(&self.address),
+            cf_input: conversion(&self.cf_input),
+        }
+    }
+}
+
 /// a node which represents a memory store operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StoreNode<L> {
@@ -154,12 +280,39 @@ pub struct StoreNode<L> {
     pub cf_input: L,
 }
 
+impl<L> StoreNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> StoreNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        StoreNode {
+            space: self.space,
+            address: conversion(&self.address),
+            value: conversion(&self.value),
+            cf_input: conversion(&self.cf_input),
+        }
+    }
+}
+
 /// the final value of a vn at the exit of control flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExitVnNode<L> {
     pub vn: Vn,
     pub value: L,
     pub cf_input: L,
+}
+
+impl<L> ExitVnNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> ExitVnNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        ExitVnNode {
+            vn: self.vn,
+            value: conversion(&self.value),
+            cf_input: conversion(&self.cf_input),
+        }
+    }
 }
 
 /// the address of a machine insn
@@ -188,6 +341,18 @@ pub enum CallNodeKind<L> {
     Indirect(L),
 }
 
+impl<L> CallNodeKind<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> CallNodeKind<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        match self {
+            CallNodeKind::Direct(addr) => CallNodeKind::Direct(*addr),
+            CallNodeKind::Indirect(l) => CallNodeKind::Indirect(conversion(l)),
+        }
+    }
+}
+
 /// a node which represents a call to another function.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CallNode<L> {
@@ -195,10 +360,34 @@ pub struct CallNode<L> {
     pub kind: CallNodeKind<L>,
 }
 
+impl<L> CallNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> CallNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        CallNode {
+            cf_input: conversion(&self.cf_input),
+            kind: self.kind.convert_links(|x| conversion(x)),
+        }
+    }
+}
+
 /// the call target of a call node
 pub enum CallNodeTarget<L> {
     Direct(MachineInsnAddr),
     Indirect(L),
+}
+
+impl<L> CallNodeTarget<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> CallNodeTarget<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        match self {
+            CallNodeTarget::Direct(addr) => CallNodeTarget::Direct(*addr),
+            CallNodeTarget::Indirect(l) => CallNodeTarget::Indirect(conversion(l)),
+        }
+    }
 }
 
 /// the value of a vn when calling a function.
@@ -209,6 +398,19 @@ pub struct CallVnNode<L> {
     pub call_node: L,
 }
 
+impl<L> CallVnNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> CallVnNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        CallVnNode {
+            vn: self.vn,
+            value: conversion(&self.value),
+            call_node: conversion(&self.call_node),
+        }
+    }
+}
+
 /// a value which may be clobbered by a function call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ClobberNode<L> {
@@ -217,11 +419,36 @@ pub struct ClobberNode<L> {
     pub call_node: L,
 }
 
+impl<L> ClobberNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> ClobberNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        ClobberNode {
+            vn: self.vn,
+            original_vn_value: conversion(&self.original_vn_value),
+            call_node: conversion(&self.call_node),
+        }
+    }
+}
+
 /// a conditional if operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IfNode<L> {
     pub cond: L,
     pub cf_input: L,
+}
+
+impl<L> IfNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> IfNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        IfNode {
+            cond: conversion(&self.cond),
+            cf_input: conversion(&self.cf_input),
+        }
+    }
 }
 
 /// one of the cases of an if condition
@@ -241,6 +468,18 @@ pub struct IfCaseNode<L> {
     pub cf_input: L,
 }
 
+impl<L> IfCaseNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> IfCaseNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        IfCaseNode {
+            case: self.case,
+            cf_input: conversion(&self.cf_input),
+        }
+    }
+}
+
 /// the operation number of a sleigh callother operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CallOtherOpNum(pub u64);
@@ -252,16 +491,50 @@ pub struct PhiNode<L> {
     pub region_node: L,
 }
 
+impl<L> PhiNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> PhiNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        PhiNode {
+            inputs: self.inputs.iter().map(|l| conversion(l)).collect(),
+            region_node: conversion(&self.region_node),
+        }
+    }
+}
+
 /// a region node which merges multiple control flow paths.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RegionNode<L> {
     pub cf_inputs: Vec<L>,
 }
 
+impl<L> RegionNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> RegionNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        RegionNode {
+            cf_inputs: self.cf_inputs.iter().map(|l| conversion(l)).collect(),
+        }
+    }
+}
+
 /// an exit of control flow.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExitNode<L> {
     pub cf_input: L,
+}
+
+impl<L> ExitNode<L> {
+    pub fn convert_links<L2, F>(&self, mut conversion: F) -> ExitNode<L2>
+    where
+        F: FnMut(&L) -> L2,
+    {
+        ExitNode {
+            cf_input: conversion(&self.cf_input),
+        }
+    }
 }
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
@@ -328,89 +601,36 @@ pub enum GenericNode<L> {
     Exit(ExitNode<L>),
 }
 
-// convert from an integer value to an immediate node.
-impl<L> From<u64> for GenericNode<L> {
-    fn from(value: u64) -> Self {
-        Imm(value).into()
-    }
-}
-
 impl<L> GenericNode<L> {
-    /// converts the links of the given node using the given conversion function, generating a new node with the converted link values.
     pub fn convert_links<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
     where
         F: FnMut(&L) -> L2,
     {
         match self {
             GenericNode::Imm(imm) => GenericNode::Imm(*imm),
-            GenericNode::InternalVar(internal_var) => GenericNode::InternalVar(*internal_var),
+            GenericNode::InternalVar(v) => GenericNode::InternalVar(*v),
             GenericNode::Vn(vn) => GenericNode::Vn(*vn),
-            GenericNode::BinOp(BinOp { kind, lhs, rhs }) => GenericNode::BinOp(BinOp {
-                kind: *kind,
-                lhs: conversion(lhs),
-                rhs: conversion(rhs),
-            }),
-            GenericNode::UnOp(UnOp { kind, operand }) => GenericNode::UnOp(UnOp {
-                kind: *kind,
-                operand: conversion(operand),
-            }),
-            GenericNode::Ext(ExtNode {
-                new_size,
-                kind,
-                operand,
-            }) => GenericNode::Ext(ExtNode {
-                new_size: *new_size,
-                kind: *kind,
-                operand: conversion(operand),
-            }),
-            GenericNode::Trunc(TruncNode { new_size, operand }) => GenericNode::Trunc(TruncNode {
-                new_size: *new_size,
-                operand: conversion(operand),
-            }),
-            GenericNode::Load(LoadNode {
-                space,
-                size,
-                address,
-                cf_input,
-            }) => GenericNode::Load(LoadNode {
-                space: *space,
-                size: *size,
-                address: conversion(address),
-                cf_input: conversion(cf_input),
-            }),
-            GenericNode::Store(StoreNode {
-                space,
-                address,
-                value,
-                cf_input,
-            }) => GenericNode::Store(StoreNode {
-                space: *space,
-                address: conversion(address),
-                value: conversion(value),
-                cf_input: conversion(cf_input),
-            }),
-            GenericNode::ExitVn(ExitVnNode {
-                vn,
-                value,
-                cf_input,
-            }) => GenericNode::ExitVn(ExitVnNode {
-                vn: *vn,
-                value: conversion(value),
-                cf_input: conversion(cf_input),
-            }),
-            GenericNode::Call(CallNode { cf_input, kind }) => GenericNode::Call(CallNode {
-                cf_input: conversion(cf_input),
-                kind: *kind,
-            }),
-            GenericNode::CallVn(call_vn_node) => GenericNode::CallVn(call_vn_node),
-            GenericNode::Clobber(clobber_node) => GenericNode::Clobber(clobber_node),
-            GenericNode::CallOther(call_other_op_num) => GenericNode::CallOther(call_other_op_num),
-            GenericNode::If(if_node) => GenericNode::If(if_node),
-            GenericNode::IfCase(if_case_node) => GenericNode::IfCase(if_case_node),
-            GenericNode::Phi(phi_node) => GenericNode::Phi(phi_node),
-            GenericNode::Region(region_node) => GenericNode::Region(region_node),
+
+            GenericNode::BinOp(b) => GenericNode::BinOp(b.convert_links(|x| conversion(x))),
+            GenericNode::UnOp(u) => GenericNode::UnOp(u.convert_links(|x| conversion(x))),
+            GenericNode::Ext(e) => GenericNode::Ext(e.convert_links(|x| conversion(x))),
+            GenericNode::Trunc(t) => GenericNode::Trunc(t.convert_links(|x| conversion(x))),
+            GenericNode::Load(l) => GenericNode::Load(l.convert_links(|x| conversion(x))),
+            GenericNode::Store(s) => GenericNode::Store(s.convert_links(|x| conversion(x))),
+            GenericNode::ExitVn(ev) => GenericNode::ExitVn(ev.convert_links(|x| conversion(x))),
+            GenericNode::Call(c) => GenericNode::Call(c.convert_links(|x| conversion(x))),
+            GenericNode::CallVn(cv) => GenericNode::CallVn(cv.convert_links(|x| conversion(x))),
+            GenericNode::Clobber(cl) => GenericNode::Clobber(cl.convert_links(|x| conversion(x))),
+
+            GenericNode::CallOther(co) => GenericNode::CallOther(*co),
+
+            GenericNode::If(i) => GenericNode::If(i.convert_links(|x| conversion(x))),
+            GenericNode::IfCase(ic) => GenericNode::IfCase(ic.convert_links(|x| conversion(x))),
+            GenericNode::Phi(p) => GenericNode::Phi(p.convert_links(|x| conversion(x))),
+            GenericNode::Region(r) => GenericNode::Region(r.convert_links(|x| conversion(x))),
+
             GenericNode::Entry => GenericNode::Entry,
-            GenericNode::Exit(exit_node) => GenericNode::Exit(exit_node),
+            GenericNode::Exit(e) => GenericNode::Exit(e.convert_links(|x| conversion(x))),
         }
     }
 
@@ -428,10 +648,17 @@ impl<L> GenericNode<L> {
     pub fn structural_display(&self) -> String {
         match self {
             GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
-            GenericNode::Var(var) => format!("var{}", var.0),
             GenericNode::InternalVar(internal_var) => format!("internal_var{}", internal_var.0),
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
+            _ => todo!(),
         }
+    }
+}
+
+// convert from an integer value to an immediate node.
+impl<L> From<u64> for GenericNode<L> {
+    fn from(value: u64) -> Self {
+        Imm(value).into()
     }
 }

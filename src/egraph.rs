@@ -391,7 +391,7 @@ impl EGraph {
             let link_matcher = links_matcher.get_link_matcher(cur_link_idx);
 
             // the eclass that the current enode link points to
-            let link_eclass_id = *enode_links[cur_link_idx];
+            let link_eclass_id = enode_links[cur_link_idx];
             let effective_eclass_id = self.eclass_id_to_effective(link_eclass_id);
 
             // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
@@ -663,7 +663,7 @@ impl EGraph {
             builder = builder.add_node(node)?;
 
             // edges
-            for link in enode.links() {
+            for link in enode.links().iter() {
                 builder = builder.add_edge(&node_id, link.enode_id.0.0.to_string())?;
             }
         }
@@ -724,7 +724,7 @@ impl EGraph {
         for &eclass_label in &eclass_labels {
             for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
                 let enode = &self[enode_id];
-                for link in enode.links() {
+                for link in enode.links().iter() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
                     let target_eclass_label = find_eclass_label_of_node(link.enode_id);
                     writeln!(

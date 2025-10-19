@@ -58,7 +58,7 @@ impl TemplateNode {
     /// returns the id of the template var with the highest id that is contained in this template node.
     fn max_template_var_id(&self) -> Option<NonZeroUsize> {
         self.links()
-            .into_iter()
+            .iter()
             .filter_map(|link| link.max_template_var_id())
             .max()
     }
@@ -66,7 +66,7 @@ impl TemplateNode {
     /// checks if this template node uses the given template var.
     fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
         self.links()
-            .into_iter()
+            .iter()
             .any(|link| link.does_use_template_var(template_var))
     }
 }
