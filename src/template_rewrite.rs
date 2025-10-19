@@ -27,6 +27,9 @@ pub enum TemplateLink {
     /// this link matches another nested structure.
     Specific(Box<TemplateNode>),
 
+    /// this link matches another nested structure, but we bind this link to a variable.
+    SpecificBind(TemplateVar, Box<TemplateNode>),
+
     /// this link is a wildcard variable. it can match any value, and it will be substituted when instantiating the template.
     Var(TemplateVar),
 }
@@ -37,6 +40,14 @@ impl TemplateLink {
         match self {
             TemplateLink::Specific(generic_node) => generic_node.max_template_var_id(),
             TemplateLink::Var(template_var) => Some(template_var.id),
+            TemplateLink::SpecificBind(template_var, generic_node) => {
+                match generic_node.max_template_var_id() {
+                    Some(max_template_var_id) => {
+                        Some(std::cmp::max(max_template_var_id, template_var.id))
+                    }
+                    None => Some(template_var.id),
+                }
+            }
         }
     }
 
@@ -47,6 +58,10 @@ impl TemplateLink {
                 generic_node.does_use_template_var(template_var)
             }
             TemplateLink::Var(cur_template_var) => *cur_template_var == template_var,
+            TemplateLink::SpecificBind(cur_template_var, generic_node) => {
+                *cur_template_var == template_var
+                    || generic_node.does_use_template_var(template_var)
+            }
         }
     }
 }
@@ -101,7 +116,7 @@ pub type TemplateUnOp = UnOp<TemplateLink>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateRewrite {
     /// the structure that should be matched.
-    pub query: TemplateNode,
+    pub query: TemplateLink,
 
     /// the template to instantiate to generate the re-write of the enode that matched the query.
     pub rewrite: TemplateLink,
@@ -254,15 +269,9 @@ impl TemplateRewrite {
 
     pub fn swap_direction(self) -> Self {
         self.check_can_swap_direction();
-        let rewrite_template = match self.rewrite {
-            TemplateLink::Specific(x) => x,
-            TemplateLink::Var(_) => {
-                panic!("can't reverse a rule whose re-write is just a single template var")
-            }
-        };
         Self {
-            query: *rewrite_template,
-            rewrite: TemplateLink::Specific(self.query.into()),
+            query: self.rewrite,
+            rewrite: self.query,
         }
     }
 }
@@ -270,7 +279,7 @@ impl TemplateRewrite {
 /// a built template rewrite, which is a template rewrite which was verified to be valid, and can be directly applied to an egraph.
 #[derive(Debug, Clone)]
 pub struct BuiltTemplateRewrite {
-    query: TemplateNode,
+    query: TemplateLink,
     rewrite: TemplateLink,
 }
 
@@ -335,7 +344,7 @@ impl Rewrite for BuiltTemplateRewrite {
         TemplateRewriteCtx::new()
     }
 
-    fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>> {
+    fn query(&self) -> CowBox<'_, dyn QueryLinkMatcher<Self::Ctx>> {
         CowBox::Borrowed(&self.query)
     }
 
@@ -386,11 +395,10 @@ impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
 impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
     fn match_link(
         &self,
-        link_eclass_id: EClassId,
-        egraph: &EGraph,
+        link_effective_eclass_id: EffectiveEClassId,
+        _egraph: &EGraph,
         ctx: &TemplateRewriteCtx,
     ) -> QueryMatchLinkRes<'_, TemplateRewriteCtx> {
-        let effective_eclass_id = egraph.eclass_id_to_effective(link_eclass_id);
         match self {
             TemplateLink::Specific(enode_template) => QueryMatchLinkRes::RecurseIntoENodes {
                 new_ctx: ctx.clone(),
@@ -399,7 +407,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
             TemplateLink::Var(template_var) => {
                 match ctx.template_var_values.get(*template_var) {
                     Some(existing_var_value) => {
-                        if effective_eclass_id != existing_var_value.effective_eclass_id {
+                        if link_effective_eclass_id != existing_var_value.effective_eclass_id {
                             // no match
                             return QueryMatchLinkRes::NoMatch;
                         }
@@ -415,11 +423,27 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                         new_ctx.template_var_values.set(
                             *template_var,
                             TemplateVarValue {
-                                effective_eclass_id,
+                                effective_eclass_id: link_effective_eclass_id,
                             },
                         );
                         QueryMatchLinkRes::Match(QueryMatch { new_ctx })
                     }
+                }
+            }
+            TemplateLink::SpecificBind(template_var, enode_template) => {
+                // the variable must not be already bound.
+                assert!(ctx.template_var_values.get(*template_var).is_none());
+
+                let mut new_ctx = ctx.clone();
+                new_ctx.template_var_values.set(
+                    *template_var,
+                    TemplateVarValue {
+                        effective_eclass_id: link_effective_eclass_id,
+                    },
+                );
+                QueryMatchLinkRes::RecurseIntoENodes {
+                    new_ctx,
+                    enode_matcher: CowBox::Borrowed(&**enode_template),
                 }
             }
         }
@@ -437,7 +461,7 @@ fn instantiate_template_link(
             let enode = instantiate_template_node(inner_template, ctx, egraph);
             egraph.add_enode(enode)
         }
-        TemplateLink::Var(template_var) => {
+        TemplateLink::Var(template_var) | TemplateLink::SpecificBind(template_var, _) => {
             let var_value = ctx.template_var_values.get(*template_var).unwrap();
             AddENodeRes {
                 eclass_id: var_value.effective_eclass_id.to_eclass_id(),

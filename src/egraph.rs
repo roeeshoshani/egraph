@@ -120,6 +120,17 @@ impl ENodesUnionFind {
         self.0.item_ids().map(ENodeId)
     }
 
+    pub fn root_enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<'_> {
+        self.0.root_item_ids().map(ENodeId)
+    }
+
+    pub fn eclasses(&self) -> impl Iterator<Item = EffectiveEClassId> + use<'_> {
+        self.root_enode_ids()
+            .map(|root_enode_id| EffectiveEClassId {
+                eclass_root: root_enode_id,
+            })
+    }
+
     pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
         self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
     }
@@ -263,18 +274,19 @@ impl EGraph {
 
     pub fn handle_rewrite_matches<R: Rewrite>(
         &mut self,
-        enode_matches: Vec<ENodeMatch<R::Ctx>>,
+        eclass_matches: Vec<EClassMatch<R::Ctx>>,
         rewrite: &R,
     ) -> DidAnything {
         let mut did_anything = DidAnything::False;
 
         // for each match, add the rerwrite result to the egraph
-        for enode_match in enode_matches {
-            let add_res = rewrite.build_rewrite(enode_match.final_ctx, self);
+        for eclass_match in eclass_matches {
+            let add_res = rewrite.build_rewrite(eclass_match.final_ctx, self);
 
-            let union_res = self
-                .union_find
-                .union_enodes(add_res.eclass_id.enode_id, enode_match.enode_id);
+            let union_res = self.union_find.union_eclasses(
+                add_res.eclass_id,
+                eclass_match.effective_eclass_id.to_eclass_id(),
+            );
             if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
                 did_anything = DidAnything::True;
             }
@@ -283,49 +295,44 @@ impl EGraph {
         did_anything
     }
 
-    pub fn match_rewrite<R: Rewrite>(&self, rewrite: &R) -> Vec<ENodeMatch<R::Ctx>> {
-        let mut enode_matches = Vec::new();
+    pub fn match_rewrite<R: Rewrite>(&self, rewrite: &R) -> Vec<EClassMatch<R::Ctx>> {
+        let mut eclass_matches = Vec::new();
 
         let initial_ctx = rewrite.create_initial_ctx();
         let query = rewrite.query();
+        let recursed_eclasses = RecursedEClasses::new();
 
         // find the first enode that matches the rule.
-        for enode_id in self.union_find.enode_ids() {
+        for effective_eclass_id in self.union_find.eclasses() {
             let mut match_ctxs = Vec::new();
 
-            let effective_eclass_id = self.eclass_id_to_effective(enode_id.eclass_id());
-            let recursed_eclasses =
-                RecursedEClasses::new().with_added_recursed_eclass(effective_eclass_id);
-
             // match the current enode
-            self.match_enode(
-                enode_id,
-                &self[enode_id],
+            self.match_enode_link(
+                effective_eclass_id,
                 &*query,
                 &initial_ctx,
                 &recursed_eclasses,
                 &mut match_ctxs,
             );
 
-            enode_matches.extend(match_ctxs.into_iter().map(|ctx| ENodeMatch {
+            eclass_matches.extend(match_ctxs.into_iter().map(|ctx| EClassMatch {
                 final_ctx: ctx,
-                enode_id,
+                effective_eclass_id,
             }));
         }
 
-        enode_matches
+        eclass_matches
     }
 
     fn match_enode_link<C>(
         &self,
-        link_eclass_id: EClassId,
-        effective_eclass_id: EffectiveEClassId,
+        link_effective_eclass_id: EffectiveEClassId,
         link_matcher: &dyn QueryLinkMatcher<C>,
         ctx: &C,
         recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
-        match link_matcher.match_link(link_eclass_id, self, ctx) {
+        match link_matcher.match_link(link_effective_eclass_id, self, ctx) {
             QueryMatchLinkRes::NoMatch => {
                 return;
             }
@@ -338,16 +345,19 @@ impl EGraph {
             } => {
                 // when matching recursing into the enodes of an eclass, make sure that we haven't recursed this eclass already,
                 // to prevent following eclass loops which will blow up the graph with redundant expressions.
-                if recursed_eclasses.has_recursed_eclass(effective_eclass_id) {
+                if recursed_eclasses.has_recursed_eclass(link_effective_eclass_id) {
                     // don't loop
                     return;
                 }
 
                 // mark the eclass as recursed
                 let new_recursed_eclasses =
-                    recursed_eclasses.with_added_recursed_eclass(effective_eclass_id);
+                    recursed_eclasses.with_added_recursed_eclass(link_effective_eclass_id);
 
-                for enode_id in self.union_find.enodes_in_eclass(link_eclass_id) {
+                for enode_id in self
+                    .union_find
+                    .enodes_in_effective_eclass(link_effective_eclass_id)
+                {
                     let enode = &self[enode_id];
                     self.match_enode(
                         enode_id,
@@ -398,7 +408,6 @@ impl EGraph {
             // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
             for cur_ctx in &cur_match_ctxs {
                 self.match_enode_link(
-                    link_eclass_id,
                     effective_eclass_id,
                     &*link_matcher,
                     cur_ctx,
@@ -940,14 +949,14 @@ impl ExtractCtx {
     }
 }
 
-/// a match of a rule to a specific enode.
+/// a match of a rule to a specific eclass.
 #[derive(Debug, Clone)]
-pub struct ENodeMatch<C> {
+pub struct EClassMatch<C> {
     /// the final ctx of this match.
     pub final_ctx: C,
 
-    /// the enode id of the enode that matched the rule.
-    pub enode_id: ENodeId,
+    /// the effective eclass id of the eclass that matched the rule.
+    pub effective_eclass_id: EffectiveEClassId,
 }
 
 /// a list of eclasses that we have already recursed into their enodes.

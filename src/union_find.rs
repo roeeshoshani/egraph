@@ -194,6 +194,16 @@ impl<T> UnionFind<T> {
         })
     }
 
+    /// returns an iterator over all of the item ids of the root items in the tree.
+    pub fn root_item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<'_, T> {
+        self.item_ids().filter(|item_id| self.is_root(*item_id))
+    }
+
+    /// checks if the given item is a root item.
+    pub fn is_root(&self, item_id: UnionFindItemId) -> bool {
+        self.get_parent_of_item(item_id) == item_id
+    }
+
     /// flattens all of the descendents of the given item to be direct children of it.
     fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
         // we intentionally start with an immutable borrow instead of a mutable borrow, since in some cases we won't need to modify
