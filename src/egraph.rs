@@ -123,7 +123,7 @@ impl ENodesUnionFind {
         self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
     }
 
-    pub fn create_new_enode(&mut self, enode: ENode) -> ENodeId {
+    fn create_new_enode(&mut self, enode: ENode) -> ENodeId {
         ENodeId(self.0.create_new_item(enode))
     }
 
@@ -215,8 +215,10 @@ impl EGraph {
 
         // if they were previously not equal, the root of all items equal to b is now about to change. so, first, remove them
         // from the hashmap, and later we'll re-add them with the correct values.
+        let mut removed_enodes = Vec::new();
         for enode_id in self.union_find.enodes_eq_to(b) {
             bimap.remove_by_right(&enode_id);
+            removed_enodes.push(enode_id);
         }
 
         let res = self.union_find.union_enodes(a, b);
@@ -225,7 +227,7 @@ impl EGraph {
         debug_assert_eq!(res, UnionRes::New);
 
         // re-add the removed items to the hashmap
-        for enode_id in self.union_find.enodes_eq_to(b) {
+        for enode_id in removed_enodes {
             bimap.insert(self.enode_to_effective(&self[enode_id]), enode_id);
         }
 
