@@ -194,8 +194,5 @@ fn main() {
 
     egraph.apply_rewrites(&rewrites, None);
 
-    std::fs::create_dir_all("./graphs").unwrap();
-    egraph.dump_dot_svg("./graphs/graph.svg");
-
     egraph.extract_eclass(root_eclass);
 }
