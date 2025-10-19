@@ -16,6 +16,15 @@ pub struct NodeLinks<'a, L> {
     pub dynamic: &'a [L],
 }
 impl<'a, L> NodeLinks<'a, L> {
+    pub const EMPTY: Self = Self {
+        fixed: ArrayVec::new_const(),
+        dynamic: &[],
+    };
+
+    pub fn empty() -> Self {
+        Self::EMPTY
+    }
+
     pub fn len(&self) -> usize {
         self.fixed.len() + self.dynamic.len()
     }
@@ -133,6 +142,13 @@ impl<L> BinOp<L> {
             rhs: conversion(&self.rhs),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.lhs, &self.rhs],
+            dynamic: &[],
+        }
+    }
 }
 
 /// the kind of a unary operation.
@@ -178,6 +194,13 @@ impl<L> UnOp<L> {
             operand: conversion(&self.operand),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.operand],
+            dynamic: &[],
+        }
+    }
 }
 
 /// a node which represents an extension calculation, which increases the bit length of a value.
@@ -199,6 +222,13 @@ impl<L> ExtNode<L> {
             operand: conversion(&self.operand),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.operand],
+            dynamic: &[],
+        }
+    }
 }
 
 /// a node which represents a truncation calculation, which shortens the bit length of a value.
@@ -216,6 +246,13 @@ impl<L> TruncNode<L> {
         TruncNode {
             new_size: self.new_size,
             operand: conversion(&self.operand),
+        }
+    }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.operand],
+            dynamic: &[],
         }
     }
 }
@@ -263,6 +300,13 @@ impl<L> LoadNode<L> {
             cf_input: conversion(&self.cf_input),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.address, &self.cf_input],
+            dynamic: &[],
+        }
+    }
 }
 
 /// a node which represents a memory store operation.
@@ -292,6 +336,13 @@ impl<L> StoreNode<L> {
             cf_input: conversion(&self.cf_input),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.address, &self.value, &self.cf_input],
+            dynamic: &[],
+        }
+    }
 }
 
 /// the final value of a vn at the exit of control flow.
@@ -311,6 +362,13 @@ impl<L> ExitVnNode<L> {
             vn: self.vn,
             value: conversion(&self.value),
             cf_input: conversion(&self.cf_input),
+        }
+    }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.value, &self.cf_input],
+            dynamic: &[],
         }
     }
 }
@@ -351,6 +409,16 @@ impl<L> CallNodeKind<L> {
             CallNodeKind::Indirect(l) => CallNodeKind::Indirect(conversion(l)),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        match self {
+            CallNodeKind::Direct(_) => NodeLinks::empty(),
+            CallNodeKind::Indirect(l) => NodeLinks {
+                fixed: array_vec![l],
+                dynamic: &[],
+            },
+        }
+    }
 }
 
 /// a node which represents a call to another function.
@@ -370,6 +438,19 @@ impl<L> CallNode<L> {
             kind: self.kind.convert_links(|x| conversion(x)),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        match &self.kind {
+            CallNodeKind::Direct(_) => NodeLinks {
+                fixed: array_vec![&self.cf_input],
+                dynamic: &[],
+            },
+            CallNodeKind::Indirect(tgt) => NodeLinks {
+                fixed: array_vec![&self.cf_input, tgt],
+                dynamic: &[],
+            },
+        }
+    }
 }
 
 /// the call target of a call node
@@ -386,6 +467,16 @@ impl<L> CallNodeTarget<L> {
         match self {
             CallNodeTarget::Direct(addr) => CallNodeTarget::Direct(*addr),
             CallNodeTarget::Indirect(l) => CallNodeTarget::Indirect(conversion(l)),
+        }
+    }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        match self {
+            CallNodeTarget::Direct(_) => NodeLinks::empty(),
+            CallNodeTarget::Indirect(l) => NodeLinks {
+                fixed: array_vec![l],
+                dynamic: &[],
+            },
         }
     }
 }
@@ -409,6 +500,13 @@ impl<L> CallVnNode<L> {
             call_node: conversion(&self.call_node),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.value, &self.call_node],
+            dynamic: &[],
+        }
+    }
 }
 
 /// a value which may be clobbered by a function call.
@@ -430,6 +528,13 @@ impl<L> ClobberNode<L> {
             call_node: conversion(&self.call_node),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.original_vn_value, &self.call_node],
+            dynamic: &[],
+        }
+    }
 }
 
 /// a conditional if operation.
@@ -447,6 +552,13 @@ impl<L> IfNode<L> {
         IfNode {
             cond: conversion(&self.cond),
             cf_input: conversion(&self.cf_input),
+        }
+    }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.cond, &self.cf_input],
+            dynamic: &[],
         }
     }
 }
@@ -478,6 +590,13 @@ impl<L> IfCaseNode<L> {
             cf_input: conversion(&self.cf_input),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.cf_input],
+            dynamic: &[],
+        }
+    }
 }
 
 /// the operation number of a sleigh callother operation.
@@ -501,6 +620,13 @@ impl<L> PhiNode<L> {
             region_node: conversion(&self.region_node),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.region_node],
+            dynamic: &self.inputs[..],
+        }
+    }
 }
 
 /// a region node which merges multiple control flow paths.
@@ -518,6 +644,13 @@ impl<L> RegionNode<L> {
             cf_inputs: self.cf_inputs.iter().map(|l| conversion(l)).collect(),
         }
     }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![],
+            dynamic: &self.cf_inputs[..],
+        }
+    }
 }
 
 /// an exit of control flow.
@@ -533,6 +666,13 @@ impl<L> ExitNode<L> {
     {
         ExitNode {
             cf_input: conversion(&self.cf_input),
+        }
+    }
+
+    pub fn links(&self) -> NodeLinks<'_, L> {
+        NodeLinks {
+            fixed: array_vec![&self.cf_input],
+            dynamic: &[],
         }
     }
 }
@@ -636,7 +776,28 @@ impl<L> GenericNode<L> {
 
     /// returns an array of all links of this node.
     pub fn links(&self) -> NodeLinks<'_, L> {
-        todo!()
+        match self {
+            GenericNode::Imm(_) => NodeLinks::empty(),
+            GenericNode::InternalVar(_) => NodeLinks::empty(),
+            GenericNode::Vn(_) => NodeLinks::empty(),
+            GenericNode::BinOp(x) => x.links(),
+            GenericNode::UnOp(x) => x.links(),
+            GenericNode::Ext(x) => x.links(),
+            GenericNode::Trunc(x) => x.links(),
+            GenericNode::Load(x) => x.links(),
+            GenericNode::Store(x) => x.links(),
+            GenericNode::ExitVn(x) => x.links(),
+            GenericNode::Call(x) => x.links(),
+            GenericNode::CallVn(x) => x.links(),
+            GenericNode::Clobber(x) => x.links(),
+            GenericNode::CallOther(_) => NodeLinks::empty(),
+            GenericNode::If(x) => x.links(),
+            GenericNode::IfCase(x) => x.links(),
+            GenericNode::Phi(x) => x.links(),
+            GenericNode::Region(x) => x.links(),
+            GenericNode::Entry => NodeLinks::empty(),
+            GenericNode::Exit(x) => x.links(),
+        }
     }
 
     /// returns a string which represents a human readable formatting of this node's structure. the returned string
