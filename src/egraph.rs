@@ -506,10 +506,22 @@ impl EGraph {
 
     pub fn apply_rewrites<R: Rewrites>(&mut self, rewrites: &R, max_iterations: Option<usize>) {
         let mut cur_iteration_index = 0;
+        let mut modification_index = 0;
         loop {
             let mut did_anything = DidAnything::False;
             for rewrite_index in 0..rewrites.len() {
-                did_anything |= rewrites.apply_rewrite(rewrite_index, self);
+                did_anything |= if rewrites.apply_rewrite(rewrite_index, self).as_bool() {
+                    println!("applied rewrite with index {}", rewrite_index);
+                    std::fs::create_dir_all("./graphs").unwrap();
+                    self.dump_dot_svg(&format!(
+                        "./graphs/graph_{}_{}.svg",
+                        modification_index, rewrite_index
+                    ));
+                    modification_index += 1;
+                    DidAnything::True
+                } else {
+                    DidAnything::False
+                };
             }
             if !did_anything.as_bool() {
                 break;
@@ -585,7 +597,7 @@ impl EGraph {
     fn enode_get_sample_rec_node_inner(
         &self,
         enode_id: ENodeId,
-        visited_eclasses: &mut HashSet<EffectiveEClassId>,
+        visited_eclasses: &HashSet<EffectiveEClassId>,
     ) -> RecNode {
         self[enode_id].convert_links(|link_eclass_id| {
             self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
@@ -595,12 +607,15 @@ impl EGraph {
     fn eclass_get_sample_rec_node_link_inner(
         &self,
         eclass_id: EClassId,
-        visited_eclasses: &mut HashSet<EffectiveEClassId>,
+        visited_eclasses: &HashSet<EffectiveEClassId>,
     ) -> RecNodeLink {
         let effective_eclass_id = self.eclass_id_to_effective(eclass_id);
-        if !visited_eclasses.insert(effective_eclass_id) {
+        if visited_eclasses.contains(&effective_eclass_id) {
             return RecNodeLink::Loop;
         }
+
+        let mut new_visited_eclasses = visited_eclasses.clone();
+        new_visited_eclasses.insert(effective_eclass_id);
 
         // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
         // any useful information.
@@ -610,13 +625,13 @@ impl EGraph {
             .find(|&enode_id| !self[enode_id].is_internal_var())
             .unwrap();
 
-        self.enode_get_sample_rec_node_inner(chosen_enode, visited_eclasses)
+        self.enode_get_sample_rec_node_inner(chosen_enode, &new_visited_eclasses)
             .into()
     }
 
     pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
-        let mut visited_eclasses = HashSet::new();
-        self.enode_get_sample_rec_node_inner(enode_id, &mut visited_eclasses)
+        let visited_eclasses = HashSet::new();
+        self.enode_get_sample_rec_node_inner(enode_id, &visited_eclasses)
     }
 
     pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
