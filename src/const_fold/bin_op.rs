@@ -96,6 +96,7 @@ impl QueryLinkMatcher<Ctx> for LhsMatcher {
             unreachable!()
         };
         let Some(imm) = egraph
+            .union_find()
             .enodes_in_eclass(link_eclass_id)
             .find_map(|enode_id| egraph[enode_id].as_imm())
         else {
@@ -122,6 +123,7 @@ impl QueryLinkMatcher<Ctx> for RhsMatcher {
             unreachable!()
         };
         let Some(imm) = egraph
+            .union_find()
             .enodes_in_eclass(link_eclass_id)
             .find_map(|enode_id| egraph[enode_id].as_imm())
         else {

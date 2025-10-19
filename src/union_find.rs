@@ -117,6 +117,12 @@ impl<T> UnionFind<T> {
     }
 
     /// unions the given two items.
+    ///
+    /// this enslaves the root of item b to the root of item a.
+    ///
+    /// so, you can rely on the root of all items that were equal to a before the union call to remain the same root.]
+    /// but, if the union result is new, then the root of all items that were equal to b before the union call has now changed,
+    /// and their new root is now the root of item a.
     pub fn union(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
         // we use the "no update" version of the root lookup when looking up the root of item b, since making it point directly to
         // root b may not be optimal here, and we can potentially do even better.

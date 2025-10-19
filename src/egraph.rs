@@ -1,8 +1,9 @@
+use bimap::BiHashMap;
 use derive_more::{Add, AddAssign};
 use duct::cmd;
 use either::Either;
 use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Entry};
-use std::{borrow::Cow, hash::BuildHasher, io::Write as _, ops::Index};
+use std::{borrow::Cow, cell::RefCell, hash::BuildHasher, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
 use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
@@ -33,9 +34,9 @@ pub struct EClassId {
 }
 impl EClassId {
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree.
-    pub fn to_effective(&self, union_find: &UnionFind<ENode>) -> EffectiveEClassId {
+    pub fn to_effective(&self, union_find: &ENodesUnionFind) -> EffectiveEClassId {
         EffectiveEClassId {
-            eclass_root: ENodeId(union_find.root_of_item(self.enode_id.0)),
+            eclass_root: union_find.root_of_enode(self.enode_id),
         }
     }
 }
@@ -70,7 +71,7 @@ pub type EffectiveENode = GenericNode<EffectiveEClassId>;
 
 impl ENode {
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree.
-    fn to_effective(&self, union_find: &UnionFind<ENode>) -> EffectiveENode {
+    fn to_effective(&self, union_find: &ENodesUnionFind) -> EffectiveENode {
         self.convert_links(|eclass_id| eclass_id.to_effective(union_find))
     }
 }
@@ -113,12 +114,11 @@ impl ENodesStructuralHashTable {
     pub fn entry_mut(
         &mut self,
         enode: &ENode,
-        enodes_union_find: &UnionFind<ENode>,
+        union_find: &ENodesUnionFind,
     ) -> hashbrown::hash_table::Entry<'_, ENodeHashTableEntry> {
-        let effective_enode = enode.to_effective(enodes_union_find);
-        let eq_fn = |entry: &ENodeHashTableEntry| {
-            entry.enode.to_effective(enodes_union_find) == effective_enode
-        };
+        let effective_enode = enode.to_effective(union_find);
+        let eq_fn =
+            |entry: &ENodeHashTableEntry| entry.enode.to_effective(union_find) == effective_enode;
 
         let hash_fn = |entry: &ENodeHashTableEntry| self.hasher.hash_node(&entry.enode);
 
@@ -140,45 +140,23 @@ pub enum ENodeDedupInfo {
     Duplicate,
 }
 
-/// the result of adding an enode to the egraph
-#[derive(Debug)]
-pub struct AddENodeRes {
-    /// the eclass id of the new enode
-    pub eclass_id: EClassId,
-
-    /// the deduplication info of the added enode
-    pub dedup_info: ENodeDedupInfo,
-}
-
-/// an egraph.
-#[derive(derive_debug::Dbg, Clone)]
-pub struct EGraph {
-    union_find: UnionFind<ENode>,
-
-    next_internal_var: InternalVar,
-
-    #[dbg(skip)]
-    structural_hash_table: ENodesStructuralHashTable,
-}
-impl EGraph {
-    /// returns a new empty egraph.
+#[derive(Debug, Clone)]
+pub struct ENodesUnionFind(pub UnionFind<ENode>);
+impl ENodesUnionFind {
     pub fn new() -> Self {
-        Self {
-            union_find: UnionFind::new(),
-            structural_hash_table: ENodesStructuralHashTable {
-                table: HashTable::new(),
-                hasher: NodeHasher::default(),
-            },
-            next_internal_var: InternalVar(0),
-        }
+        Self(UnionFind::new())
     }
 
-    pub fn node_hasher(&self) -> &NodeHasher {
-        &self.structural_hash_table.hasher
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn root_of_enode(&self, enode_id: ENodeId) -> ENodeId {
+        ENodeId(self.0.root_of_item(enode_id.0))
     }
 
     pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = ENodeId> {
-        self.union_find.items_eq_to(enode_id.0).map(ENodeId)
+        self.0.items_eq_to(enode_id.0).map(ENodeId)
     }
 
     pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = ENodeId> {
@@ -193,11 +171,87 @@ impl EGraph {
     }
 
     pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<> {
-        self.union_find.item_ids().map(ENodeId)
+        self.0.item_ids().map(ENodeId)
     }
 
     pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
         self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
+    }
+
+    pub fn create_new_enode(&mut self, enode: ENode) -> ENodeId {
+        ENodeId(self.0.create_new_item(enode))
+    }
+
+    fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
+        self.0.union(a.0, b.0)
+    }
+
+    /// checks if the given two eclass ids point to the same eclass.
+    ///
+    /// eclass ids can't be compared directly since they contain lazily evaluated data.
+    /// two eclass id instances may point to the same eclass even though structurally comparing the data stored in them will show
+    /// that they are not equal.
+    ///
+    /// so, this function allows for truly comparing 2 eclass ids for a given state of the egraph.
+    pub fn are_eclasses_eq(&self, a: EClassId, b: EClassId) -> bool {
+        self.0.are_eq(a.enode_id.0, b.enode_id.0)
+    }
+
+    /// checks if the given two enodes are equal according to the current state of the egraph.
+    pub fn are_enodes_eq(&self, a: ENodeId, b: ENodeId) -> bool {
+        self.are_eclasses_eq(a.eclass_id(), b.eclass_id())
+    }
+}
+impl Index<ENodeId> for ENodesUnionFind {
+    type Output = ENode;
+
+    fn index(&self, index: ENodeId) -> &Self::Output {
+        &self.0[index.0]
+    }
+}
+
+/// the result of adding an enode to the egraph
+#[derive(Debug)]
+pub struct AddENodeRes {
+    /// the eclass id of the new enode
+    pub eclass_id: EClassId,
+
+    /// the deduplication info of the added enode
+    pub dedup_info: ENodeDedupInfo,
+}
+
+/// an egraph.
+#[derive(derive_debug::Dbg, Clone)]
+pub struct EGraph {
+    union_find: ENodesUnionFind,
+
+    next_internal_var: InternalVar,
+
+    #[dbg(skip)]
+    structural_hash_table: ENodesStructuralHashTable,
+
+    bimap: RefCell<BiHashMap<EffectiveENode, ENodeId>>,
+}
+impl EGraph {
+    /// returns a new empty egraph.
+    pub fn new() -> Self {
+        Self {
+            union_find: ENodesUnionFind::new(),
+            structural_hash_table: ENodesStructuralHashTable {
+                table: HashTable::new(),
+                hasher: NodeHasher::default(),
+            },
+            next_internal_var: InternalVar(0),
+            bimap: RefCell::new(BiHashMap::new()),
+        }
+    }
+
+    pub fn union_find(&self) -> &ENodesUnionFind {
+        &self.union_find
+    }
+
+    pub fn node_hasher(&self) -> &NodeHasher {
+        &self.structural_hash_table.hasher
     }
 
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree of the egraph.
@@ -219,7 +273,29 @@ impl EGraph {
 
     /// union the given two enodes, merging their eclasses into a single eclass.
     pub fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
-        self.union_find.union(a.0, b.0)
+        if self.union_find.are_enodes_eq(a, b) {
+            return UnionRes::Existing;
+        }
+
+        let mut bimap = self.bimap.borrow_mut();
+
+        // if they were previously not equal, the root of all items equal to b is now about to change. so, first, remove them
+        // from the hashmap, and later we'll re-add them with the correct values.
+        for enode_id in self.union_find.enodes_eq_to(b) {
+            bimap.remove_by_right(&enode_id);
+        }
+
+        let res = self.union_find.union_enodes(a, b);
+
+        // sanity. we have previously already manually checked if they are equal, so at this point we expect this union to be new.
+        debug_assert_eq!(res, UnionRes::New);
+
+        // re-add the removed items to the hashmap
+        for enode_id in self.union_find.enodes_eq_to(b) {
+            bimap.insert(self.enode_to_effective(&self[enode_id]), enode_id);
+        }
+
+        res
     }
 
     /// union the given two eclasses, merging them into a single eclass.
@@ -241,7 +317,7 @@ impl EGraph {
                 dedup_info: ENodeDedupInfo::Duplicate,
             },
             Entry::Vacant(entry) => {
-                let enode_id = ENodeId(self.union_find.create_new_item(enode.clone()));
+                let enode_id = self.union_find.create_new_enode(enode.clone());
                 entry.insert(ENodeHashTableEntry {
                     enode,
                     id: enode_id,
@@ -252,22 +328,6 @@ impl EGraph {
                 }
             }
         }
-    }
-
-    /// checks if the given two eclass ids point to the same eclass.
-    ///
-    /// eclass ids can't be compared directly since they contain lazily evaluated data.
-    /// two eclass id instances may point to the same eclass even though structurally comparing the data stored in them will show
-    /// that they are not equal.
-    ///
-    /// so, this function allows for truly comparing 2 eclass ids for a given state of the egraph.
-    pub fn are_eclasses_eq(&self, a: EClassId, b: EClassId) -> bool {
-        self.union_find.are_eq(a.enode_id.0, b.enode_id.0)
-    }
-
-    /// checks if the given two enodes are equal according to the current state of the egraph.
-    pub fn are_enodes_eq(&self, a: ENodeId, b: ENodeId) -> bool {
-        self.are_eclasses_eq(a.eclass_id(), b.eclass_id())
     }
 
     /// adds a recursive node to the egraph, converting each node to an enode.
@@ -378,7 +438,7 @@ impl EGraph {
                 let new_recursed_eclasses =
                     recursed_eclasses.with_added_recursed_eclass(effective_eclass_id);
 
-                for enode_id in self.enodes_in_eclass(link_eclass_id) {
+                for enode_id in self.union_find.enodes_in_eclass(link_eclass_id) {
                     let enode = &self[enode_id];
                     self.match_enode(
                         enode_id,
@@ -496,10 +556,10 @@ impl EGraph {
     }
 
     /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
-    pub fn propegate_unions(&mut self) {
+    pub fn propegate_unions(&self) {
         loop {
             let mut did_anything = DidAnything::False;
-            for (enode_id, enode) in self.enodes() {
+            for (enode_id, enode) in self.union_find.enodes() {
                 let effective_enode = self.enode_to_effective(enode);
                 let hash = self.structural_hash_table.hasher.hash_node(enode);
                 for hash_table_entry in self.structural_hash_table.table.iter_hash(hash) {
@@ -618,6 +678,7 @@ impl EGraph {
         // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
         // any useful information.
         let chosen_enode = self
+            .union_find
             .enodes_in_eclass(eclass_id)
             .find(|&enode_id| !self[enode_id].is_internal_var())
             .unwrap();
@@ -646,10 +707,10 @@ impl EGraph {
     fn try_to_gexf(&self) -> gexf::Result<String> {
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
-        for enode_id in self.enode_ids() {
+        for enode_id in self.union_find.enode_ids() {
             let enode = &self[enode_id];
 
-            let eclass_label = self.enodes_eq_to(enode_id).min().unwrap();
+            let eclass_label = self.union_find.enodes_eq_to(enode_id).min().unwrap();
 
             let node_label = if enode.links().is_empty() {
                 enode.structural_display()
@@ -684,7 +745,7 @@ impl EGraph {
         let mut out = String::new();
 
         let find_eclass_label_of_node =
-            |enode_id: ENodeId| self.enodes_eq_to(enode_id).min().unwrap();
+            |enode_id: ENodeId| self.union_find.enodes_eq_to(enode_id).min().unwrap();
 
         fn eclass_dot_id(eclass_label: ENodeId) -> String {
             format!("cluster_eclass_{}", eclass_label.0.0)
@@ -693,8 +754,11 @@ impl EGraph {
             format!("eclass_{}_item_{}", eclass_label.0.0, index_in_eclass)
         }
 
-        let eclass_labels: HashSet<ENodeId> =
-            self.enode_ids().map(find_eclass_label_of_node).collect();
+        let eclass_labels: HashSet<ENodeId> = self
+            .union_find
+            .enode_ids()
+            .map(find_eclass_label_of_node)
+            .collect();
 
         for &eclass_label in &eclass_labels {
             let eclass_id = eclass_label.eclass_id();
@@ -709,7 +773,7 @@ impl EGraph {
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self.enodes_eq_to(eclass_label).enumerate() {
+            for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
                 let label = self[enode_id].structural_display();
                 writeln!(
                     &mut out,
@@ -725,7 +789,7 @@ impl EGraph {
 
         // edges from each enode to target e-class clusters
         for &eclass_label in &eclass_labels {
-            for (i, enode_id) in self.enodes_eq_to(eclass_label).enumerate() {
+            for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
                 let enode = &self[enode_id];
                 for link in enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
@@ -840,6 +904,7 @@ impl EGraph {
             .insert(effective_eclass_id, new_graph_id);
 
         let best_enode_res = self
+            .union_find
             .enodes_in_effective_eclass(effective_eclass_id)
             .filter(|&enode_id| {
                 // skip internal var nodes, they are of no use to us here.
@@ -876,7 +941,7 @@ impl Index<ENodeId> for EGraph {
     type Output = ENode;
 
     fn index(&self, index: ENodeId) -> &Self::Output {
-        &self.union_find[index.0]
+        &self.union_find[index]
     }
 }
 
@@ -1165,9 +1230,9 @@ mod tests {
 
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
-        assert!(!egraph.are_eclasses_eq(zero_eclass, root_eclass));
+        assert!(!egraph.union_find.are_eclasses_eq(zero_eclass, root_eclass));
         egraph.apply_rewrites(&rule_set, None);
-        assert!(egraph.are_eclasses_eq(zero_eclass, root_eclass));
+        assert!(egraph.union_find.are_eclasses_eq(zero_eclass, root_eclass));
     }
 
     #[test]
@@ -1194,13 +1259,13 @@ mod tests {
             )
             .eclass_id;
 
-        assert!(!egraph.are_eclasses_eq(un_op_var0, un_op_var1));
+        assert!(!egraph.union_find.are_eclasses_eq(un_op_var0, un_op_var1));
 
         let union_res = egraph.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
         egraph.propegate_unions();
 
-        assert!(egraph.are_eclasses_eq(un_op_var0, un_op_var1));
+        assert!(egraph.union_find.are_eclasses_eq(un_op_var0, un_op_var1));
     }
 
     #[test]
@@ -1249,13 +1314,13 @@ mod tests {
             .eclass_id;
 
         // sanity
-        assert!(!egraph.are_eclasses_eq(bin_op0, bin_op1));
+        assert!(!egraph.union_find.are_eclasses_eq(bin_op0, bin_op1));
 
         let union_res = egraph.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
         egraph.propegate_unions();
 
-        assert!(egraph.are_eclasses_eq(un_op_var0, un_op_var1));
-        assert!(egraph.are_eclasses_eq(bin_op0, bin_op1));
+        assert!(egraph.union_find.are_eclasses_eq(un_op_var0, un_op_var1));
+        assert!(egraph.union_find.are_eclasses_eq(bin_op0, bin_op1));
     }
 }
