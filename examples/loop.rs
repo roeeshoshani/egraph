@@ -71,6 +71,8 @@ fn main() {
     let rule_set = rewrites![
         // a + b => b + a
         TemplateRewrite::bin_op_commutativity(BinOpKind::IntAdd).build(),
+        // a * (b + c) => (a * b) + (a * c)
+        TemplateRewrite::bin_op_distribute(BinOpKind::IntMul, BinOpKind::IntAdd).build(),
         // x * (phi(initial_term, add(loop_increment, <parent phi>)))
         // =>
         // phi(initial_term * x, add(loop_increment * x, <parent phi>))
