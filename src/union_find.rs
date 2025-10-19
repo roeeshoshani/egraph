@@ -291,9 +291,7 @@ impl<T> UnionFind<T> {
     pub fn items_eq_to(&self, item: UnionFindItemId) -> ItemsEqTo<'_> {
         let root = self.root_of_item(item);
 
-        if root != item {
-            self.flatten_descendents_of_item(root);
-        }
+        self.flatten_descendents_of_item(root);
 
         ItemsEqTo::new(self.children_of_item[root.index()].borrow())
     }
