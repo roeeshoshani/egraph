@@ -5,7 +5,7 @@ pub trait Rewrite {
     /// the context that is accumulated when matching the re-write rule's query and is used to build the final re-write result.
     type Ctx;
     fn create_initial_ctx(&self) -> Self::Ctx;
-    fn query(&self) -> CowBox<'_, dyn QueryLinkMatcher<Self::Ctx>>;
+    fn query(&self) -> CowBox<'_, dyn QueryEClassMatcher<Self::Ctx>>;
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes;
 }
 
@@ -21,13 +21,13 @@ pub trait QueryENodeMatcher<C> {
 
 pub trait QueryLinksMatcher<C> {
     fn match_links_amount(&self, links_amount: usize, ctx: C) -> Option<QueryMatch<C>>;
-    fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryLinkMatcher<C>>;
+    fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryEClassMatcher<C>>;
 }
 
-pub trait QueryLinkMatcher<C> {
-    fn match_link(
+pub trait QueryEClassMatcher<C> {
+    fn match_eclass(
         &self,
-        link_effective_eclass_id: EffectiveEClassId,
+        effective_eclass_id: EffectiveEClassId,
         egraph: &EGraph,
         ctx: &C,
     ) -> QueryMatchLinkRes<'_, C>;

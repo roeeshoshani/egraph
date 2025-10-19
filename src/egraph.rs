@@ -307,7 +307,7 @@ impl EGraph {
             let mut match_ctxs = Vec::new();
 
             // match the current enode
-            self.match_enode_link(
+            self.match_eclass(
                 effective_eclass_id,
                 &*query,
                 &initial_ctx,
@@ -324,15 +324,15 @@ impl EGraph {
         eclass_matches
     }
 
-    fn match_enode_link<C>(
+    fn match_eclass<C>(
         &self,
-        link_effective_eclass_id: EffectiveEClassId,
-        link_matcher: &dyn QueryLinkMatcher<C>,
+        effective_eclass_id: EffectiveEClassId,
+        eclass_matcher: &dyn QueryEClassMatcher<C>,
         ctx: &C,
         recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
-        match link_matcher.match_link(link_effective_eclass_id, self, ctx) {
+        match eclass_matcher.match_eclass(effective_eclass_id, self, ctx) {
             QueryMatchLinkRes::NoMatch => {
                 return;
             }
@@ -345,18 +345,18 @@ impl EGraph {
             } => {
                 // when matching recursing into the enodes of an eclass, make sure that we haven't recursed this eclass already,
                 // to prevent following eclass loops which will blow up the graph with redundant expressions.
-                if recursed_eclasses.has_recursed_eclass(link_effective_eclass_id) {
+                if recursed_eclasses.has_recursed_eclass(effective_eclass_id) {
                     // don't loop
                     return;
                 }
 
                 // mark the eclass as recursed
                 let new_recursed_eclasses =
-                    recursed_eclasses.with_added_recursed_eclass(link_effective_eclass_id);
+                    recursed_eclasses.with_added_recursed_eclass(effective_eclass_id);
 
                 for enode_id in self
                     .union_find
-                    .enodes_in_effective_eclass(link_effective_eclass_id)
+                    .enodes_in_effective_eclass(effective_eclass_id)
                 {
                     let enode = &self[enode_id];
                     self.match_enode(
@@ -399,7 +399,7 @@ impl EGraph {
         let mut cur_match_ctxs: Vec<C> = vec![new_ctx];
         let mut new_match_ctxs: Vec<C> = Vec::new();
         for cur_link_idx in 0..links_amount {
-            let link_matcher = links_matcher.get_link_matcher(cur_link_idx);
+            let eclass_matcher = links_matcher.get_link_matcher(cur_link_idx);
 
             // the eclass that the current enode link points to
             let link_eclass_id = *enode_links.get(cur_link_idx);
@@ -407,9 +407,9 @@ impl EGraph {
 
             // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
             for cur_ctx in &cur_match_ctxs {
-                self.match_enode_link(
+                self.match_eclass(
                     effective_eclass_id,
-                    &*link_matcher,
+                    &*eclass_matcher,
                     cur_ctx,
                     recursed_eclasses,
                     &mut new_match_ctxs,

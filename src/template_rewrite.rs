@@ -344,7 +344,7 @@ impl Rewrite for BuiltTemplateRewrite {
         TemplateRewriteCtx::new()
     }
 
-    fn query(&self) -> CowBox<'_, dyn QueryLinkMatcher<Self::Ctx>> {
+    fn query(&self) -> CowBox<'_, dyn QueryEClassMatcher<Self::Ctx>> {
         CowBox::Borrowed(&self.query)
     }
 
@@ -387,15 +387,15 @@ impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
     fn get_link_matcher(
         &self,
         link_index: usize,
-    ) -> CowBox<'_, dyn QueryLinkMatcher<TemplateRewriteCtx>> {
+    ) -> CowBox<'_, dyn QueryEClassMatcher<TemplateRewriteCtx>> {
         CowBox::Borrowed(self.links().get(link_index))
     }
 }
 
-impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
-    fn match_link(
+impl QueryEClassMatcher<TemplateRewriteCtx> for TemplateLink {
+    fn match_eclass(
         &self,
-        link_effective_eclass_id: EffectiveEClassId,
+        effective_eclass_id: EffectiveEClassId,
         _egraph: &EGraph,
         ctx: &TemplateRewriteCtx,
     ) -> QueryMatchLinkRes<'_, TemplateRewriteCtx> {
@@ -407,7 +407,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
             TemplateLink::Var(template_var) => {
                 match ctx.template_var_values.get(*template_var) {
                     Some(existing_var_value) => {
-                        if link_effective_eclass_id != existing_var_value.effective_eclass_id {
+                        if effective_eclass_id != existing_var_value.effective_eclass_id {
                             // no match
                             return QueryMatchLinkRes::NoMatch;
                         }
@@ -423,7 +423,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                         new_ctx.template_var_values.set(
                             *template_var,
                             TemplateVarValue {
-                                effective_eclass_id: link_effective_eclass_id,
+                                effective_eclass_id,
                             },
                         );
                         QueryMatchLinkRes::Match(QueryMatch { new_ctx })
@@ -438,7 +438,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                 new_ctx.template_var_values.set(
                     *template_var,
                     TemplateVarValue {
-                        effective_eclass_id: link_effective_eclass_id,
+                        effective_eclass_id,
                     },
                 );
                 QueryMatchLinkRes::RecurseIntoENodes {
