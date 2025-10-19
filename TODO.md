@@ -28,3 +28,5 @@
   NOTE: maybe we can instead have a `build_bi_directional` function?
 
   how expensive is the `Box`ing and `Rc`ing? it will certainly make this trait much easier to work with, but is it worth it?
+
+- add an "internal var allocator" type, since this is a repeating pattern, and we can re-use the code.
