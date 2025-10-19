@@ -473,8 +473,8 @@ impl EGraph {
         }
     }
 
-    /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
-    pub fn propegate_unions(&self) {
+    /// propagate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
+    pub fn propagate_unions(&self) {
         let mut bimap = self.bimap.borrow_mut();
         loop {
             let mut did_anything = DidAnything::False;
@@ -527,7 +527,7 @@ impl EGraph {
             if !did_anything.as_bool() {
                 break;
             }
-            self.propegate_unions();
+            self.propagate_unions();
             if let Some(max_iterations) = max_iterations {
                 cur_iteration_index += 1;
                 if cur_iteration_index == max_iterations {
@@ -1203,7 +1203,7 @@ mod tests {
 
         let union_res = egraph.union_find.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
-        egraph.propegate_unions();
+        egraph.propagate_unions();
 
         assert!(egraph.union_find.are_eclasses_eq(un_op_var0, un_op_var1));
     }
@@ -1272,7 +1272,7 @@ mod tests {
 
         let union_res = egraph.union_find.union_eclasses(var0, var1);
         assert_eq!(union_res, UnionRes::New);
-        egraph.propegate_unions();
+        egraph.propagate_unions();
 
         assert!(egraph.union_find.are_eclasses_eq(un_op_var0, un_op_var1));
         assert!(egraph.union_find.are_eclasses_eq(bin_op0, bin_op1));
