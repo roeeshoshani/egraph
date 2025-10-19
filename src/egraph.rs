@@ -514,7 +514,6 @@ impl EGraph {
             let mut did_anything = DidAnything::False;
             for rewrite_index in 0..rewrites.len() {
                 did_anything |= if rewrites.apply_rewrite(rewrite_index, self).as_bool() {
-                    println!("applied rewrite with index {}", rewrite_index);
                     std::fs::create_dir_all("./graphs").unwrap();
                     self.dump_dot_svg(&format!(
                         "./graphs/graph_{}_{}.svg",
