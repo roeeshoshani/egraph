@@ -509,21 +509,10 @@ impl EGraph {
 
     pub fn apply_rewrites<R: Rewrites>(&mut self, rewrites: &R, max_iterations: Option<usize>) {
         let mut cur_iteration_index = 0;
-        let mut modification_index = 0;
         loop {
             let mut did_anything = DidAnything::False;
             for rewrite_index in 0..rewrites.len() {
-                did_anything |= if rewrites.apply_rewrite(rewrite_index, self).as_bool() {
-                    std::fs::create_dir_all("./graphs").unwrap();
-                    self.dump_dot_svg(&format!(
-                        "./graphs/graph_{}_{}.svg",
-                        modification_index, rewrite_index
-                    ));
-                    modification_index += 1;
-                    DidAnything::True
-                } else {
-                    DidAnything::False
-                };
+                did_anything |= rewrites.apply_rewrite(rewrite_index, self);
             }
             if !did_anything.as_bool() {
                 break;
