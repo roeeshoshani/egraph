@@ -1,21 +1,20 @@
-use enum_variant_accessors::EnumIsVariant;
+use arrayvec::ArrayVec;
 
 use crate::{egraph::*, node::*, rewrite::*, utils::CowBox};
 
 /// the context for the bin op constant folding re-write.
-#[derive(Debug, EnumIsVariant)]
-pub enum Ctx {
-    /// initial state. at this state, we haven't captured any information about the binary operation that is about to be folded.
-    Initial,
-
-    /// we have captured the bin op kind.
-    GotKind { kind: BinOpKind },
-
-    /// we have captured the bin op kind and the lhs.
-    GotKindAndLhs { kind: BinOpKind, lhs: Imm },
-
-    /// we are done capturing all of the relevant information.
-    Done { kind: BinOpKind, lhs: Imm, rhs: Imm },
+#[derive(Debug, Clone)]
+pub struct Ctx {
+    bin_op_kind: Option<BinOpKind>,
+    operands: ArrayVec<Imm, 2>,
+}
+impl Ctx {
+    fn new() -> Self {
+        Self {
+            bin_op_kind: None,
+            operands: ArrayVec::new(),
+        }
+    }
 }
 
 /// a binary operation constant folding re-write rule.
@@ -24,7 +23,7 @@ impl Rewrite for ConstFoldRewrite {
     type Ctx = Ctx;
 
     fn create_initial_ctx(&self) -> Self::Ctx {
-        Ctx::Initial
+        Ctx::new()
     }
 
     fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>> {
@@ -32,10 +31,13 @@ impl Rewrite for ConstFoldRewrite {
     }
 
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
-        let Ctx::Done { kind, lhs, rhs } = ctx else {
+        let Some(kind) = ctx.bin_op_kind else {
             unreachable!()
         };
-        let res = kind.apply_to_imms(lhs, rhs);
+        let [lhs, rhs] = &ctx.operands[..] else {
+            unreachable!()
+        };
+        let res = kind.apply_to_imms(*lhs, *rhs);
         egraph.add_enode(res.into())
     }
 }
@@ -49,12 +51,15 @@ impl QueryENodeMatcher<Ctx> for Query {
         _egraph: &EGraph,
         ctx: &Ctx,
     ) -> QueryMatchENodeRes<'_, Ctx> {
-        assert!(ctx.is_initial());
         let Some(bin_op) = enode.as_bin_op() else {
             return QueryMatchENodeRes::NoMatch;
         };
+
+        let mut new_ctx = ctx.clone();
+        new_ctx.bin_op_kind = Some(bin_op.kind);
+
         QueryMatchENodeRes::RecurseIntoLinks {
-            new_ctx: Ctx::GotKind { kind: bin_op.kind },
+            new_ctx,
             links_matcher: CowBox::Borrowed(&LinksMatcher),
         }
     }
@@ -63,7 +68,6 @@ impl QueryENodeMatcher<Ctx> for Query {
 struct LinksMatcher;
 impl QueryLinksMatcher<Ctx> for LinksMatcher {
     fn match_links_amount(&self, links_amount: usize, ctx: Ctx) -> Option<QueryMatch<Ctx>> {
-        assert!(ctx.is_got_kind());
         if links_amount != 2 {
             return None;
         }
@@ -72,24 +76,20 @@ impl QueryLinksMatcher<Ctx> for LinksMatcher {
 
     fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryLinkMatcher<Ctx>> {
         match link_index {
-            0 => CowBox::Borrowed(&LhsMatcher),
-            1 => CowBox::Borrowed(&RhsMatcher),
+            0 | 1 => CowBox::Borrowed(&OperandMatcher),
             _ => unreachable!(),
         }
     }
 }
 
-struct LhsMatcher;
-impl QueryLinkMatcher<Ctx> for LhsMatcher {
+struct OperandMatcher;
+impl QueryLinkMatcher<Ctx> for OperandMatcher {
     fn match_link(
         &self,
         link_eclass_id: EClassId,
         egraph: &EGraph,
         ctx: &Ctx,
     ) -> QueryMatchLinkRes<'_, Ctx> {
-        let Ctx::GotKind { kind } = ctx else {
-            unreachable!()
-        };
         let Some(imm) = egraph
             .union_find()
             .enodes_in_eclass(link_eclass_id)
@@ -97,39 +97,10 @@ impl QueryLinkMatcher<Ctx> for LhsMatcher {
         else {
             return QueryMatchLinkRes::NoMatch;
         };
-        QueryMatchLinkRes::Match(QueryMatch {
-            new_ctx: Ctx::GotKindAndLhs {
-                kind: *kind,
-                lhs: *imm,
-            },
-        })
-    }
-}
 
-struct RhsMatcher;
-impl QueryLinkMatcher<Ctx> for RhsMatcher {
-    fn match_link(
-        &self,
-        link_eclass_id: EClassId,
-        egraph: &EGraph,
-        ctx: &Ctx,
-    ) -> QueryMatchLinkRes<'_, Ctx> {
-        let Ctx::GotKindAndLhs { kind, lhs } = ctx else {
-            unreachable!()
-        };
-        let Some(imm) = egraph
-            .union_find()
-            .enodes_in_eclass(link_eclass_id)
-            .find_map(|enode_id| egraph[enode_id].as_imm())
-        else {
-            return QueryMatchLinkRes::NoMatch;
-        };
-        QueryMatchLinkRes::Match(QueryMatch {
-            new_ctx: Ctx::Done {
-                kind: *kind,
-                lhs: *lhs,
-                rhs: *imm,
-            },
-        })
+        let mut new_ctx = ctx.clone();
+        new_ctx.operands.push(*imm);
+
+        QueryMatchLinkRes::Match(QueryMatch { new_ctx })
     }
 }
