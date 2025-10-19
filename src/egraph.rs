@@ -9,7 +9,7 @@ use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_f
 use std::fmt::Write as _;
 
 /// the id of an enode.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ENodeId(pub UnionFindItemId);
 impl ENodeId {
     /// returns an eclass id object representing the eclass which contains this enode id.
@@ -183,6 +183,13 @@ impl EGraph {
 
     pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = ENodeId> {
         self.enodes_eq_to(eclass_id.enode_id)
+    }
+
+    pub fn enodes_in_effective_eclass(
+        &self,
+        effective_eclass_id: EffectiveEClassId,
+    ) -> impl Iterator<Item = ENodeId> {
+        self.enodes_eq_to(effective_eclass_id.eclass_root)
     }
 
     pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<> {
@@ -611,14 +618,11 @@ impl EGraph {
         // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
         // any useful information.
         let chosen_enode = self
-            .union_find
-            .items_eq_to(eclass_id.enode_id.0)
-            .find(|&enode_item_id| {
-                let enode = &self.union_find[enode_item_id];
-                !enode.is_internal_var()
-            })
+            .enodes_in_eclass(eclass_id)
+            .find(|&enode_id| !self[enode_id].is_internal_var())
             .unwrap();
-        self.enode_get_sample_rec_node_inner(ENodeId(chosen_enode), visited_eclasses)
+
+        self.enode_get_sample_rec_node_inner(chosen_enode, visited_eclasses)
             .into()
     }
 
@@ -642,11 +646,10 @@ impl EGraph {
     fn try_to_gexf(&self) -> gexf::Result<String> {
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
-        for enode_item_id in self.union_find.item_ids() {
-            let enode_id = ENodeId(enode_item_id);
-            let enode = &self.union_find[enode_item_id];
+        for enode_id in self.enode_ids() {
+            let enode = &self[enode_id];
 
-            let eclass_label = self.union_find.items_eq_to(enode_item_id).min().unwrap();
+            let eclass_label = self.enodes_eq_to(enode_id).min().unwrap();
 
             let node_label = if enode.links().is_empty() {
                 enode.structural_display()
@@ -658,11 +661,11 @@ impl EGraph {
                 )
             };
 
-            let node_id = enode_item_id.0.to_string();
+            let node_id = enode_id.0.0.to_string();
 
             let node = gexf::Node::new(&node_id)
                 .with_label(node_label)
-                .with_attr("eclass", eclass_label.0.to_string());
+                .with_attr("eclass", eclass_label.0.0.to_string());
             builder = builder.add_node(node)?;
 
             // edges
@@ -681,23 +684,20 @@ impl EGraph {
         let mut out = String::new();
 
         let find_eclass_label_of_node =
-            |item_id: UnionFindItemId| self.union_find.items_eq_to(item_id).min().unwrap();
+            |enode_id: ENodeId| self.enodes_eq_to(enode_id).min().unwrap();
 
-        fn eclass_dot_id(eclass_label: UnionFindItemId) -> String {
-            format!("cluster_eclass_{}", eclass_label.0)
+        fn eclass_dot_id(eclass_label: ENodeId) -> String {
+            format!("cluster_eclass_{}", eclass_label.0.0)
         }
-        fn enode_dot_id(eclass_label: UnionFindItemId, index_in_eclass: usize) -> String {
-            format!("eclass_{}_item_{}", eclass_label.0, index_in_eclass)
+        fn enode_dot_id(eclass_label: ENodeId, index_in_eclass: usize) -> String {
+            format!("eclass_{}_item_{}", eclass_label.0.0, index_in_eclass)
         }
 
-        let eclass_labels: HashSet<UnionFindItemId> = self
-            .union_find
-            .item_ids()
-            .map(|item_id| find_eclass_label_of_node(item_id))
-            .collect();
+        let eclass_labels: HashSet<ENodeId> =
+            self.enode_ids().map(find_eclass_label_of_node).collect();
 
         for &eclass_label in &eclass_labels {
-            let eclass_id = ENodeId(eclass_label).eclass_id();
+            let eclass_id = eclass_label.eclass_id();
 
             writeln!(&mut out, "subgraph {} {{", eclass_dot_id(eclass_label),).unwrap();
 
@@ -709,8 +709,8 @@ impl EGraph {
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self.union_find.items_eq_to(eclass_label).enumerate() {
-                let label = self.union_find[enode_id].structural_display();
+            for (i, enode_id) in self.enodes_eq_to(eclass_label).enumerate() {
+                let label = self[enode_id].structural_display();
                 writeln!(
                     &mut out,
                     "{} [label=\"{}\"];",
@@ -725,11 +725,11 @@ impl EGraph {
 
         // edges from each enode to target e-class clusters
         for &eclass_label in &eclass_labels {
-            for (i, enode_id) in self.union_find.items_eq_to(eclass_label).enumerate() {
-                let enode = &self.union_find[enode_id];
+            for (i, enode_id) in self.enodes_eq_to(eclass_label).enumerate() {
+                let enode = &self[enode_id];
                 for link in enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
-                    let target_eclass_label = find_eclass_label_of_node(link.enode_id.0);
+                    let target_eclass_label = find_eclass_label_of_node(link.enode_id);
                     writeln!(
                         &mut out,
                         "{} -> {} [lhead={}];",
@@ -766,7 +766,7 @@ impl EGraph {
     }
 
     fn extract_enode<'a>(&self, enode_id: ENodeId, ctx: &'a ExtractCtx) -> ExtractENodeRes<'a> {
-        let enode = &self.union_find[enode_id.0];
+        let enode = &self[enode_id];
         let mut score = ExtractionScore {
             looping_score: 0,
             base_score: 1,
@@ -840,13 +840,12 @@ impl EGraph {
             .insert(effective_eclass_id, new_graph_id);
 
         let best_enode_res = self
-            .union_find
-            .items_eq_to(effective_eclass_id.eclass_root.0)
-            .filter(|&enode_item_id| {
+            .enodes_in_effective_eclass(effective_eclass_id)
+            .filter(|&enode_id| {
                 // skip internal var nodes, they are of no use to us here.
-                !self.union_find[enode_item_id].is_internal_var()
+                !self[enode_id].is_internal_var()
             })
-            .map(|enode_item_id| self.extract_enode(ENodeId(enode_item_id), &new_ctx))
+            .map(|enode_id| self.extract_enode(enode_id, &new_ctx))
             .min_by_key(|extract_enode_res| extract_enode_res.res.score)
             .unwrap();
 
