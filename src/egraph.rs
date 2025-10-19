@@ -1,9 +1,8 @@
 use bimap::BiHashMap;
 use derive_more::{Add, AddAssign};
 use duct::cmd;
-use either::Either;
-use hashbrown::{DefaultHashBuilder, HashMap, HashSet, HashTable, hash_table::Entry};
-use std::{borrow::Cow, cell::RefCell, hash::BuildHasher, io::Write as _, ops::Index};
+use hashbrown::{HashMap, HashSet};
+use std::{borrow::Cow, cell::RefCell, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
 
 use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
@@ -73,60 +72,6 @@ impl ENode {
     /// converts this enode to an enode with an effective eclass id which is correct for the given state of the union find tree.
     fn to_effective(&self, union_find: &ENodesUnionFind) -> EffectiveENode {
         self.convert_links(|eclass_id| eclass_id.to_effective(union_find))
-    }
-}
-
-/// a hash table entry in our enode hash table.
-#[derive(Debug, Clone)]
-pub struct ENodeHashTableEntry {
-    /// the enode.
-    enode: ENode,
-
-    /// the id of the enode.
-    id: ENodeId,
-}
-
-/// a node hasher. used for implementing our enode hash table.
-#[derive(Debug, Default, Clone)]
-pub struct NodeHasher(DefaultHashBuilder);
-impl NodeHasher {
-    /// performs structural hashing on the given node, ignoring the link. the calculated hash then allows performing lookup
-    /// in the hash table.
-    pub fn hash_node<L>(&self, node: &GenericNode<L>) -> u64 {
-        // hash the enode, but ignore the links. only take its structure into account.
-        self.0.hash_one(node.convert_links(|_| ()))
-    }
-}
-
-/// a structual hash table of enodes.
-///
-/// the enodes are hashed according to their structure, ignoring the links, but contain the fully detailed enode values including
-/// the links, which allows for comparison against exact entries.
-#[derive(Clone)]
-pub struct ENodesStructuralHashTable {
-    table: HashTable<ENodeHashTableEntry>,
-    hasher: NodeHasher,
-}
-impl ENodesStructuralHashTable {
-    /// finds the entry in the hash table for the given enode.
-    ///
-    /// if an exact enode already exists, returns an occupied entry. otherwise, returns a vacant entry.
-    pub fn entry_mut(
-        &mut self,
-        enode: &ENode,
-        union_find: &ENodesUnionFind,
-    ) -> hashbrown::hash_table::Entry<'_, ENodeHashTableEntry> {
-        let effective_enode = enode.to_effective(union_find);
-        let eq_fn =
-            |entry: &ENodeHashTableEntry| entry.enode.to_effective(union_find) == effective_enode;
-
-        let hash_fn = |entry: &ENodeHashTableEntry| self.hasher.hash_node(&entry.enode);
-
-        let hash = self.hasher.hash_node(&enode);
-
-        let entry = self.table.entry(hash, eq_fn, hash_fn);
-
-        entry
     }
 }
 
@@ -227,9 +172,6 @@ pub struct EGraph {
 
     next_internal_var: InternalVar,
 
-    #[dbg(skip)]
-    structural_hash_table: ENodesStructuralHashTable,
-
     bimap: RefCell<BiHashMap<EffectiveENode, ENodeId>>,
 }
 impl EGraph {
@@ -237,10 +179,6 @@ impl EGraph {
     pub fn new() -> Self {
         Self {
             union_find: ENodesUnionFind::new(),
-            structural_hash_table: ENodesStructuralHashTable {
-                table: HashTable::new(),
-                hasher: NodeHasher::default(),
-            },
             next_internal_var: InternalVar(0),
             bimap: RefCell::new(BiHashMap::new()),
         }
@@ -248,10 +186,6 @@ impl EGraph {
 
     pub fn union_find(&self) -> &ENodesUnionFind {
         &self.union_find
-    }
-
-    pub fn node_hasher(&self) -> &NodeHasher {
-        &self.structural_hash_table.hasher
     }
 
     /// converts this eclass id to an effective eclass id which is correct for the given state of the union find tree of the egraph.
@@ -307,26 +241,21 @@ impl EGraph {
     ///
     /// if the exact enode already exists in the egraph, returns the id of the existing enode.
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
-        let entry = self
-            .structural_hash_table
-            .entry_mut(&enode, &self.union_find);
+        let effective_enode = self.enode_to_effective(&enode);
+        let mut bimap = self.bimap.borrow_mut();
 
-        match entry {
-            Entry::Occupied(entry) => AddENodeRes {
-                eclass_id: entry.get().id.eclass_id(),
+        if let Some(existing_id) = bimap.get_by_left(&effective_enode) {
+            return AddENodeRes {
+                eclass_id: existing_id.eclass_id(),
                 dedup_info: ENodeDedupInfo::Duplicate,
-            },
-            Entry::Vacant(entry) => {
-                let enode_id = self.union_find.create_new_enode(enode.clone());
-                entry.insert(ENodeHashTableEntry {
-                    enode,
-                    id: enode_id,
-                });
-                AddENodeRes {
-                    eclass_id: enode_id.eclass_id(),
-                    dedup_info: ENodeDedupInfo::New,
-                }
-            }
+            };
+        };
+
+        let enode_id = self.union_find.create_new_enode(enode.clone());
+        bimap.insert(effective_enode, enode_id);
+        AddENodeRes {
+            eclass_id: enode_id.eclass_id(),
+            dedup_info: ENodeDedupInfo::New,
         }
     }
 
@@ -375,23 +304,18 @@ impl EGraph {
     pub fn match_rewrite<R: Rewrite>(&self, rewrite: &R) -> Vec<ENodeMatch<R::Ctx>> {
         let mut enode_matches = Vec::new();
 
-        let entries = match rewrite.query_structural_hash(self) {
-            Some(hash) => Either::Left(self.structural_hash_table.table.iter_hash(hash)),
-            None => Either::Right(self.structural_hash_table.table.iter()),
-        };
-
         let initial_ctx = rewrite.create_initial_ctx();
         let query = rewrite.query();
         let recursed_eclasses = RecursedEClasses::new();
 
         // find the first enode that matches the rule.
-        for entry in entries {
+        for enode_id in self.union_find.enode_ids() {
             let mut match_ctxs = Vec::new();
 
             // match the current enode
             self.match_enode(
-                entry.id,
-                &entry.enode,
+                enode_id,
+                &self[enode_id],
                 &*query,
                 &initial_ctx,
                 &recursed_eclasses,
@@ -400,7 +324,7 @@ impl EGraph {
 
             enode_matches.extend(match_ctxs.into_iter().map(|ctx| ENodeMatch {
                 final_ctx: ctx,
-                enode_id: entry.id,
+                enode_id,
             }));
         }
 
@@ -557,19 +481,18 @@ impl EGraph {
 
     /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
     pub fn propegate_unions(&self) {
+        let mut bimap = self.bimap.borrow_mut();
         loop {
             let mut did_anything = DidAnything::False;
             for (enode_id, enode) in self.union_find.enodes() {
-                let effective_enode = self.enode_to_effective(enode);
-                let hash = self.structural_hash_table.hasher.hash_node(enode);
-                for hash_table_entry in self.structural_hash_table.table.iter_hash(hash) {
-                    if self.enode_to_effective(&hash_table_entry.enode) == effective_enode {
-                        let union_res = self
-                            .union_eclasses(enode_id.eclass_id(), hash_table_entry.id.eclass_id());
-                        if union_res == UnionRes::New {
-                            did_anything = DidAnything::True;
-                        }
-                    }
+                let prev_effective_enode = bimap.get_by_right(&enode_id).unwrap();
+                let new_effective_enode = self.enode_to_effective(enode);
+
+                // the links of this enodes have changed due to the unioning operations. re-hash it.
+                if *prev_effective_enode != new_effective_enode {
+                    bimap.remove_by_right(&enode_id);
+                    bimap.insert(new_effective_enode, enode_id);
+                    did_anything = DidAnything::True;
                 }
             }
             if !did_anything.as_bool() {

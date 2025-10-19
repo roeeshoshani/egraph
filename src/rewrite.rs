@@ -6,7 +6,6 @@ pub trait Rewrite {
     type Ctx;
     fn create_initial_ctx(&self) -> Self::Ctx;
     fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>>;
-    fn query_structural_hash(&self, egraph: &EGraph) -> Option<u64>;
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes;
 }
 

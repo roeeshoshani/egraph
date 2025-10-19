@@ -31,11 +31,6 @@ impl Rewrite for ConstFoldRewrite {
         CowBox::Borrowed(&Query)
     }
 
-    fn query_structural_hash(&self, _egraph: &EGraph) -> Option<u64> {
-        // we can't specify a specific structural hash, since we don't want to match a specific bin op kind, we want to match all of them.
-        None
-    }
-
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
         let Ctx::Done { kind, lhs, rhs } = ctx else {
             unreachable!()

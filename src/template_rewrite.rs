@@ -257,10 +257,6 @@ impl Rewrite for BuiltTemplateRewrite {
         CowBox::Borrowed(&self.query)
     }
 
-    fn query_structural_hash(&self, egraph: &EGraph) -> Option<u64> {
-        Some(egraph.node_hasher().hash_node(&self.query))
-    }
-
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
         instantiate_template_link(&self.rewrite, &ctx, egraph)
     }
