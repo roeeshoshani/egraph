@@ -1129,36 +1129,7 @@ mod tests {
             }
             .build(),
             // a & (b | c) => (a & b) | (a & c)
-            TemplateRewrite {
-                query: TemplateBinOp {
-                    kind: BinOpKind::IntAnd,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateBinOp {
-                        kind: BinOpKind::IntOr,
-                        lhs: TemplateVar::new(2).into(),
-                        rhs: TemplateVar::new(3).into(),
-                    }
-                    .into(),
-                }
-                .into(),
-                rewrite: TemplateBinOp {
-                    kind: BinOpKind::IntOr,
-                    lhs: TemplateBinOp {
-                        kind: BinOpKind::IntAnd,
-                        lhs: TemplateVar::new(1).into(),
-                        rhs: TemplateVar::new(2).into(),
-                    }
-                    .into(),
-                    rhs: TemplateBinOp {
-                        kind: BinOpKind::IntAnd,
-                        lhs: TemplateVar::new(1).into(),
-                        rhs: TemplateVar::new(3).into(),
-                    }
-                    .into(),
-                }
-                .into(),
-            }
-            .build(),
+            TemplateRewrite::bin_op_distribute(BinOpKind::IntAnd, BinOpKind::IntOr).build(),
             // a & (b & c) => (a & b) & c
             TemplateRewrite::bin_op_associativity(BinOpKind::IntAnd).build(),
             // a & b => b & a

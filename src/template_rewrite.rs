@@ -107,7 +107,8 @@ pub struct TemplateRewrite {
     pub rewrite: TemplateLink,
 }
 impl TemplateRewrite {
-    /// creates a rewrite for the commutativity of the bin op with the given kind (`a <op> b == b <op> a`).
+    /// creates a rewrite for the commutativity of the bin op with the given kind.
+    /// `a <op> b == b <op> a`
     pub fn bin_op_commutativity(bin_op_kind: BinOpKind) -> Self {
         TemplateRewrite {
             query: TemplateBinOp {
@@ -125,7 +126,42 @@ impl TemplateRewrite {
         }
     }
 
-    /// creates a rewrite for the associativity of the bin op with the given kind (`a <op> (b <op> c) == (a <op> b) <op> c`).
+    /// creates a rewrite which allows distributing one bin op kind to another bin op kind
+    /// `a <op1> (b <op2> c) == (a <op1> b) <op2> (a <op1> c)`
+    pub fn bin_op_distribute(bin_op_kind_outer: BinOpKind, bin_op_kind_inner: BinOpKind) -> Self {
+        TemplateRewrite {
+            query: TemplateBinOp {
+                kind: bin_op_kind_outer,
+                lhs: TemplateVar::new(1).into(),
+                rhs: TemplateBinOp {
+                    kind: bin_op_kind_inner,
+                    lhs: TemplateVar::new(2).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+            rewrite: TemplateBinOp {
+                kind: bin_op_kind_inner,
+                lhs: TemplateBinOp {
+                    kind: bin_op_kind_outer,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(2).into(),
+                }
+                .into(),
+                rhs: TemplateBinOp {
+                    kind: bin_op_kind_outer,
+                    lhs: TemplateVar::new(1).into(),
+                    rhs: TemplateVar::new(3).into(),
+                }
+                .into(),
+            }
+            .into(),
+        }
+    }
+
+    /// creates a rewrite for the associativity of the bin op with the given kind.
+    /// `a <op> (b <op> c) == (a <op> b) <op> c`
     pub fn bin_op_associativity(bin_op_kind: BinOpKind) -> Self {
         TemplateRewrite {
             query: TemplateBinOp {
