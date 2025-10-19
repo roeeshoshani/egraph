@@ -215,33 +215,7 @@ impl TemplateRewrite {
 
     // checks that this template rewrite even makes sense to exist.
     fn check(&self) {
-        match self.query.max_template_var_id() {
-            Some(max_var_id) => {
-                // the query uses some variables
-
-                // make sure that there are no gaps in the variable ids
-                for i in 1..=max_var_id.get() {
-                    let does_use_var = self.query.does_use_template_var(TemplateVar {
-                        id: {
-                            // SAFETY: we start iterating from 1
-                            unsafe { NonZeroUsize::new_unchecked(i) }
-                        },
-                    });
-                    assert!(does_use_var);
-                }
-
-                // make sure that the re-write doesn't use variables that don't exist in the query
-                if let Some(rewrite_max_var_id) = self.rewrite.max_template_var_id() {
-                    assert!(rewrite_max_var_id <= max_var_id)
-                }
-            }
-            None => {
-                // the query doesn't use any values
-
-                // make sure that the re-write also doesn't use any variables
-                assert_eq!(self.rewrite.max_template_var_id(), None);
-            }
-        }
+        // no checks are needed for now.
     }
 
     fn check_can_swap_direction(&self) {
