@@ -28,6 +28,22 @@ impl TemplateVar {
     }
 }
 
+/// a template var builder, which is just a wrapper around the variable's name. when built, it will be converted to
+/// an actual template var.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TemplateVarBuilder {
+    /// the variable name.
+    pub name: String,
+}
+impl TemplateVarBuilder {
+    /// creates a new template var builder which represents a template variable with the given name.
+    pub fn new<T: Into<String>>(var_name: T) -> Self {
+        Self {
+            name: var_name.into(),
+        }
+    }
+}
+
 /// a template link builder. this is used to represent links in the template re-write builder, and it will later
 /// be built into an actual template link.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -36,23 +52,30 @@ pub enum TemplateLinkBuilder {
     Specific(Box<TemplateNodeBuilder>),
 
     /// this link is a wildcard variable. it can match any value, and it will be substituted when instantiating the template.
-    Var(String),
+    Var(TemplateVarBuilder),
 }
 
 /// a template node builder. this is used to represent nodes in the template re-write builder, and it will later
 /// be built into an actual template node.
 pub type TemplateNodeBuilder = GenericNode<TemplateLinkBuilder>;
 
+// convert a template var builder to a template link builder.
+impl From<TemplateVarBuilder> for TemplateLinkBuilder {
+    fn from(x: TemplateVarBuilder) -> Self {
+        Self::Var(x)
+    }
+}
+
 // convert any string-like object to a template link which represent a template variable with the string as
 // the variable name.
 impl From<String> for TemplateLinkBuilder {
     fn from(x: String) -> Self {
-        Self::Var(x)
+        TemplateVarBuilder::new(x).into()
     }
 }
 impl<'a> From<&'a str> for TemplateLinkBuilder {
     fn from(x: &'a str) -> Self {
-        Self::Var(String::from(x))
+        TemplateVarBuilder::new(x).into()
     }
 }
 
@@ -104,7 +127,7 @@ impl VarTranslator {
             TemplateLinkBuilder::Specific(node) => {
                 TemplateLink::Specific(Box::new(self.convert_query_node(node)))
             }
-            TemplateLinkBuilder::Var(var_name) => match self.name_to_var.entry(var_name.clone()) {
+            TemplateLinkBuilder::Var(var) => match self.name_to_var.entry(var.name.clone()) {
                 hashbrown::hash_map::Entry::Occupied(occupied_entry) => {
                     TemplateLink::Var(*occupied_entry.get())
                 }
@@ -131,7 +154,7 @@ impl VarTranslator {
             TemplateLinkBuilder::Specific(node) => {
                 TemplateLink::Specific(Box::new(self.convert_rewrite_node(node)))
             }
-            TemplateLinkBuilder::Var(var_name) => TemplateLink::Var(self.name_to_var[var_name]),
+            TemplateLinkBuilder::Var(var) => TemplateLink::Var(self.name_to_var[&var.name]),
         }
     }
 }
