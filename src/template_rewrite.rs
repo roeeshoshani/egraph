@@ -239,28 +239,9 @@ impl TemplateRewriteBuilder {
     /// creates a rewrite for the associativity of the bin op with the given kind (`a <op> (b <op> c) == (a <op> b) <op> c`).
     pub fn bin_op_associativity(bin_op_kind: BinOpKind) -> Self {
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: bin_op_kind,
-                lhs: "a".into(),
-                rhs: BinOp {
-                    kind: bin_op_kind,
-                    lhs: "b".into(),
-                    rhs: "c".into(),
-                }
-                .into(),
-            }
-            .into(),
-            rewrite: BinOp {
-                kind: bin_op_kind,
-                lhs: BinOp {
-                    kind: bin_op_kind,
-                    lhs: "a".into(),
-                    rhs: "b".into(),
-                }
-                .into(),
-                rhs: "c".into(),
-            }
-            .into(),
+            query: tv("a").apply_bin_op(bin_op_kind, tv("b").apply_bin_op(bin_op_kind, tv("c"))),
+            rewrite: (tv("a").apply_bin_op(bin_op_kind, tv("b")))
+                .apply_bin_op(bin_op_kind, tv("c")),
         }
     }
 
