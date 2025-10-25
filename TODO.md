@@ -19,6 +19,4 @@
 
   maybe we can somehow make it so that they can avoid the cloning, for example by returning `None` indicating that the original ctx should be used or something like that. need to see if it works with rust's annoying borrow checker.
 
-- implement a constant-folding re-write. this will help us see if the rewrite traits that i implemented are actually generic enough.
-
 - add an "internal var allocator" type, since this is a repeating pattern, and we can re-use the code.
