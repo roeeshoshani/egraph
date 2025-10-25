@@ -125,7 +125,7 @@ impl<R: SimpleRewrite> Rewrites for R {
 
     fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything {
         assert_eq!(rewrite_index, 0);
-        egraph.apply_rewrite(self)
+        egraph.apply_simple_rewrite(self)
     }
 }
 
@@ -136,7 +136,7 @@ impl<A: SimpleRewrite, B: Rewrites> Rewrites for (A, B) {
         assert!(rewrite_index <= Self::LEN);
         if rewrite_index + 1 == Self::LEN {
             // apply the current rule
-            egraph.apply_rewrite(&self.0)
+            egraph.apply_simple_rewrite(&self.0)
         } else {
             // apply some inner rule, recurse
             self.1.apply_rewrite(rewrite_index, egraph)

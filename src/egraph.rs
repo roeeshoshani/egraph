@@ -255,25 +255,25 @@ impl EGraph {
         }
     }
 
-    pub fn apply_rewrite<R: SimpleRewrite>(&mut self, rewrite: &R) -> DidAnything {
-        let matches = self.match_rewrite(rewrite);
-        self.handle_rewrite_matches(matches, rewrite)
+    pub fn apply_simple_rewrite<R: SimpleRewrite>(&mut self, rewrite: &R) -> DidAnything {
+        let matches = self.match_simple_rewrite(rewrite);
+        self.handle_simple_rewrite_matches(matches, rewrite)
     }
 
-    pub fn handle_rewrite_matches<R: SimpleRewrite>(
+    pub fn handle_simple_rewrite_matches<R: SimpleRewrite>(
         &mut self,
-        enode_matches: Vec<ENodeMatch<R::Ctx>>,
+        matches: Vec<SimpleRewriteMatch<R::Ctx>>,
         rewrite: &R,
     ) -> DidAnything {
         let mut did_anything = DidAnything::False;
 
         // for each match, add the rerwrite result to the egraph
-        for enode_match in enode_matches {
-            let add_res = rewrite.build_rewrite(enode_match.final_ctx, self);
+        for match_obj in matches {
+            let add_res = rewrite.build_rewrite(match_obj.final_ctx, self);
 
             let union_res = self
                 .union_find
-                .union_enodes(add_res.eclass_id.enode_id, enode_match.enode_id);
+                .union_enodes(add_res.eclass_id.enode_id, match_obj.enode_id);
             if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
                 did_anything = DidAnything::True;
             }
@@ -282,13 +282,15 @@ impl EGraph {
         did_anything
     }
 
-    pub fn match_rewrite<R: SimpleRewrite>(&self, rewrite: &R) -> Vec<ENodeMatch<R::Ctx>> {
-        let mut enode_matches = Vec::new();
+    pub fn match_simple_rewrite<R: SimpleRewrite>(
+        &self,
+        rewrite: &R,
+    ) -> Vec<SimpleRewriteMatch<R::Ctx>> {
+        let mut matches = Vec::new();
 
         let initial_ctx = rewrite.create_initial_ctx();
         let query = rewrite.query();
 
-        // find the first enode that matches the rule.
         for enode_id in self.union_find.enode_ids() {
             let mut match_ctxs = Vec::new();
 
@@ -306,13 +308,13 @@ impl EGraph {
                 &mut match_ctxs,
             );
 
-            enode_matches.extend(match_ctxs.into_iter().map(|ctx| ENodeMatch {
+            matches.extend(match_ctxs.into_iter().map(|ctx| SimpleRewriteMatch {
                 final_ctx: ctx,
                 enode_id,
             }));
         }
 
-        enode_matches
+        matches
     }
 
     fn match_enode_link<C>(
@@ -938,9 +940,9 @@ impl ExtractCtx {
     }
 }
 
-/// a match of a rule to a specific enode.
+/// a match of a simple re-write rule.
 #[derive(Debug, Clone)]
-pub struct ENodeMatch<C> {
+pub struct SimpleRewriteMatch<C> {
     /// the final ctx of this match.
     pub final_ctx: C,
 
