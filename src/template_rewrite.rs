@@ -99,17 +99,17 @@ pub type TemplateUnOp = UnOp<TemplateLink>;
 /// this is a re-write rule that is specified by directly specifying the expected structure, and it allows specifying wildcard
 /// variables in place of links in the expected structure, and using those variables to substitute values into the rewrite template.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateRewrite {
+pub struct TemplateRewriteBuilder {
     /// the structure that should be matched.
     pub query: TemplateNode,
 
     /// the template to instantiate to generate the re-write of the enode that matched the query.
     pub rewrite: TemplateLink,
 }
-impl TemplateRewrite {
+impl TemplateRewriteBuilder {
     /// creates a rewrite for the commutativity of the bin op with the given kind (`a <op> b == b <op> a`).
     pub fn bin_op_commutativity(bin_op_kind: BinOpKind) -> Self {
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: bin_op_kind,
                 lhs: TemplateVar::new(1).into(),
@@ -127,7 +127,7 @@ impl TemplateRewrite {
 
     /// creates a rewrite for the associativity of the bin op with the given kind (`a <op> (b <op> c) == (a <op> b) <op> c`).
     pub fn bin_op_associativity(bin_op_kind: BinOpKind) -> Self {
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: bin_op_kind,
                 lhs: TemplateVar::new(1).into(),
@@ -153,10 +153,10 @@ impl TemplateRewrite {
         }
     }
 
-    /// builds this template rewrite into a built template rewrite object, which can directly be applied to the egraph.
-    pub fn build(self) -> BuiltTemplateRewrite {
+    /// builds this into a template rewrite which can directly be applied to the egraph.
+    pub fn build(self) -> TemplateRewrite {
         self.check();
-        BuiltTemplateRewrite {
+        TemplateRewrite {
             query: self.query,
             rewrite: self.rewrite,
         }
@@ -231,9 +231,12 @@ impl TemplateRewrite {
     }
 }
 
-/// a built template rewrite, which is a template rewrite which was verified to be valid, and can be directly applied to an egraph.
+/// a template re-write.
+///
+/// this is a re-write rule that is specified by directly specifying the expected structure, and it allows specifying wildcard
+/// variables in place of links in the expected structure, and using those variables to substitute values into the rewrite template.
 #[derive(Debug, Clone)]
-pub struct BuiltTemplateRewrite {
+pub struct TemplateRewrite {
     query: TemplateNode,
     rewrite: TemplateLink,
 }
@@ -292,7 +295,7 @@ impl TemplateRewriteCtx {
     }
 }
 
-impl SimpleRewrite for BuiltTemplateRewrite {
+impl SimpleRewrite for TemplateRewrite {
     type Ctx = TemplateRewriteCtx;
 
     fn create_initial_ctx(&self) -> Self::Ctx {

@@ -31,15 +31,15 @@ fn main() {
 
     let rewrites = rewrites_arr![
         // a & (b & c) => (a & b) & c
-        TemplateRewrite::bin_op_associativity(BinOpKind::BitAnd).build(),
+        TemplateRewriteBuilder::bin_op_associativity(BinOpKind::BitAnd).build(),
         // a | (b | c) => (a | b) | c
-        TemplateRewrite::bin_op_associativity(BinOpKind::BitOr).build(),
+        TemplateRewriteBuilder::bin_op_associativity(BinOpKind::BitOr).build(),
         // a & b => b & a
-        TemplateRewrite::bin_op_commutativity(BinOpKind::BitAnd).build(),
+        TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitAnd).build(),
         // a | b => b | a
-        TemplateRewrite::bin_op_commutativity(BinOpKind::BitOr).build(),
+        TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitOr).build(),
         // (x & 0) => 0
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -50,7 +50,7 @@ fn main() {
         }
         .build(),
         // (x | 0) => x
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),
@@ -61,7 +61,7 @@ fn main() {
         }
         .build(),
         // a & (b | c) => (a & b) | (a & c)
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -92,7 +92,7 @@ fn main() {
         }
         .build(),
         // a & a => a
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: BinOpKind::BitAnd,
                 lhs: TemplateVar::new(1).into(),
@@ -103,7 +103,7 @@ fn main() {
         }
         .build(),
         // a | a => a
-        TemplateRewrite {
+        TemplateRewriteBuilder {
             query: TemplateBinOp {
                 kind: BinOpKind::BitOr,
                 lhs: TemplateVar::new(1).into(),

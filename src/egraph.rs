@@ -1081,7 +1081,7 @@ mod tests {
 
         let rule_set = rewrites_arr![
             // (x & 0) => 0
-            TemplateRewrite {
+            TemplateRewriteBuilder {
                 query: TemplateBinOp {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
@@ -1092,7 +1092,7 @@ mod tests {
             }
             .build(),
             // a & (b | c) => (a & b) | (a & c)
-            TemplateRewrite {
+            TemplateRewriteBuilder {
                 query: TemplateBinOp {
                     kind: BinOpKind::BitAnd,
                     lhs: TemplateVar::new(1).into(),
@@ -1123,9 +1123,9 @@ mod tests {
             }
             .build(),
             // a & (b & c) => (a & b) & c
-            TemplateRewrite::bin_op_associativity(BinOpKind::BitAnd).build(),
+            TemplateRewriteBuilder::bin_op_associativity(BinOpKind::BitAnd).build(),
             // a & b => b & a
-            TemplateRewrite::bin_op_commutativity(BinOpKind::BitAnd).build(),
+            TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitAnd).build(),
             BinOpConstFoldRewrite,
         ];
 
