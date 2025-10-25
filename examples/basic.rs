@@ -40,77 +40,32 @@ fn main() {
         TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitOr).build(),
         // (a & 0) => 0
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: BinOpKind::BitAnd,
-                lhs: "a".into(),
-                rhs: 0.into(),
-            }
-            .into(),
+            query: tv("a") & 0.into(),
             rewrite: 0.into(),
         }
         .build(),
         // (a | 0) => a
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: BinOpKind::BitOr,
-                lhs: "a".into(),
-                rhs: 0.into(),
-            }
-            .into(),
-            rewrite: "a".into(),
+            query: tv("a") | 0.into(),
+            rewrite: tv("a"),
         }
         .build(),
         // a & (b | c) => (a & b) | (a & c)
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: BinOpKind::BitAnd,
-                lhs: "a".into(),
-                rhs: BinOp {
-                    kind: BinOpKind::BitOr,
-                    lhs: "b".into(),
-                    rhs: "c".into(),
-                }
-                .into(),
-            }
-            .into(),
-            rewrite: BinOp {
-                kind: BinOpKind::BitOr,
-                lhs: BinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: "a".into(),
-                    rhs: "b".into(),
-                }
-                .into(),
-                rhs: BinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: "a".into(),
-                    rhs: "c".into(),
-                }
-                .into(),
-            }
-            .into(),
+            query: tv("a") & (tv("b") | tv("c")),
+            rewrite: (tv("a") & tv("b")) | (tv("a") & tv("c")),
         }
         .build(),
         // a & a => a
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: BinOpKind::BitAnd,
-                lhs: "a".into(),
-                rhs: "a".into(),
-            }
-            .into(),
-            rewrite: "a".into(),
+            query: tv("a") & tv("a"),
+            rewrite: tv("a"),
         }
         .build(),
         // a | a => a
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: BinOpKind::BitOr,
-                lhs: "a".into(),
-                rhs: "a".into(),
-            }
-            .into(),
-            rewrite: "a".into(),
+            query: tv("a") | tv("a"),
+            rewrite: tv("a"),
         }
         .build(),
         BinOpConstFoldRewrite
