@@ -44,6 +44,12 @@ impl TemplateVarBuilder {
     }
 }
 
+/// a shortcut for creating a template var builder as a template link builder. allows writing complex template
+/// expressions without being very verbose.
+pub fn tv<T: Into<String>>(var_name: T) -> TemplateLinkBuilder {
+    TemplateVarBuilder::new(var_name).into()
+}
+
 /// a template link builder. this is used to represent links in the template re-write builder, and it will later
 /// be built into an actual template link.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -54,6 +60,45 @@ pub enum TemplateLinkBuilder {
     /// this link is a wildcard variable. it can match any value, and it will be substituted when instantiating the template.
     Var(TemplateVarBuilder),
 }
+
+macro_rules! impl_binop_for_template_link_builder {
+    ($trait: ty, $trait_fn_name: ident, $bin_op_kind: expr) => {
+        impl $trait for TemplateLinkBuilder {
+            type Output = Self;
+
+            fn $trait_fn_name(self, rhs: Self) -> Self::Output {
+                Self::Specific(Box::new(GenericNode::BinOp(BinOp {
+                    kind: $bin_op_kind,
+                    lhs: self,
+                    rhs: rhs,
+                })))
+            }
+        }
+    };
+}
+
+impl_binop_for_template_link_builder! {std::ops::Add, add, BinOpKind::Add}
+impl_binop_for_template_link_builder! {std::ops::Mul, mul, BinOpKind::Mul}
+impl_binop_for_template_link_builder! {std::ops::BitAnd, bitand, BinOpKind::BitAnd}
+impl_binop_for_template_link_builder! {std::ops::BitOr, bitor, BinOpKind::BitOr}
+
+macro_rules! impl_unop_for_template_link_builder {
+    ($trait: ty, $trait_fn_name: ident, $un_op_kind: expr) => {
+        impl $trait for TemplateLinkBuilder {
+            type Output = Self;
+
+            fn $trait_fn_name(self) -> Self::Output {
+                Self::Specific(Box::new(GenericNode::UnOp(UnOp {
+                    kind: $un_op_kind,
+                    operand: self,
+                })))
+            }
+        }
+    };
+}
+
+impl_unop_for_template_link_builder! {std::ops::Neg, neg,UnOpKind::Neg}
+impl_unop_for_template_link_builder! {std::ops::Not, not,UnOpKind::BitNot}
 
 /// a template node builder. this is used to represent nodes in the template re-write builder, and it will later
 /// be built into an actual template node.
