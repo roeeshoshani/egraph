@@ -509,12 +509,16 @@ impl EGraph {
         }
     }
 
-    pub fn apply_rewrites<R: Rewrites>(&mut self, rewrites: &R, max_iterations: Option<usize>) {
+    pub fn apply_rewrites<R: AsRef<dyn Rewrite>, T: AsRef<[R]> + ?Sized>(
+        &mut self,
+        rewrites: &T,
+        max_iterations: Option<usize>,
+    ) {
         let mut cur_iteration_index = 0;
         loop {
             let mut did_anything = DidAnything::False;
-            for rewrite_index in 0..rewrites.len() {
-                did_anything |= rewrites.apply_rewrite(rewrite_index, self);
+            for rewrite_index in 0..rewrites.as_ref().len() {
+                did_anything |= rewrites.as_ref()[rewrite_index].as_ref().apply(self);
             }
             if !did_anything.as_bool() {
                 break;
@@ -974,7 +978,7 @@ impl RecursedEClasses {
 
 #[cfg(test)]
 mod tests {
-    use crate::{const_fold::BinOpConstFoldRewrite, rewrites, template_rewrite::*};
+    use crate::{const_fold::BinOpConstFoldRewrite, rewrites_arr, template_rewrite::*};
 
     use super::*;
 
@@ -1075,7 +1079,7 @@ mod tests {
 
         let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
-        let rule_set = rewrites![
+        let rule_set = rewrites_arr![
             // (x & 0) => 0
             TemplateRewrite {
                 query: TemplateBinOp {
@@ -1128,7 +1132,7 @@ mod tests {
         let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
         assert!(!egraph.union_find.are_eclasses_eq(zero_eclass, root_eclass));
-        egraph.apply_rewrites(&rule_set, None);
+        egraph.apply_rewrites(rule_set.as_slice(), None);
         assert!(egraph.union_find.are_eclasses_eq(zero_eclass, root_eclass));
     }
 

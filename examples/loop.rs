@@ -1,5 +1,5 @@
 use egraph::{
-    const_fold::BinOpConstFoldRewrite, egraph::*, graph::*, node::*, rec_node::*, rewrites,
+    const_fold::BinOpConstFoldRewrite, egraph::*, graph::*, node::*, rec_node::*, rewrites_arr,
     template_rewrite::*,
 };
 
@@ -51,7 +51,7 @@ fn main() {
 
     let root_eclass = translation_map[root_id];
 
-    let rule_set = rewrites![
+    let rule_set = rewrites_arr![
         // a & (b & c) => (a & b) & c
         TemplateRewrite::bin_op_associativity(BinOpKind::BitAnd).build(),
         // a | (b | c) => (a | b) | c

@@ -23,6 +23,12 @@ pub trait SimpleRewrite {
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes;
 }
 
+impl<T: SimpleRewrite> Rewrite for T {
+    fn apply(&self, egraph: &mut EGraph) -> DidAnything {
+        egraph.apply_simple_rewrite(self)
+    }
+}
+
 /// an enode matcher, as part of a re-write rule query. matches enodes in the egraph.
 pub trait QueryENodeMatcher<C> {
     /// match the given enode with the given current context against this enode matcher.
@@ -99,57 +105,20 @@ pub enum QueryMatchLinkRes<'a, C> {
     },
 }
 
-pub trait Rewrites: Sized {
-    const LEN: usize;
-
-    fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything;
-
-    fn push<R: SimpleRewrite>(self, rewrite: R) -> (R, Self) {
-        (rewrite, self)
-    }
-
-    fn len(&self) -> usize {
-        Self::LEN
-    }
-}
-
-impl Rewrites for () {
-    const LEN: usize = 0;
-
-    fn apply_rewrite(&self, _rewrite_index: usize, _egraph: &mut EGraph) -> DidAnything {
-        unreachable!()
-    }
-}
-impl<R: SimpleRewrite> Rewrites for R {
-    const LEN: usize = 1;
-
-    fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything {
-        assert_eq!(rewrite_index, 0);
-        egraph.apply_simple_rewrite(self)
-    }
-}
-
-impl<A: SimpleRewrite, B: Rewrites> Rewrites for (A, B) {
-    const LEN: usize = 1 + B::LEN;
-
-    fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything {
-        assert!(rewrite_index <= Self::LEN);
-        if rewrite_index + 1 == Self::LEN {
-            // apply the current rule
-            egraph.apply_simple_rewrite(&self.0)
-        } else {
-            // apply some inner rule, recurse
-            self.1.apply_rewrite(rewrite_index, egraph)
-        }
-    }
-}
-
+/// a convenience macro for defining a set of re-write rules stored as an array of boxed rules.
 #[macro_export]
-macro_rules! rewrites {
-    () => { () };
-    (...$rest:expr) => { $rest };
-    ($a:expr) => { $crate::rewrites![$a,] };
-    ($a:expr, $($tok:tt)*) => {
-        ($a, $crate::rewrites![$($tok)*])
-    };
+macro_rules! rewrites_arr {
+    () => (
+        []
+    );
+    ($($x:expr),+ $(,)?) => (
+        {
+            let ___result: [Box<dyn $crate::rewrite::Rewrite>; _] = [
+                $(
+                    Box::new($x)
+                ),+
+            ];
+            ___result
+        }
+    );
 }

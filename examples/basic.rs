@@ -1,5 +1,5 @@
 use egraph::{
-    const_fold::BinOpConstFoldRewrite, egraph::*, node::*, rec_node::*, rewrites,
+    const_fold::BinOpConstFoldRewrite, egraph::*, node::*, rec_node::*, rewrites_arr,
     template_rewrite::*,
 };
 
@@ -29,7 +29,7 @@ fn main() {
 
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
 
-    let rewrites = rewrites![
+    let rewrites = rewrites_arr![
         // a & (b & c) => (a & b) & c
         TemplateRewrite::bin_op_associativity(BinOpKind::BitAnd).build(),
         // a | (b | c) => (a | b) | c
@@ -116,7 +116,7 @@ fn main() {
         BinOpConstFoldRewrite
     ];
 
-    egraph.apply_rewrites(&rewrites, None);
+    egraph.apply_rewrites(rewrites.as_slice(), None);
 
     egraph.extract_eclass(root_eclass);
 }
