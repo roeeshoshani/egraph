@@ -1082,9 +1082,9 @@ mod tests {
         let rule_set = rewrites_arr![
             // (x & 0) => 0
             TemplateRewriteBuilder {
-                query: TemplateBinOp {
+                query: BinOp {
                     kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(1).into(),
+                    lhs: "x".into(),
                     rhs: 0.into(),
                 }
                 .into(),
@@ -1093,29 +1093,29 @@ mod tests {
             .build(),
             // a & (b | c) => (a & b) | (a & c)
             TemplateRewriteBuilder {
-                query: TemplateBinOp {
+                query: BinOp {
                     kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateBinOp {
+                    lhs: "a".into(),
+                    rhs: BinOp {
                         kind: BinOpKind::BitOr,
-                        lhs: TemplateVar::new(2).into(),
-                        rhs: TemplateVar::new(3).into(),
+                        lhs: "b".into(),
+                        rhs: "c".into(),
                     }
                     .into(),
                 }
                 .into(),
-                rewrite: TemplateBinOp {
+                rewrite: BinOp {
                     kind: BinOpKind::BitOr,
-                    lhs: TemplateBinOp {
+                    lhs: BinOp {
                         kind: BinOpKind::BitAnd,
-                        lhs: TemplateVar::new(1).into(),
-                        rhs: TemplateVar::new(2).into(),
+                        lhs: "a".into(),
+                        rhs: "b".into(),
                     }
                     .into(),
-                    rhs: TemplateBinOp {
+                    rhs: BinOp {
                         kind: BinOpKind::BitAnd,
-                        lhs: TemplateVar::new(1).into(),
-                        rhs: TemplateVar::new(3).into(),
+                        lhs: "a".into(),
+                        rhs: "c".into(),
                     }
                     .into(),
                 }

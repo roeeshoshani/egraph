@@ -1,6 +1,13 @@
 use std::num::NonZeroUsize;
 
-use crate::{egraph::*, node::*, rewrite::*, utils::CowBox};
+use hashbrown::HashMap;
+
+use crate::{
+    egraph::*,
+    node::*,
+    rewrite::*,
+    utils::{CowBox, NonZeroUsizeAllocator},
+};
 
 /// a template variable, used as a wildcard which matches everything when writing templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -21,6 +28,44 @@ impl TemplateVar {
     }
 }
 
+/// a template link builder. this is used to represent links in the template re-write builder, and it will later
+/// be built into an actual template link.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TemplateLinkBuilder {
+    /// this link matches another nested structure.
+    Specific(Box<TemplateNodeBuilder>),
+
+    /// this link is a wildcard variable. it can match any value, and it will be substituted when instantiating the template.
+    Var(String),
+}
+
+/// a template node builder. this is used to represent nodes in the template re-write builder, and it will later
+/// be built into an actual template node.
+pub type TemplateNodeBuilder = GenericNode<TemplateLinkBuilder>;
+
+// convert any string-like object to a template link which represent a template variable with the string as
+// the variable name.
+impl From<String> for TemplateLinkBuilder {
+    fn from(x: String) -> Self {
+        Self::Var(x)
+    }
+}
+impl<'a> From<&'a str> for TemplateLinkBuilder {
+    fn from(x: &'a str) -> Self {
+        Self::Var(String::from(x))
+    }
+}
+
+// anything that can be converted to a template node builder should also be convertible to a template link builder.
+impl<T> From<T> for TemplateLinkBuilder
+where
+    TemplateNodeBuilder: From<T>,
+{
+    fn from(x: T) -> Self {
+        Self::Specific(Box::new(x.into()))
+    }
+}
+
 /// a link in a template node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TemplateLink {
@@ -31,68 +76,65 @@ pub enum TemplateLink {
     Var(TemplateVar),
 }
 
-impl TemplateLink {
-    /// returns the id of the template var with the highest id that is contained in this template link.
-    fn max_template_var_id(&self) -> Option<NonZeroUsize> {
-        match self {
-            TemplateLink::Specific(generic_node) => generic_node.max_template_var_id(),
-            TemplateLink::Var(template_var) => Some(template_var.id),
-        }
-    }
-
-    /// checks if this template link uses the given template var.
-    fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
-        match self {
-            TemplateLink::Specific(generic_node) => {
-                generic_node.does_use_template_var(template_var)
-            }
-            TemplateLink::Var(cur_template_var) => *cur_template_var == template_var,
-        }
-    }
-}
-
 /// a template node which represents some node structure with wildcard variables.
 pub type TemplateNode = GenericNode<TemplateLink>;
 
-impl TemplateNode {
-    /// returns the id of the template var with the highest id that is contained in this template node.
-    fn max_template_var_id(&self) -> Option<NonZeroUsize> {
-        self.links()
-            .into_iter()
-            .filter_map(|link| link.max_template_var_id())
-            .max()
+/// a var translator, which translated string variables to template variables.
+struct VarTranslator {
+    name_to_var: HashMap<String, TemplateVar>,
+    var_id_allocator: NonZeroUsizeAllocator,
+}
+impl VarTranslator {
+    /// creates a new var translator.
+    fn new() -> Self {
+        Self {
+            name_to_var: HashMap::new(),
+            var_id_allocator: NonZeroUsizeAllocator::new(),
+        }
     }
 
-    /// checks if this template node uses the given template var.
-    fn does_use_template_var(&self, template_var: TemplateVar) -> bool {
-        self.links()
-            .into_iter()
-            .any(|link| link.does_use_template_var(template_var))
+    /// builds the given query node by converting all var names to template variables.
+    fn convert_query_node(&mut self, node: &TemplateNodeBuilder) -> TemplateNode {
+        node.convert_links(move |link| self.convert_query_link(link))
+    }
+
+    /// builds the given query link by converting all var names to template variables.
+    fn convert_query_link(&mut self, link: &TemplateLinkBuilder) -> TemplateLink {
+        match link {
+            TemplateLinkBuilder::Specific(node) => {
+                TemplateLink::Specific(Box::new(self.convert_query_node(node)))
+            }
+            TemplateLinkBuilder::Var(var_name) => match self.name_to_var.entry(var_name.clone()) {
+                hashbrown::hash_map::Entry::Occupied(occupied_entry) => {
+                    TemplateLink::Var(*occupied_entry.get())
+                }
+                hashbrown::hash_map::Entry::Vacant(vacant_entry) => {
+                    // allocate a new var
+                    let var = TemplateVar {
+                        id: self.var_id_allocator.alloc(),
+                    };
+                    vacant_entry.insert(var);
+                    TemplateLink::Var(var)
+                }
+            },
+        }
+    }
+
+    /// builds the given rewrite node by converting all var names to template variables.
+    fn convert_rewrite_node(&self, node: &TemplateNodeBuilder) -> TemplateNode {
+        node.convert_links(move |link| self.convert_rewrite_link(link))
+    }
+
+    /// builds the given rewrite link by converting all var names to template variables.
+    fn convert_rewrite_link(&self, link: &TemplateLinkBuilder) -> TemplateLink {
+        match link {
+            TemplateLinkBuilder::Specific(node) => {
+                TemplateLink::Specific(Box::new(self.convert_rewrite_node(node)))
+            }
+            TemplateLinkBuilder::Var(var_name) => TemplateLink::Var(self.name_to_var[var_name]),
+        }
     }
 }
-
-// convert a template var to a template link.
-impl From<TemplateVar> for TemplateLink {
-    fn from(x: TemplateVar) -> Self {
-        Self::Var(x)
-    }
-}
-
-// anything that can be converted to a template node should also be convertible to a template link.
-impl<T> From<T> for TemplateLink
-where
-    TemplateNode: From<T>,
-{
-    fn from(x: T) -> Self {
-        Self::Specific(Box::new(x.into()))
-    }
-}
-
-/// a bin op which uses template nodes.
-pub type TemplateBinOp = BinOp<TemplateLink>;
-
-/// a un op which uses template nodes.
-pub type TemplateUnOp = UnOp<TemplateLink>;
 
 /// a template re-write.
 ///
@@ -101,25 +143,25 @@ pub type TemplateUnOp = UnOp<TemplateLink>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateRewriteBuilder {
     /// the structure that should be matched.
-    pub query: TemplateNode,
+    pub query: TemplateNodeBuilder,
 
     /// the template to instantiate to generate the re-write of the enode that matched the query.
-    pub rewrite: TemplateLink,
+    pub rewrite: TemplateLinkBuilder,
 }
 impl TemplateRewriteBuilder {
     /// creates a rewrite for the commutativity of the bin op with the given kind (`a <op> b == b <op> a`).
     pub fn bin_op_commutativity(bin_op_kind: BinOpKind) -> Self {
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: bin_op_kind,
-                lhs: TemplateVar::new(1).into(),
-                rhs: TemplateVar::new(2).into(),
+                lhs: "a".into(),
+                rhs: "b".into(),
             }
             .into(),
-            rewrite: TemplateBinOp {
+            rewrite: BinOp {
                 kind: bin_op_kind,
-                lhs: TemplateVar::new(2).into(),
-                rhs: TemplateVar::new(1).into(),
+                lhs: "b".into(),
+                rhs: "a".into(),
             }
             .into(),
         }
@@ -128,26 +170,26 @@ impl TemplateRewriteBuilder {
     /// creates a rewrite for the associativity of the bin op with the given kind (`a <op> (b <op> c) == (a <op> b) <op> c`).
     pub fn bin_op_associativity(bin_op_kind: BinOpKind) -> Self {
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: bin_op_kind,
-                lhs: TemplateVar::new(1).into(),
-                rhs: TemplateBinOp {
+                lhs: "a".into(),
+                rhs: BinOp {
                     kind: bin_op_kind,
-                    lhs: TemplateVar::new(2).into(),
-                    rhs: TemplateVar::new(3).into(),
+                    lhs: "b".into(),
+                    rhs: "c".into(),
                 }
                 .into(),
             }
             .into(),
-            rewrite: TemplateBinOp {
+            rewrite: BinOp {
                 kind: bin_op_kind,
-                lhs: TemplateBinOp {
+                lhs: BinOp {
                     kind: bin_op_kind,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(2).into(),
+                    lhs: "a".into(),
+                    rhs: "b".into(),
                 }
                 .into(),
-                rhs: TemplateVar::new(3).into(),
+                rhs: "c".into(),
             }
             .into(),
         }
@@ -155,78 +197,11 @@ impl TemplateRewriteBuilder {
 
     /// builds this into a template rewrite which can directly be applied to the egraph.
     pub fn build(self) -> TemplateRewrite {
-        self.check();
+        let mut translator = VarTranslator::new();
+
         TemplateRewrite {
-            query: self.query,
-            rewrite: self.rewrite,
-        }
-    }
-
-    // checks that this template rewrite even makes sense to exist.
-    fn check(&self) {
-        match self.query.max_template_var_id() {
-            Some(max_var_id) => {
-                // the query uses some variables
-
-                // make sure that there are no gaps in the variable ids
-                for i in 1..=max_var_id.get() {
-                    let does_use_var = self.query.does_use_template_var(TemplateVar {
-                        id: {
-                            // SAFETY: we start iterating from 1
-                            unsafe { NonZeroUsize::new_unchecked(i) }
-                        },
-                    });
-                    assert!(does_use_var);
-                }
-
-                // make sure that the re-write doesn't use variables that don't exist in the query
-                if let Some(rewrite_max_var_id) = self.rewrite.max_template_var_id() {
-                    assert!(rewrite_max_var_id <= max_var_id)
-                }
-            }
-            None => {
-                // the query doesn't use any values
-
-                // make sure that the re-write also doesn't use any variables
-                assert_eq!(self.rewrite.max_template_var_id(), None);
-            }
-        }
-    }
-
-    fn check_can_swap_direction(&self) {
-        match self.query.max_template_var_id() {
-            Some(max_var_id) => {
-                // the query uses some variables
-
-                // make sure that both the query and the rewrite use all template vars
-                for i in 1..=max_var_id.get() {
-                    let var = TemplateVar {
-                        id: {
-                            // SAFETY: we start iterating from 1
-                            unsafe { NonZeroUsize::new_unchecked(i) }
-                        },
-                    };
-                    assert!(self.query.does_use_template_var(var));
-                    assert!(self.rewrite.does_use_template_var(var));
-                }
-            }
-            None => {
-                // the query doesn't use any values, so it can swap directions
-            }
-        }
-    }
-
-    pub fn swap_direction(self) -> Self {
-        self.check_can_swap_direction();
-        let rewrite_template = match self.rewrite {
-            TemplateLink::Specific(x) => x,
-            TemplateLink::Var(_) => {
-                panic!("can't reverse a rule whose re-write is just a single template var")
-            }
-        };
-        Self {
-            query: *rewrite_template,
-            rewrite: TemplateLink::Specific(self.query.into()),
+            query: translator.convert_query_node(&self.query),
+            rewrite: translator.convert_rewrite_link(&self.rewrite),
         }
     }
 }

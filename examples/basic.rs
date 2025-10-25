@@ -38,53 +38,53 @@ fn main() {
         TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitAnd).build(),
         // a | b => b | a
         TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitOr).build(),
-        // (x & 0) => 0
+        // (a & 0) => 0
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: BinOpKind::BitAnd,
-                lhs: TemplateVar::new(1).into(),
+                lhs: "a".into(),
                 rhs: 0.into(),
             }
             .into(),
             rewrite: 0.into(),
         }
         .build(),
-        // (x | 0) => x
+        // (a | 0) => a
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: BinOpKind::BitOr,
-                lhs: TemplateVar::new(1).into(),
+                lhs: "a".into(),
                 rhs: 0.into(),
             }
             .into(),
-            rewrite: TemplateVar::new(1).into(),
+            rewrite: "a".into(),
         }
         .build(),
         // a & (b | c) => (a & b) | (a & c)
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: BinOpKind::BitAnd,
-                lhs: TemplateVar::new(1).into(),
-                rhs: TemplateBinOp {
+                lhs: "a".into(),
+                rhs: BinOp {
                     kind: BinOpKind::BitOr,
-                    lhs: TemplateVar::new(2).into(),
-                    rhs: TemplateVar::new(3).into(),
+                    lhs: "b".into(),
+                    rhs: "c".into(),
                 }
                 .into(),
             }
             .into(),
-            rewrite: TemplateBinOp {
+            rewrite: BinOp {
                 kind: BinOpKind::BitOr,
-                lhs: TemplateBinOp {
+                lhs: BinOp {
                     kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(2).into(),
+                    lhs: "a".into(),
+                    rhs: "b".into(),
                 }
                 .into(),
-                rhs: TemplateBinOp {
+                rhs: BinOp {
                     kind: BinOpKind::BitAnd,
-                    lhs: TemplateVar::new(1).into(),
-                    rhs: TemplateVar::new(3).into(),
+                    lhs: "a".into(),
+                    rhs: "c".into(),
                 }
                 .into(),
             }
@@ -93,24 +93,24 @@ fn main() {
         .build(),
         // a & a => a
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: BinOpKind::BitAnd,
-                lhs: TemplateVar::new(1).into(),
-                rhs: TemplateVar::new(1).into(),
+                lhs: "a".into(),
+                rhs: "a".into(),
             }
             .into(),
-            rewrite: TemplateVar::new(1).into(),
+            rewrite: "a".into(),
         }
         .build(),
         // a | a => a
         TemplateRewriteBuilder {
-            query: TemplateBinOp {
+            query: BinOp {
                 kind: BinOpKind::BitOr,
-                lhs: TemplateVar::new(1).into(),
-                rhs: TemplateVar::new(1).into(),
+                lhs: "a".into(),
+                rhs: "a".into(),
             }
             .into(),
-            rewrite: TemplateVar::new(1).into(),
+            rewrite: "a".into(),
         }
         .build(),
         BinOpConstFoldRewrite
