@@ -16,7 +16,7 @@ pub trait SimpleRewrite {
     fn create_initial_ctx(&self) -> Self::Ctx;
 
     /// returns the root query of this re-write rule.
-    fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>>;
+    fn query(&self) -> CowBox<'_, dyn QueryLinkMatcher<Self::Ctx>>;
 
     /// builds the re-write result of this re-write rule into the egraph given the final match context generated
     /// while matching a specific enode to this rule.
@@ -56,7 +56,7 @@ pub trait QueryLinkMatcher<C> {
     /// match the given link, given the link's eclass id.
     fn match_link(
         &self,
-        link_eclass_id: EClassId,
+        link_effective_eclass_id: EffectiveEClassId,
         egraph: &EGraph,
         ctx: &C,
     ) -> QueryMatchLinkRes<'_, C>;

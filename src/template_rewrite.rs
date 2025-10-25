@@ -60,6 +60,24 @@ pub enum TemplateLinkBuilder {
     /// this link is a wildcard variable. it can match any value, and it will be substituted when instantiating the template.
     Var(TemplateVarBuilder),
 }
+impl TemplateLinkBuilder {
+    /// applies the bin op with the given kind to this link as the lhs, and with the given rhs link as the rhs.
+    pub fn apply_bin_op(self, kind: BinOpKind, rhs: Self) -> Self {
+        Self::Specific(Box::new(GenericNode::BinOp(BinOp {
+            kind,
+            lhs: self,
+            rhs: rhs,
+        })))
+    }
+
+    /// applies the un op with the given kind to this link as the operand.
+    pub fn apply_un_op(self, kind: UnOpKind) -> Self {
+        Self::Specific(Box::new(GenericNode::UnOp(UnOp {
+            kind,
+            operand: self,
+        })))
+    }
+}
 
 macro_rules! impl_binop_for_template_link_builder {
     ($trait: ty, $trait_fn_name: ident, $bin_op_kind: expr) => {
@@ -67,11 +85,7 @@ macro_rules! impl_binop_for_template_link_builder {
             type Output = Self;
 
             fn $trait_fn_name(self, rhs: Self) -> Self::Output {
-                Self::Specific(Box::new(GenericNode::BinOp(BinOp {
-                    kind: $bin_op_kind,
-                    lhs: self,
-                    rhs: rhs,
-                })))
+                self.apply_bin_op($bin_op_kind, rhs)
             }
         }
     };
@@ -88,10 +102,7 @@ macro_rules! impl_unop_for_template_link_builder {
             type Output = Self;
 
             fn $trait_fn_name(self) -> Self::Output {
-                Self::Specific(Box::new(GenericNode::UnOp(UnOp {
-                    kind: $un_op_kind,
-                    operand: self,
-                })))
+                self.apply_un_op($un_op_kind)
             }
         }
     };
@@ -211,7 +222,7 @@ impl VarTranslator {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateRewriteBuilder {
     /// the structure that should be matched.
-    pub query: TemplateNodeBuilder,
+    pub query: TemplateLinkBuilder,
 
     /// the template to instantiate to generate the re-write of the enode that matched the query.
     pub rewrite: TemplateLinkBuilder,
@@ -220,18 +231,8 @@ impl TemplateRewriteBuilder {
     /// creates a rewrite for the commutativity of the bin op with the given kind (`a <op> b == b <op> a`).
     pub fn bin_op_commutativity(bin_op_kind: BinOpKind) -> Self {
         TemplateRewriteBuilder {
-            query: BinOp {
-                kind: bin_op_kind,
-                lhs: "a".into(),
-                rhs: "b".into(),
-            }
-            .into(),
-            rewrite: BinOp {
-                kind: bin_op_kind,
-                lhs: "b".into(),
-                rhs: "a".into(),
-            }
-            .into(),
+            query: tv("a").apply_bin_op(bin_op_kind, tv("b")),
+            rewrite: tv("b").apply_bin_op(bin_op_kind, tv("a")),
         }
     }
 
@@ -268,7 +269,7 @@ impl TemplateRewriteBuilder {
         let mut translator = VarTranslator::new();
 
         TemplateRewrite {
-            query: translator.convert_query_node(&self.query),
+            query: translator.convert_query_link(&self.query),
             rewrite: translator.convert_rewrite_link(&self.rewrite),
         }
     }
@@ -280,7 +281,7 @@ impl TemplateRewriteBuilder {
 /// variables in place of links in the expected structure, and using those variables to substitute values into the rewrite template.
 #[derive(Debug, Clone)]
 pub struct TemplateRewrite {
-    query: TemplateNode,
+    query: TemplateLink,
     rewrite: TemplateLink,
 }
 
@@ -345,7 +346,7 @@ impl SimpleRewrite for TemplateRewrite {
         TemplateRewriteCtx::new()
     }
 
-    fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>> {
+    fn query(&self) -> CowBox<'_, dyn QueryLinkMatcher<Self::Ctx>> {
         CowBox::Borrowed(&self.query)
     }
 
@@ -396,11 +397,10 @@ impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
 impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
     fn match_link(
         &self,
-        link_eclass_id: EClassId,
-        egraph: &EGraph,
+        link_effective_eclass_id: EffectiveEClassId,
+        _egraph: &EGraph,
         ctx: &TemplateRewriteCtx,
     ) -> QueryMatchLinkRes<'_, TemplateRewriteCtx> {
-        let effective_eclass_id = egraph.eclass_id_to_effective(link_eclass_id);
         match self {
             TemplateLink::Specific(enode_template) => QueryMatchLinkRes::RecurseIntoENodes {
                 new_ctx: ctx.clone(),
@@ -409,7 +409,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
             TemplateLink::Var(template_var) => {
                 match ctx.template_var_values.get(*template_var) {
                     Some(existing_var_value) => {
-                        if effective_eclass_id != existing_var_value.effective_eclass_id {
+                        if link_effective_eclass_id != existing_var_value.effective_eclass_id {
                             // no match
                             return QueryMatchLinkRes::NoMatch;
                         }
@@ -425,7 +425,7 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                         new_ctx.template_var_values.set(
                             *template_var,
                             TemplateVarValue {
-                                effective_eclass_id,
+                                effective_eclass_id: link_effective_eclass_id,
                             },
                         );
                         QueryMatchLinkRes::Match(QueryMatch { new_ctx })

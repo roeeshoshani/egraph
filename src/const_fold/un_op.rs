@@ -24,8 +24,8 @@ impl SimpleRewrite for ConstFoldRewrite {
         Ctx::new()
     }
 
-    fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>> {
-        CowBox::Borrowed(&Query)
+    fn query(&self) -> CowBox<'_, dyn QueryLinkMatcher<Self::Ctx>> {
+        CowBox::Borrowed(&RootLinkMatcher)
     }
 
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
@@ -40,8 +40,23 @@ impl SimpleRewrite for ConstFoldRewrite {
     }
 }
 
-struct Query;
-impl QueryENodeMatcher<Ctx> for Query {
+struct RootLinkMatcher;
+impl QueryLinkMatcher<Ctx> for RootLinkMatcher {
+    fn match_link(
+        &self,
+        _link_effective_eclass_id: EffectiveEClassId,
+        _egraph: &EGraph,
+        ctx: &Ctx,
+    ) -> QueryMatchLinkRes<'_, Ctx> {
+        QueryMatchLinkRes::RecurseIntoENodes {
+            new_ctx: ctx.clone(),
+            enode_matcher: CowBox::Borrowed(&RootNodeMatcher),
+        }
+    }
+}
+
+struct RootNodeMatcher;
+impl QueryENodeMatcher<Ctx> for RootNodeMatcher {
     fn match_enode(
         &self,
         _enode_id: ENodeId,
@@ -84,13 +99,13 @@ struct OperandMatcher;
 impl QueryLinkMatcher<Ctx> for OperandMatcher {
     fn match_link(
         &self,
-        link_eclass_id: EClassId,
+        link_effective_eclass_id: EffectiveEClassId,
         egraph: &EGraph,
         ctx: &Ctx,
     ) -> QueryMatchLinkRes<'_, Ctx> {
         let Some(imm) = egraph
             .union_find()
-            .enodes_in_eclass(link_eclass_id)
+            .enodes_in_effective_eclass(link_effective_eclass_id)
             .find_map(|enode_id| egraph[enode_id].as_imm())
         else {
             return QueryMatchLinkRes::NoMatch;
