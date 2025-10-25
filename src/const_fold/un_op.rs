@@ -17,7 +17,7 @@ impl Ctx {
 
 /// a unary operation constant folding re-write rule.
 pub struct ConstFoldRewrite;
-impl Rewrite for ConstFoldRewrite {
+impl SimpleRewrite for ConstFoldRewrite {
     type Ctx = Ctx;
 
     fn create_initial_ctx(&self) -> Self::Ctx {

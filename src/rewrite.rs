@@ -2,14 +2,30 @@ use crate::{did_anything::DidAnything, egraph::*, utils::CowBox};
 
 /// a re-write rule.
 pub trait Rewrite {
-    /// the context that is accumulated when matching the re-write rule's query and is used to build the final re-write result.
+    /// applies this re-write rule to the egraph. returns whether applying the rule actually did anything.
+    fn apply(&self, egraph: &mut EGraph) -> DidAnything;
+}
+
+/// a simple re-write rule which follows the generic e-matching algorithm.
+pub trait SimpleRewrite {
+    /// the context that is accumulated when matching the re-write rule's query and is used to build the
+    /// final re-write result.
     type Ctx;
+
+    /// create the initial context to use when starting to match the root query of this re-write rule.
     fn create_initial_ctx(&self) -> Self::Ctx;
+
+    /// returns the root query of this re-write rule.
     fn query(&self) -> CowBox<'_, dyn QueryENodeMatcher<Self::Ctx>>;
+
+    /// builds the re-write result of this re-write rule into the egraph given the final match context generated
+    /// while matching a specific enode to this rule.
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes;
 }
 
+/// an enode matcher, as part of a re-write rule query. matches enodes in the egraph.
 pub trait QueryENodeMatcher<C> {
+    /// match the given enode with the given current context against this enode matcher.
     fn match_enode(
         &self,
         enode_id: ENodeId,
@@ -19,12 +35,19 @@ pub trait QueryENodeMatcher<C> {
     ) -> QueryMatchENodeRes<'_, C>;
 }
 
+/// an links matcher, as part of a re-write rule query. matches the links of an enode.
 pub trait QueryLinksMatcher<C> {
+    /// match the amount of links of the currently matched enode against this links matcher.
+    /// gives the link matcher a way to discard this enode according to its amount of links.
     fn match_links_amount(&self, links_amount: usize, ctx: C) -> Option<QueryMatch<C>>;
+
+    /// returns the link matcher for the link with the given index.
     fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryLinkMatcher<C>>;
 }
 
+/// a link matcher, as part of a re-write rule query. matches a specific link of some enode.
 pub trait QueryLinkMatcher<C> {
+    /// match the given link, given the link's eclass id.
     fn match_link(
         &self,
         link_eclass_id: EClassId,
@@ -58,7 +81,7 @@ pub enum QueryMatchENodeRes<'a, C> {
     },
 }
 
-/// the result of matching an eclass against a re-write query.
+/// the result of matching a link against a re-write query.
 pub enum QueryMatchLinkRes<'a, C> {
     /// the eclass did not match the query.
     NoMatch,
@@ -75,12 +98,13 @@ pub enum QueryMatchLinkRes<'a, C> {
         enode_matcher: CowBox<'a, dyn QueryENodeMatcher<C>>,
     },
 }
+
 pub trait Rewrites: Sized {
     const LEN: usize;
 
     fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything;
 
-    fn push<R: Rewrite>(self, rewrite: R) -> (R, Self) {
+    fn push<R: SimpleRewrite>(self, rewrite: R) -> (R, Self) {
         (rewrite, self)
     }
 
@@ -96,7 +120,7 @@ impl Rewrites for () {
         unreachable!()
     }
 }
-impl<R: Rewrite> Rewrites for R {
+impl<R: SimpleRewrite> Rewrites for R {
     const LEN: usize = 1;
 
     fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything {
@@ -105,7 +129,7 @@ impl<R: Rewrite> Rewrites for R {
     }
 }
 
-impl<A: Rewrite, B: Rewrites> Rewrites for (A, B) {
+impl<A: SimpleRewrite, B: Rewrites> Rewrites for (A, B) {
     const LEN: usize = 1 + B::LEN;
 
     fn apply_rewrite(&self, rewrite_index: usize, egraph: &mut EGraph) -> DidAnything {

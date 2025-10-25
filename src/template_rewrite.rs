@@ -292,7 +292,7 @@ impl TemplateRewriteCtx {
     }
 }
 
-impl Rewrite for BuiltTemplateRewrite {
+impl SimpleRewrite for BuiltTemplateRewrite {
     type Ctx = TemplateRewriteCtx;
 
     fn create_initial_ctx(&self) -> Self::Ctx {

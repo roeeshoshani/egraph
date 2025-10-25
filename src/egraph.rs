@@ -255,12 +255,12 @@ impl EGraph {
         }
     }
 
-    pub fn apply_rewrite<R: Rewrite>(&mut self, rewrite: &R) -> DidAnything {
+    pub fn apply_rewrite<R: SimpleRewrite>(&mut self, rewrite: &R) -> DidAnything {
         let matches = self.match_rewrite(rewrite);
         self.handle_rewrite_matches(matches, rewrite)
     }
 
-    pub fn handle_rewrite_matches<R: Rewrite>(
+    pub fn handle_rewrite_matches<R: SimpleRewrite>(
         &mut self,
         enode_matches: Vec<ENodeMatch<R::Ctx>>,
         rewrite: &R,
@@ -282,7 +282,7 @@ impl EGraph {
         did_anything
     }
 
-    pub fn match_rewrite<R: Rewrite>(&self, rewrite: &R) -> Vec<ENodeMatch<R::Ctx>> {
+    pub fn match_rewrite<R: SimpleRewrite>(&self, rewrite: &R) -> Vec<ENodeMatch<R::Ctx>> {
         let mut enode_matches = Vec::new();
 
         let initial_ctx = rewrite.create_initial_ctx();
