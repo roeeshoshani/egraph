@@ -60,17 +60,8 @@ impl Graph {
 
     /// adds the given recursive node to the graph, and returns the id of the node in the graph which represents the root of the rec node.
     pub fn add_rec_node(&mut self, rec_node: &RecNode) -> GraphNodeId {
-        let graph_node = rec_node.convert_links(|link| self.add_rec_node_link(link));
+        let graph_node = rec_node.convert_links(|link| self.add_rec_node(&link.0));
         self.add_node(graph_node)
-    }
-
-    /// adds the given recursive node link to the graph, and returns the id of the node in the graph which represents what this link
-    /// should point to.
-    pub fn add_rec_node_link(&mut self, rec_node_link: &RecNodeLink) -> GraphNodeId {
-        match rec_node_link {
-            RecNodeLink::Regular(node) => self.add_rec_node(node),
-            RecNodeLink::Loop => unreachable!(),
-        }
     }
 
     /// adds the given node to the graph and returns its id. if the node already exists in the graph, returns the id of the existing node.
