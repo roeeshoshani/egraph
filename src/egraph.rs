@@ -1,6 +1,7 @@
 use bimap::BiHashMap;
 use derive_more::{Add, AddAssign};
 use duct::cmd;
+use enum_variant_accessors::EnumAsVariant;
 use hashbrown::{HashMap, HashSet};
 use std::{borrow::Cow, cell::RefCell, io::Write as _, ops::Index};
 use tempfile::NamedTempFile;
@@ -85,8 +86,20 @@ pub enum ENodeDedupInfo {
     Duplicate,
 }
 
+/// an item in the enodes union find.
+#[derive(Debug, Clone, EnumAsVariant)]
+pub enum ENodesUnionFindItem {
+    /// a regular enode.
+    ENode(ENode),
+
+    /// a tombstone item. this is an item which represents an enode which was removed from the egraph, but we still want to keep
+    /// its entry in the union find tree as a reference to the eclass from other enodes which point to it.
+    Tombstone,
+}
+
+/// the union find tree of enodes.
 #[derive(Debug, Clone)]
-pub struct ENodesUnionFind(pub UnionFind<ENode>);
+pub struct ENodesUnionFind(pub UnionFind<ENodesUnionFindItem>);
 impl ENodesUnionFind {
     pub fn new() -> Self {
         Self(UnionFind::new())
@@ -100,27 +113,64 @@ impl ENodesUnionFind {
         ENodeId(self.0.root_of_item(enode_id.0))
     }
 
-    pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = ENodeId> {
-        self.0.items_eq_to(enode_id.0).map(ENodeId)
+    pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = &ENode> + '_ {
+        self.0
+            .items_eq_to(enode_id.0)
+            .map(ENodeId)
+            .filter_map(|enode_id| self[enode_id].as_e_node())
     }
 
-    pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = ENodeId> {
+    pub fn enumerate_enodes_eq_to(
+        &self,
+        enode_id: ENodeId,
+    ) -> impl Iterator<Item = (ENodeId, &ENode)> + '_ {
+        self.0
+            .items_eq_to(enode_id.0)
+            .map(ENodeId)
+            .filter_map(|enode_id| {
+                let enode = self[enode_id].as_e_node()?;
+                Some((enode_id, enode))
+            })
+    }
+
+    pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = &ENode> + '_ {
         self.enodes_eq_to(eclass_id.enode_id)
+    }
+
+    pub fn enumerate_enodes_in_eclass(
+        &self,
+        eclass_id: EClassId,
+    ) -> impl Iterator<Item = (ENodeId, &ENode)> + '_ {
+        self.enumerate_enodes_eq_to(eclass_id.enode_id)
     }
 
     pub fn enodes_in_effective_eclass(
         &self,
         effective_eclass_id: EffectiveEClassId,
-    ) -> impl Iterator<Item = ENodeId> {
+    ) -> impl Iterator<Item = &ENode> + '_ {
         self.enodes_eq_to(effective_eclass_id.eclass_root)
+    }
+
+    pub fn enumerate_enodes_in_effective_eclass(
+        &self,
+        effective_eclass_id: EffectiveEClassId,
+    ) -> impl Iterator<Item = (ENodeId, &ENode)> + '_ {
+        self.enumerate_enodes_eq_to(effective_eclass_id.eclass_root)
     }
 
     pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<> {
         self.0.item_ids().map(ENodeId)
     }
 
-    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
+    pub fn enode_entries(&self) -> impl Iterator<Item = (ENodeId, &ENodesUnionFindItem)> + use<'_> {
         self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
+    }
+
+    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
+        self.enode_entries().filter_map(|(id, item)| {
+            let enode = item.as_e_node()?;
+            Some((id, enode))
+        })
     }
 
     pub fn eclass_ids(&self) -> impl Iterator<Item = EClassId> + use<'_> {
@@ -134,7 +184,7 @@ impl ENodesUnionFind {
     }
 
     fn create_new_enode(&mut self, enode: ENode) -> ENodeId {
-        ENodeId(self.0.create_new_item(enode))
+        ENodeId(self.0.create_new_item(ENodesUnionFindItem::ENode(enode)))
     }
 
     pub fn peek_next_enode_id(&self) -> ENodeId {
@@ -168,7 +218,7 @@ impl ENodesUnionFind {
     }
 }
 impl Index<ENodeId> for ENodesUnionFind {
-    type Output = ENode;
+    type Output = ENodesUnionFindItem;
 
     fn index(&self, index: ENodeId) -> &Self::Output {
         &self.0[index.0]
@@ -354,11 +404,10 @@ impl EGraph {
                 let new_recursed_eclasses =
                     recursed_eclasses.with_added_recursed_eclass(link_effective_eclass_id);
 
-                for enode_id in self
+                for (enode_id, enode) in self
                     .union_find
-                    .enodes_in_effective_eclass(link_effective_eclass_id)
+                    .enumerate_enodes_in_effective_eclass(link_effective_eclass_id)
                 {
-                    let enode = &self[enode_id];
                     self.match_enode(
                         enode_id,
                         enode,
@@ -604,7 +653,9 @@ impl EGraph {
         enode_id: ENodeId,
         visited_eclasses: &HashSet<EffectiveEClassId>,
     ) -> RecNode {
-        self[enode_id].convert_links(|link_eclass_id| {
+        // the provided enode id may be dead, so we need to find a valid enode in its eclass
+        let enode = self.union_find.enodes_eq_to(enode_id).next().unwrap();
+        enode.convert_links(|link_eclass_id| {
             self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
         })
     }
@@ -624,13 +675,13 @@ impl EGraph {
 
         // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
         // any useful information.
-        let chosen_enode = self
+        let (enode_id, _) = self
             .union_find
-            .enodes_in_eclass(eclass_id)
-            .find(|&enode_id| !self[enode_id].is_internal_var())
+            .enumerate_enodes_in_eclass(eclass_id)
+            .find(|(_, enode)| !enode.is_internal_var())
             .unwrap();
 
-        self.enode_get_sample_rec_node_inner(chosen_enode, &new_visited_eclasses)
+        self.enode_get_sample_rec_node_inner(enode_id, &new_visited_eclasses)
             .into()
     }
 
@@ -654,10 +705,13 @@ impl EGraph {
     fn try_to_gexf(&self) -> gexf::Result<String> {
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
-        for enode_id in self.union_find.enode_ids() {
-            let enode = &self[enode_id];
-
-            let eclass_label = self.union_find.enodes_eq_to(enode_id).min().unwrap();
+        for (enode_id, enode) in self.union_find.enodes() {
+            let eclass_label = self
+                .union_find
+                .enumerate_enodes_eq_to(enode_id)
+                .map(|(enode_id, _)| enode_id)
+                .min()
+                .unwrap();
 
             let node_label = if enode.links().is_empty() {
                 enode.structural_display()
@@ -691,8 +745,13 @@ impl EGraph {
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
-        let find_eclass_label_of_node =
-            |enode_id: ENodeId| self.union_find.enodes_eq_to(enode_id).min().unwrap();
+        let find_eclass_label_of_node = |enode_id: ENodeId| {
+            self.union_find
+                .enumerate_enodes_eq_to(enode_id)
+                .map(|(enode_id, _)| enode_id)
+                .min()
+                .unwrap()
+        };
 
         fn eclass_dot_id(eclass_label: ENodeId) -> String {
             format!("cluster_eclass_{}", eclass_label.0.0)
@@ -720,8 +779,8 @@ impl EGraph {
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
-                let label = self[enode_id].structural_display();
+            for (i, cur_enode) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
+                let label = cur_enode.structural_display();
                 writeln!(
                     &mut out,
                     "{} [label=\"{}\"];",
@@ -736,9 +795,8 @@ impl EGraph {
 
         // edges from each enode to target e-class clusters
         for &eclass_label in &eclass_labels {
-            for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
-                let enode = &self[enode_id];
-                for link in enode.links() {
+            for (i, cur_enode) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
+                for link in cur_enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
                     let target_eclass_label = find_eclass_label_of_node(link.enode_id);
                     writeln!(
@@ -776,8 +834,8 @@ impl EGraph {
         );
     }
 
-    fn extract_enode<'a>(&self, enode_id: ENodeId, ctx: &'a ExtractCtx) -> ExtractENodeRes<'a> {
-        let enode = &self[enode_id];
+    /// extracts the given enode. this returns an option because if the enode is a tombstone it returns none.
+    fn extract_enode<'a>(&self, enode: &ENode, ctx: &'a ExtractCtx) -> Option<ExtractENodeRes<'a>> {
         let mut score = ExtractionScore {
             looping_score: 0,
             base_score: 1,
@@ -806,13 +864,13 @@ impl EGraph {
             extracted_link_graph_node_id
         });
 
-        ExtractENodeRes {
+        Some(ExtractENodeRes {
             res: ExtractRes {
                 ctx: cur_ctx,
                 score: score,
             },
             graph_node,
-        }
+        })
     }
 
     fn extract_eclass_inner<'a>(
@@ -853,11 +911,11 @@ impl EGraph {
         let best_enode_res = self
             .union_find
             .enodes_in_effective_eclass(effective_eclass_id)
-            .filter(|&enode_id| {
+            .filter(|enode| {
                 // skip internal var nodes, they are of no use to us here.
-                !self[enode_id].is_internal_var()
+                !enode.is_internal_var()
             })
-            .map(|enode_id| self.extract_enode(enode_id, &new_ctx))
+            .filter_map(|enode| self.extract_enode(enode, &new_ctx))
             .min_by_key(|extract_enode_res| extract_enode_res.res.score)
             .unwrap();
 
@@ -885,7 +943,7 @@ impl EGraph {
     }
 }
 impl Index<ENodeId> for EGraph {
-    type Output = ENode;
+    type Output = ENodesUnionFindItem;
 
     fn index(&self, index: ENodeId) -> &Self::Output {
         &self.union_find[index]

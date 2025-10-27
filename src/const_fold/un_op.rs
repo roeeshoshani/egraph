@@ -106,7 +106,7 @@ impl QueryLinkMatcher<Ctx> for OperandMatcher {
         let Some(imm) = egraph
             .union_find()
             .enodes_in_effective_eclass(link_effective_eclass_id)
-            .find_map(|enode_id| egraph[enode_id].as_imm())
+            .find_map(|enode| enode.as_imm())
         else {
             return QueryMatchLinkRes::NoMatch;
         };
