@@ -3,7 +3,12 @@ use derive_more::{Add, AddAssign};
 use duct::cmd;
 use enum_variant_accessors::EnumAsVariant;
 use hashbrown::{HashMap, HashSet};
-use std::{borrow::Cow, cell::RefCell, io::Write as _, ops::Index};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    io::Write as _,
+    ops::{Index, IndexMut},
+};
 use tempfile::NamedTempFile;
 
 use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
@@ -222,6 +227,11 @@ impl Index<ENodeId> for ENodesUnionFind {
 
     fn index(&self, index: ENodeId) -> &Self::Output {
         &self.0[index.0]
+    }
+}
+impl IndexMut<ENodeId> for ENodesUnionFind {
+    fn index_mut(&mut self, index: ENodeId) -> &mut Self::Output {
+        &mut self.0[index.0]
     }
 }
 
@@ -523,38 +533,43 @@ impl EGraph {
     }
 
     /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
-    pub fn propegate_unions(&self) {
+    pub fn propegate_unions(&mut self) {
         let mut bimap = self.bimap.borrow_mut();
         loop {
             let mut did_anything = DidAnything::False;
-            for (enode_id, enode) in self.union_find.enodes() {
-                let Some(prev_effective_enode) = bimap.get_by_right(&enode_id) else {
-                    // nodes that became duplicates of other nodes are removed from the bimap and don't have a proper entry.
-                    // ignore those nodes.
+            for enode_id in self.union_find.enode_ids() {
+                let Some(enode) = self.union_find[enode_id].as_e_node() else {
                     continue;
                 };
+                let prev_effective_enode = bimap.get_by_right(&enode_id).unwrap();
                 let new_effective_enode = self.enode_to_effective(enode);
 
-                // the links of this enodes have changed due to the unioning operations. re-hash it.
                 if *prev_effective_enode != new_effective_enode {
+                    // the links of this enodes have changed due to the unioning operations. re-hash it.
                     bimap.remove_by_right(&enode_id);
                     match bimap.get_by_left(&new_effective_enode) {
                         Some(existing_enode_id) => {
                             // after converting the node back to an effecitve node, it now collides with another existing node.
                             // the union made them now point to the same eclasses, so they are the same node now.
                             //
-                            // so, we should union them.
+                            // so, first of all, we should union the two nodes that now collide, to combine their eclasses.
                             //
-                            // also, we can't add this node to the bimap anymore, since that will lead to duplicate values.
-                            // but, we don't even need to add it, since the bimap is only used for deduping, and a single entry
-                            // per node value is enough.
+                            // additionally, since they are exactly the same effective node, we need to get rid of one of them, since
+                            // we can't have 2 instances of the same effective enode in the bimap, since keys must be unique.
+                            //
+                            // so, we should convert one of them to a tombstone.
                             if self.union_find.union_enodes(*existing_enode_id, enode_id)
                                 == UnionRes::New
                             {
                                 did_anything = DidAnything::True;
                             }
+
+                            // convert the node that was just re-hashed into a tombstone.
+                            // the other node is already in the bimap, so it is cheaper to delete the one we just removed from the bimap.
+                            self.union_find[enode_id] = ENodesUnionFindItem::Tombstone;
                         }
                         None => {
+                            // no collision, just re-insert it with the new effective enode.
                             bimap.insert(new_effective_enode, enode_id);
                         }
                     }
@@ -947,6 +962,11 @@ impl Index<ENodeId> for EGraph {
 
     fn index(&self, index: ENodeId) -> &Self::Output {
         &self.union_find[index]
+    }
+}
+impl IndexMut<ENodeId> for EGraph {
+    fn index_mut(&mut self, index: ENodeId) -> &mut Self::Output {
+        &mut self.union_find[index]
     }
 }
 
