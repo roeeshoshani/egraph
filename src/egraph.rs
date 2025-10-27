@@ -227,6 +227,13 @@ impl ENodesUnionFind {
             }
         }
         for enode_id in looper_enode_ids {
+            // note that when we kill the nodes here, we only modify the union find tree, but not the bimap.
+            //
+            // this is important, since it means that we will still be able to de-dup this node if it ever gets re-created due to some
+            // re-write rule.
+            //
+            // this prevents a loop of thinking that we did anything by adding a node, and then removing it right after, when we
+            // realize that it creates a loop.
             self[enode_id] = ENodesUnionFindItem::Tombstone;
         }
     }
@@ -774,11 +781,23 @@ impl EGraph {
         loop {
             let mut did_anything = DidAnything::False;
             for enode_id in self.union_find.enode_ids() {
-                let Some(enode) = self.union_find[enode_id].as_e_node() else {
+                let Some(prev_effective_enode) = bimap.get_by_right(&enode_id) else {
+                    // in this case, it is a tombstone node that was killed due to colliding with another enode during union propegation.
+                    // we can just ignore this node, it is no longer relevant.
                     continue;
                 };
-                let prev_effective_enode = bimap.get_by_right(&enode_id).unwrap();
-                let new_effective_enode = self.enode_to_effective(enode);
+
+                // NOTE: we want to use the original effective enode from the bimap, and not use the enode value in the union find
+                // tree here.
+                //
+                // this is because the node may have became a tombstone due to loop prevention, in which case we still want to be able
+                // to dedup its creation in the future, so we want to keep it in the bimap.
+                //
+                // if we try to use the value from the union find, we will get a tombstone, which we can't really use here.
+                //
+                // so, we just use the previous effective node value and update it according to the new state of the union find tree.
+                let new_effective_enode = prev_effective_enode
+                    .convert_links(|link| self.eclass_id_to_effective(link.to_eclass_id()));
 
                 if *prev_effective_enode != new_effective_enode {
                     // the links of this enodes have changed due to the unioning operations. re-hash it.
