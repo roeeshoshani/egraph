@@ -437,19 +437,12 @@ impl EGraph {
 
         let initial_ctx = rewrite.create_initial_ctx();
         let query = rewrite.query();
-        let recursed_eclasses = RecursedEClasses::new();
 
         for effective_eclass_id in self.union_find.effective_eclass_ids() {
             let mut match_ctxs = Vec::new();
 
             // match the current enode
-            self.match_enode_link(
-                effective_eclass_id,
-                &*query,
-                &initial_ctx,
-                &recursed_eclasses,
-                &mut match_ctxs,
-            );
+            self.match_enode_link(effective_eclass_id, &*query, &initial_ctx, &mut match_ctxs);
 
             matches.extend(match_ctxs.into_iter().map(|ctx| SimpleRewriteMatch {
                 final_ctx: ctx,
@@ -465,7 +458,6 @@ impl EGraph {
         link_effective_eclass_id: EffectiveEClassId,
         link_matcher: &dyn QueryLinkMatcher<C>,
         ctx: &C,
-        recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
         match link_matcher.match_link(link_effective_eclass_id, self, ctx) {
@@ -479,29 +471,11 @@ impl EGraph {
                 new_ctx,
                 enode_matcher,
             } => {
-                // when matching recursing into the enodes of an eclass, make sure that we haven't recursed this eclass already,
-                // to prevent following eclass loops which will blow up the graph with redundant expressions.
-                if recursed_eclasses.has_recursed_eclass(link_effective_eclass_id) {
-                    // don't loop
-                    return;
-                }
-
-                // mark the eclass as recursed
-                let new_recursed_eclasses =
-                    recursed_eclasses.with_added_recursed_eclass(link_effective_eclass_id);
-
                 for (enode_id, enode) in self
                     .union_find
                     .enumerate_enodes_in_effective_eclass(link_effective_eclass_id)
                 {
-                    self.match_enode(
-                        enode_id,
-                        enode,
-                        &*enode_matcher,
-                        &new_ctx,
-                        &new_recursed_eclasses,
-                        match_ctxs,
-                    )
+                    self.match_enode(enode_id, enode, &*enode_matcher, &new_ctx, match_ctxs)
                 }
             }
         }
@@ -512,7 +486,6 @@ impl EGraph {
         enode: &ENode,
         links_matcher: &dyn QueryLinksMatcher<C>,
         ctx: C,
-        recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
         let enode_links = enode.links();
@@ -546,7 +519,6 @@ impl EGraph {
                     effective_eclass_id,
                     &*link_matcher,
                     cur_ctx,
-                    recursed_eclasses,
                     &mut new_match_ctxs,
                 );
             }
@@ -583,7 +555,6 @@ impl EGraph {
         enode: &ENode,
         matcher: &dyn QueryENodeMatcher<C>,
         ctx: &C,
-        recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
         match matcher.match_enode(enode_id, enode, self, ctx) {
@@ -597,13 +568,7 @@ impl EGraph {
                 new_ctx,
                 links_matcher,
             } => {
-                self.match_enode_links(
-                    enode,
-                    &*links_matcher,
-                    new_ctx,
-                    recursed_eclasses,
-                    match_ctxs,
-                );
+                self.match_enode_links(enode, &*links_matcher, new_ctx, match_ctxs);
             }
         }
     }
@@ -1117,28 +1082,6 @@ pub struct SimpleRewriteMatch<C> {
 
     /// the effective eclass id that matched this rule.
     pub effective_eclass_id: EffectiveEClassId,
-}
-
-/// a list of eclasses that we have already recursed into their enodes.
-#[derive(Debug, Clone)]
-struct RecursedEClasses(Vec<EffectiveEClassId>);
-impl RecursedEClasses {
-    /// creates a new empty recursed classes object
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    /// checks if we have already recursed the given eclass.
-    pub fn has_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> bool {
-        self.0.contains(&effective_eclass_id)
-    }
-
-    /// creates a clone of this object but with an added recursed eclass id.
-    pub fn with_added_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> Self {
-        let mut res = self.clone();
-        res.0.push(effective_eclass_id);
-        res
-    }
 }
 
 #[cfg(test)]
