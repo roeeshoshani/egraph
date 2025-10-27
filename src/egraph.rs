@@ -619,6 +619,9 @@ impl EGraph {
 
     /// adds a graph to the egraph, converting each graph node to an enode.
     pub fn add_graph(&mut self, graph: &Graph) -> GraphToEgraphTranslationMap {
+        // cycles are not allowed in the egraph!
+        assert_eq!(graph.cyclicity(), Cyclicity::Acyclic);
+
         // first, represent each graph node as an internal var, and create a mapping from graph id to enode id.
         //
         // we do this since adding the graph nodes directly is not possible due to loops in the graph.
