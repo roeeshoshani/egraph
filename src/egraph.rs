@@ -296,6 +296,59 @@ impl ENodesUnionFind {
     pub fn are_enodes_eq(&self, a: ENodeId, b: ENodeId) -> bool {
         self.are_eclasses_eq(a.eclass_id(), b.eclass_id())
     }
+
+    fn enode_get_sample_rec_node_inner(
+        &self,
+        enode_id: ENodeId,
+        visited_eclasses: &HashSet<EffectiveEClassId>,
+    ) -> RecNode {
+        // the provided enode id may be dead, so we need to find a valid enode in its eclass
+        let enode = self.enodes_eq_to(enode_id).next().unwrap();
+        enode.convert_links(|link_eclass_id| {
+            self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
+        })
+    }
+
+    fn eclass_get_sample_rec_node_link_inner(
+        &self,
+        eclass_id: EClassId,
+        visited_eclasses: &HashSet<EffectiveEClassId>,
+    ) -> RecNodeLink {
+        let effective_eclass_id = eclass_id.to_effective(self);
+        if visited_eclasses.contains(&effective_eclass_id) {
+            return RecNodeLink::Loop;
+        }
+
+        let mut new_visited_eclasses = visited_eclasses.clone();
+        new_visited_eclasses.insert(effective_eclass_id);
+
+        // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
+        // any useful information.
+        let (enode_id, _) = self
+            .enumerate_enodes_in_eclass(eclass_id)
+            .find(|(_, enode)| !enode.is_internal_var())
+            .unwrap();
+
+        self.enode_get_sample_rec_node_inner(enode_id, &new_visited_eclasses)
+            .into()
+    }
+
+    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
+        let visited_eclasses = HashSet::new();
+        self.enode_get_sample_rec_node_inner(enode_id, &visited_eclasses)
+    }
+
+    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
+        let mut visited_eclasses = HashSet::new();
+        let link = self.eclass_get_sample_rec_node_link_inner(eclass_id, &mut visited_eclasses);
+        match link {
+            RecNodeLink::Regular(node) => *node,
+            RecNodeLink::Loop => {
+                // the root node link can't be a loop link
+                unreachable!()
+            }
+        }
+    }
 }
 impl Index<ENodeId> for ENodesUnionFind {
     type Output = ENodesUnionFindItem;
@@ -706,60 +759,6 @@ impl EGraph {
             .unwrap();
     }
 
-    fn enode_get_sample_rec_node_inner(
-        &self,
-        enode_id: ENodeId,
-        visited_eclasses: &HashSet<EffectiveEClassId>,
-    ) -> RecNode {
-        // the provided enode id may be dead, so we need to find a valid enode in its eclass
-        let enode = self.union_find.enodes_eq_to(enode_id).next().unwrap();
-        enode.convert_links(|link_eclass_id| {
-            self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
-        })
-    }
-
-    fn eclass_get_sample_rec_node_link_inner(
-        &self,
-        eclass_id: EClassId,
-        visited_eclasses: &HashSet<EffectiveEClassId>,
-    ) -> RecNodeLink {
-        let effective_eclass_id = self.eclass_id_to_effective(eclass_id);
-        if visited_eclasses.contains(&effective_eclass_id) {
-            return RecNodeLink::Loop;
-        }
-
-        let mut new_visited_eclasses = visited_eclasses.clone();
-        new_visited_eclasses.insert(effective_eclass_id);
-
-        // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
-        // any useful information.
-        let (enode_id, _) = self
-            .union_find
-            .enumerate_enodes_in_eclass(eclass_id)
-            .find(|(_, enode)| !enode.is_internal_var())
-            .unwrap();
-
-        self.enode_get_sample_rec_node_inner(enode_id, &new_visited_eclasses)
-            .into()
-    }
-
-    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
-        let visited_eclasses = HashSet::new();
-        self.enode_get_sample_rec_node_inner(enode_id, &visited_eclasses)
-    }
-
-    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
-        let mut visited_eclasses = HashSet::new();
-        let link = self.eclass_get_sample_rec_node_link_inner(eclass_id, &mut visited_eclasses);
-        match link {
-            RecNodeLink::Regular(node) => *node,
-            RecNodeLink::Loop => {
-                // the root node link can't be a loop link
-                unreachable!()
-            }
-        }
-    }
-
     fn try_to_gexf(&self) -> gexf::Result<String> {
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
@@ -777,7 +776,9 @@ impl EGraph {
                 format!(
                     "{}    {{ {} }}",
                     enode.structural_display(),
-                    self.enode_get_sample_rec_node(enode_id).to_string()
+                    self.union_find
+                        .enode_get_sample_rec_node(enode_id)
+                        .to_string()
                 )
             };
 
@@ -832,7 +833,7 @@ impl EGraph {
             writeln!(
                 &mut out,
                 "color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
-                self.eclass_get_sample_rec_node(eclass_id)
+                self.union_find.eclass_get_sample_rec_node(eclass_id)
             )
             .unwrap();
 
