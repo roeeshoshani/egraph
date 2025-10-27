@@ -4,7 +4,6 @@ use duct::cmd;
 use enum_variant_accessors::EnumAsVariant;
 use hashbrown::{HashMap, HashSet};
 use std::{
-    borrow::Cow,
     cell::RefCell,
     io::Write as _,
     ops::{Index, IndexMut},
@@ -893,112 +892,64 @@ impl EGraph {
         );
     }
 
-    /// extracts the given enode. this returns an option because if the enode is a tombstone it returns none.
-    fn extract_enode<'a>(&self, enode: &ENode, ctx: &'a ExtractCtx) -> Option<ExtractENodeRes<'a>> {
-        let mut score = ExtractionScore {
-            looping_score: 0,
-            base_score: 1,
-        };
+    /// extracts the given enode. this returns an option because it returns none for tombstone enodes.
+    fn extract_enode(&self, enode: &ENode, cache: &mut ExtractionCache) -> Option<ExtractRes> {
+        // start with a base score of 1 for the node itself.
+        // TODO: calculate a proper score based on the actual data of the node, not only the depth of the node.
+        let mut score = ExtractionScore(1);
 
-        // convert the enode to a graph node by extracting each link and advancing our ctx.
-        let mut cur_ctx = Cow::Borrowed(ctx);
-        let graph_node = enode.convert_links(|link_eclass_id| {
+        // convert the enode to a rec node by extracting each link. also, while doing this, we update our score
+        let rec_node = enode.convert_links(|link_eclass_id| {
             let link_effective_eclass_id = self.eclass_id_to_effective(*link_eclass_id);
 
             // extract the best version of the link eclass id
-            let ExtractEClassRes {
-                res,
-                eclass_graph_node_id: extracted_link_graph_node_id,
-            } = self.extract_eclass_inner(link_effective_eclass_id, &cur_ctx);
+            let extract_link_res = self.extract_eclass_inner(link_effective_eclass_id, cache);
 
             // update the socre according to the link's score
-            score += res.score;
+            score += extract_link_res.score;
 
-            // update the context to the context after extracting the link if any change was made.
-            if let Cow::Owned(new_ctx) = res.ctx {
-                cur_ctx = Cow::Owned(new_ctx);
-            }
-
-            // make us point to the graph node which represents that link eclass
-            extracted_link_graph_node_id
+            // use the extracted node in our new rec node
+            RecNodeLink::from(extract_link_res.node)
         });
 
-        Some(ExtractENodeRes {
-            res: ExtractRes {
-                ctx: cur_ctx,
-                score: score,
-            },
-            graph_node,
+        Some(ExtractRes {
+            node: rec_node,
+            score: score,
         })
     }
 
-    fn extract_eclass_inner<'a>(
+    fn extract_eclass_inner(
         &self,
         effective_eclass_id: EffectiveEClassId,
-        ctx: &'a ExtractCtx,
-    ) -> ExtractEClassRes<'a> {
-        if let Some(graph_id) = ctx.eclass_to_graph_id.get(&effective_eclass_id) {
-            // we encountered an eclass that we have already visited.
-            return ExtractEClassRes {
-                res: ExtractRes {
-                    ctx: Cow::Borrowed(ctx),
-                    score: ExtractionScore {
-                        looping_score: 1,
-                        base_score: 0,
-                    },
-                },
-                eclass_graph_node_id: *graph_id,
-            };
-        };
+        cache: &mut ExtractionCache,
+    ) -> ExtractRes {
+        // check if we already have it in our cache.
+        if let Some(existing_res) = cache.0.get(&effective_eclass_id) {
+            return existing_res.clone();
+        }
 
-        let mut new_ctx = ctx.clone();
-
-        // for now, add a dummy node since we don't yet know which form will be chosen, but we must allocate a graph node for it
-        // so that inner nodes can point back to it in case of loops.
-        //
-        // we will fill it in later.
-        //
-        // we can just always use the internal var 0 since unlike the egraph, the graph doesn't do any de-duplication.
-        let internal_var = new_ctx.alloc_internal_var();
-        let new_graph_id = new_ctx
-            .graph
-            .add_node(GenericNode::InternalVar(internal_var));
-        new_ctx
-            .eclass_to_graph_id
-            .insert(effective_eclass_id, new_graph_id);
-
-        let best_enode_res = self
+        // just choose the best result among the enodes in this eclass
+        let res = self
             .union_find
             .enodes_in_effective_eclass(effective_eclass_id)
             .filter(|enode| {
                 // skip internal var nodes, they are of no use to us here.
                 !enode.is_internal_var()
             })
-            .filter_map(|enode| self.extract_enode(enode, &new_ctx))
-            .min_by_key(|extract_enode_res| extract_enode_res.res.score)
+            .filter_map(|enode| self.extract_enode(enode, cache))
+            .min_by_key(|extract_enode_res| extract_enode_res.score)
             .unwrap();
 
-        // now fill in our actual graph node.
-        let mut final_ctx = best_enode_res.res.ctx.into_owned();
-        final_ctx.graph[new_graph_id] = best_enode_res.graph_node;
+        cache.0.insert(effective_eclass_id, res.clone());
 
-        ExtractEClassRes {
-            res: ExtractRes {
-                ctx: Cow::Owned(final_ctx),
-                score: best_enode_res.res.score,
-            },
-            eclass_graph_node_id: new_graph_id,
-        }
+        res
     }
 
-    pub fn extract_eclass(&self, eclass_id: EClassId) -> (Graph, GraphNodeId) {
-        let ctx = ExtractCtx::new();
+    pub fn extract_eclass(&self, eclass_id: EClassId) -> RecNode {
         let effective_eclass_id = self.eclass_id_to_effective(eclass_id);
-        let extract_eclass_res = self.extract_eclass_inner(effective_eclass_id, &ctx);
-        (
-            extract_eclass_res.res.ctx.into_owned().graph,
-            extract_eclass_res.eclass_graph_node_id,
-        )
+        let mut cache = ExtractionCache::new();
+        let res = self.extract_eclass_inner(effective_eclass_id, &mut cache);
+        res.node
     }
 }
 impl Index<ENodeId> for EGraph {
@@ -1030,47 +981,20 @@ impl Index<GraphNodeId> for GraphToEgraphTranslationMap {
 }
 
 #[derive(Debug, Clone)]
-struct ExtractRes<'a> {
-    ctx: Cow<'a, ExtractCtx>,
+struct ExtractRes {
+    node: RecNode,
     score: ExtractionScore,
 }
 
-#[derive(Debug, Clone)]
-struct ExtractENodeRes<'a> {
-    res: ExtractRes<'a>,
-    graph_node: GraphNode,
-}
-#[derive(Debug, Clone)]
-struct ExtractEClassRes<'a> {
-    res: ExtractRes<'a>,
-    eclass_graph_node_id: GraphNodeId,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Add, AddAssign)]
-struct ExtractionScore {
-    looping_score: usize,
-    base_score: usize,
-}
+struct ExtractionScore(u64);
 
-#[derive(Debug, Clone)]
-struct ExtractCtx {
-    graph: Graph,
-    next_internal_var: InternalVar,
-    eclass_to_graph_id: HashMap<EffectiveEClassId, GraphNodeId>,
-}
-impl ExtractCtx {
+/// a cache used during extraction to speed up the process and to avoid repeating the same work multiple times.
+struct ExtractionCache(HashMap<EffectiveEClassId, ExtractRes>);
+impl ExtractionCache {
+    /// create a new empty cache.
     fn new() -> Self {
-        Self {
-            graph: Graph::new(),
-            eclass_to_graph_id: HashMap::new(),
-            next_internal_var: InternalVar(0),
-        }
-    }
-
-    fn alloc_internal_var(&mut self) -> InternalVar {
-        let res = self.next_internal_var;
-        self.next_internal_var.0 += 1;
-        res
+        Self(HashMap::new())
     }
 }
 

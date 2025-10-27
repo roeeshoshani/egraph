@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::node::{BinOp, GenericNode, UnOp};
 
 /// the link of a recursive node.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RecNodeLink {
     /// a regular recursive node link. just points to another node.
     Regular(Box<RecNode>),
