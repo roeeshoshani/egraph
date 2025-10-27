@@ -1,8 +1,14 @@
 use bimap::BiHashMap;
 use derive_more::{Add, AddAssign};
 use duct::cmd;
+use enum_variant_accessors::EnumAsVariant;
 use hashbrown::{HashMap, HashSet};
-use std::{borrow::Cow, cell::RefCell, io::Write as _, ops::Index};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    io::Write as _,
+    ops::{Index, IndexMut},
+};
 use tempfile::NamedTempFile;
 
 use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
@@ -85,8 +91,20 @@ pub enum ENodeDedupInfo {
     Duplicate,
 }
 
+/// an item in the enodes union find.
+#[derive(Debug, Clone, EnumAsVariant)]
+pub enum ENodesUnionFindItem {
+    /// a regular enode.
+    ENode(ENode),
+
+    /// a tombstone item. this is an item which represents an enode which was removed from the egraph, but we still want to keep
+    /// its entry in the union find tree as a reference to the eclass from other enodes which point to it.
+    Tombstone,
+}
+
+/// the union find tree of enodes.
 #[derive(Debug, Clone)]
-pub struct ENodesUnionFind(pub UnionFind<ENode>);
+pub struct ENodesUnionFind(pub UnionFind<ENodesUnionFindItem>);
 impl ENodesUnionFind {
     pub fn new() -> Self {
         Self(UnionFind::new())
@@ -100,27 +118,64 @@ impl ENodesUnionFind {
         ENodeId(self.0.root_of_item(enode_id.0))
     }
 
-    pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = ENodeId> {
-        self.0.items_eq_to(enode_id.0).map(ENodeId)
+    pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = &ENode> + '_ {
+        self.0
+            .items_eq_to(enode_id.0)
+            .map(ENodeId)
+            .filter_map(|enode_id| self[enode_id].as_e_node())
     }
 
-    pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = ENodeId> {
+    pub fn enumerate_enodes_eq_to(
+        &self,
+        enode_id: ENodeId,
+    ) -> impl Iterator<Item = (ENodeId, &ENode)> + '_ {
+        self.0
+            .items_eq_to(enode_id.0)
+            .map(ENodeId)
+            .filter_map(|enode_id| {
+                let enode = self[enode_id].as_e_node()?;
+                Some((enode_id, enode))
+            })
+    }
+
+    pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = &ENode> + '_ {
         self.enodes_eq_to(eclass_id.enode_id)
+    }
+
+    pub fn enumerate_enodes_in_eclass(
+        &self,
+        eclass_id: EClassId,
+    ) -> impl Iterator<Item = (ENodeId, &ENode)> + '_ {
+        self.enumerate_enodes_eq_to(eclass_id.enode_id)
     }
 
     pub fn enodes_in_effective_eclass(
         &self,
         effective_eclass_id: EffectiveEClassId,
-    ) -> impl Iterator<Item = ENodeId> {
+    ) -> impl Iterator<Item = &ENode> + '_ {
         self.enodes_eq_to(effective_eclass_id.eclass_root)
+    }
+
+    pub fn enumerate_enodes_in_effective_eclass(
+        &self,
+        effective_eclass_id: EffectiveEClassId,
+    ) -> impl Iterator<Item = (ENodeId, &ENode)> + '_ {
+        self.enumerate_enodes_eq_to(effective_eclass_id.eclass_root)
     }
 
     pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<> {
         self.0.item_ids().map(ENodeId)
     }
 
-    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
+    pub fn enode_entries(&self) -> impl Iterator<Item = (ENodeId, &ENodesUnionFindItem)> + use<'_> {
         self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
+    }
+
+    pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
+        self.enode_entries().filter_map(|(id, item)| {
+            let enode = item.as_e_node()?;
+            Some((id, enode))
+        })
     }
 
     pub fn eclass_ids(&self) -> impl Iterator<Item = EClassId> + use<'_> {
@@ -134,20 +189,96 @@ impl ENodesUnionFind {
     }
 
     fn create_new_enode(&mut self, enode: ENode) -> ENodeId {
-        ENodeId(self.0.create_new_item(enode))
+        ENodeId(self.0.create_new_item(ENodesUnionFindItem::ENode(enode)))
     }
 
     pub fn peek_next_enode_id(&self) -> ENodeId {
         ENodeId(self.0.peek_next_item_id())
     }
 
+    /// checks if the given user enode uses the given used eclass.
+    fn does_enode_use_eclass(&self, enode: &ENode, used_eclass: EffectiveEClassId) -> bool {
+        enode.links().iter().any(|link| {
+            let link_effective_eclass_id = link.to_effective(self);
+            link_effective_eclass_id == used_eclass
+                || self.does_eclass_use_eclass(link_effective_eclass_id, used_eclass)
+        })
+    }
+
+    /// checks if the given user eclass uses the given used eclass.
+    fn does_eclass_use_eclass(
+        &self,
+        user_eclass: EffectiveEClassId,
+        used_eclass: EffectiveEClassId,
+    ) -> bool {
+        self.enodes_in_effective_eclass(user_eclass)
+            .any(|enode| self.does_enode_use_eclass(enode, used_eclass))
+    }
+
+    /// kill all enodes in the user eclass which use the used eclass, by converting them to tombstones.
+    fn kill_enodes_which_use_eclass(
+        &mut self,
+        user_eclass: EffectiveEClassId,
+        used_eclass: EffectiveEClassId,
+    ) {
+        let mut looper_enode_ids = Vec::new();
+        for (enode_id, enode) in self.enumerate_enodes_in_effective_eclass(user_eclass) {
+            if self.does_enode_use_eclass(enode, used_eclass) {
+                looper_enode_ids.push(enode_id);
+            }
+        }
+        for enode_id in looper_enode_ids {
+            self[enode_id] = ENodesUnionFindItem::Tombstone;
+        }
+    }
+
     /// union the given two enodes, merging their eclasses into a single eclass.
-    fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
+    fn union_enodes(&mut self, a: ENodeId, b: ENodeId) -> UnionRes {
+        let eclass_a = a.eclass_id().to_effective(self);
+        let eclass_b = b.eclass_id().to_effective(self);
+        if eclass_a == eclass_b {
+            // the nodes are already unioned.
+            return UnionRes::Existing;
+        }
+
+        // before we go straight to unioning the nodes in the union find tree, let's talk about loop detection.
+        //
+        // if the eclass of one item uses the eclass of the other, unioning them will create a loop.
+        //
+        // for example, if we have the expression x*0, and we are unioning 0 with x*0, we will create a loop, since x*0 and 0
+        // will now be in the same eclass, and when x*0 points to its 0 child, it will now point to the eclass containing both 0 and x*0,
+        // essentially making x*0 point to itself.
+        //
+        // this is problematic, since the egraph is not allowed to have loops. this is one of our invariants.
+        //
+        // this case happens if some enodes in the parent eclass uses the child eclass. let's call such enodes "looper enodes".
+        //
+        // and, by unioning the parent eclass with the child eclass, we are basically saying that those looper enodes are each equal
+        // to the child eclass, which is used by those looper enodes.
+        //
+        // if a node is equal to an eclass which it uses, as is the case for our looper enodes, it means that this node is just overly
+        // complicated, and is just adding bloat to our egraph, since we can just replace it with the eclass which it uses, which
+        // by definition has a simpler structure than it, since this looper node just build more shit on top of that existing eclass.
+        //
+        // so, we can just get rid of such looper nodes altogether without losing any important information, and we can thus prevent the
+        // loop from being created in the first place.
+        //
+        // note that this may make one of the eclasses temporarily empty of enodes, which doesn't make any sense, but after unioning
+        // the enodes and merging the eclasses, it will no longer be empty, so we are fine.
+        if self.does_eclass_use_eclass(eclass_a, eclass_b) {
+            // eclass a uses eclass b. kill looper enodes in eclass a.
+            self.kill_enodes_which_use_eclass(eclass_a, eclass_b);
+        } else if self.does_eclass_use_eclass(eclass_b, eclass_a) {
+            // eclass b uses eclass a. kill looper enodes in eclass b.
+            self.kill_enodes_which_use_eclass(eclass_b, eclass_a);
+        }
+
+        // union the enodes in the union find tree.
         self.0.union(a.0, b.0)
     }
 
     /// union the given two eclasses, merging them into a single eclass.
-    pub fn union_eclasses(&self, a: EClassId, b: EClassId) -> UnionRes {
+    pub fn union_eclasses(&mut self, a: EClassId, b: EClassId) -> UnionRes {
         self.union_enodes(a.enode_id, b.enode_id)
     }
 
@@ -168,10 +299,15 @@ impl ENodesUnionFind {
     }
 }
 impl Index<ENodeId> for ENodesUnionFind {
-    type Output = ENode;
+    type Output = ENodesUnionFindItem;
 
     fn index(&self, index: ENodeId) -> &Self::Output {
         &self.0[index.0]
+    }
+}
+impl IndexMut<ENodeId> for ENodesUnionFind {
+    fn index_mut(&mut self, index: ENodeId) -> &mut Self::Output {
+        &mut self.0[index.0]
     }
 }
 
@@ -301,19 +437,12 @@ impl EGraph {
 
         let initial_ctx = rewrite.create_initial_ctx();
         let query = rewrite.query();
-        let recursed_eclasses = RecursedEClasses::new();
 
         for effective_eclass_id in self.union_find.effective_eclass_ids() {
             let mut match_ctxs = Vec::new();
 
             // match the current enode
-            self.match_enode_link(
-                effective_eclass_id,
-                &*query,
-                &initial_ctx,
-                &recursed_eclasses,
-                &mut match_ctxs,
-            );
+            self.match_enode_link(effective_eclass_id, &*query, &initial_ctx, &mut match_ctxs);
 
             matches.extend(match_ctxs.into_iter().map(|ctx| SimpleRewriteMatch {
                 final_ctx: ctx,
@@ -329,7 +458,6 @@ impl EGraph {
         link_effective_eclass_id: EffectiveEClassId,
         link_matcher: &dyn QueryLinkMatcher<C>,
         ctx: &C,
-        recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
         match link_matcher.match_link(link_effective_eclass_id, self, ctx) {
@@ -343,30 +471,11 @@ impl EGraph {
                 new_ctx,
                 enode_matcher,
             } => {
-                // when matching recursing into the enodes of an eclass, make sure that we haven't recursed this eclass already,
-                // to prevent following eclass loops which will blow up the graph with redundant expressions.
-                if recursed_eclasses.has_recursed_eclass(link_effective_eclass_id) {
-                    // don't loop
-                    return;
-                }
-
-                // mark the eclass as recursed
-                let new_recursed_eclasses =
-                    recursed_eclasses.with_added_recursed_eclass(link_effective_eclass_id);
-
-                for enode_id in self
+                for (enode_id, enode) in self
                     .union_find
-                    .enodes_in_effective_eclass(link_effective_eclass_id)
+                    .enumerate_enodes_in_effective_eclass(link_effective_eclass_id)
                 {
-                    let enode = &self[enode_id];
-                    self.match_enode(
-                        enode_id,
-                        enode,
-                        &*enode_matcher,
-                        &new_ctx,
-                        &new_recursed_eclasses,
-                        match_ctxs,
-                    )
+                    self.match_enode(enode_id, enode, &*enode_matcher, &new_ctx, match_ctxs)
                 }
             }
         }
@@ -377,7 +486,6 @@ impl EGraph {
         enode: &ENode,
         links_matcher: &dyn QueryLinksMatcher<C>,
         ctx: C,
-        recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
         let enode_links = enode.links();
@@ -411,7 +519,6 @@ impl EGraph {
                     effective_eclass_id,
                     &*link_matcher,
                     cur_ctx,
-                    recursed_eclasses,
                     &mut new_match_ctxs,
                 );
             }
@@ -448,7 +555,6 @@ impl EGraph {
         enode: &ENode,
         matcher: &dyn QueryENodeMatcher<C>,
         ctx: &C,
-        recursed_eclasses: &RecursedEClasses,
         match_ctxs: &mut Vec<C>,
     ) {
         match matcher.match_enode(enode_id, enode, self, ctx) {
@@ -462,50 +568,49 @@ impl EGraph {
                 new_ctx,
                 links_matcher,
             } => {
-                self.match_enode_links(
-                    enode,
-                    &*links_matcher,
-                    new_ctx,
-                    recursed_eclasses,
-                    match_ctxs,
-                );
+                self.match_enode_links(enode, &*links_matcher, new_ctx, match_ctxs);
             }
         }
     }
 
     /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
-    pub fn propegate_unions(&self) {
+    pub fn propegate_unions(&mut self) {
         let mut bimap = self.bimap.borrow_mut();
         loop {
             let mut did_anything = DidAnything::False;
-            for (enode_id, enode) in self.union_find.enodes() {
-                let Some(prev_effective_enode) = bimap.get_by_right(&enode_id) else {
-                    // nodes that became duplicates of other nodes are removed from the bimap and don't have a proper entry.
-                    // ignore those nodes.
+            for enode_id in self.union_find.enode_ids() {
+                let Some(enode) = self.union_find[enode_id].as_e_node() else {
                     continue;
                 };
+                let prev_effective_enode = bimap.get_by_right(&enode_id).unwrap();
                 let new_effective_enode = self.enode_to_effective(enode);
 
-                // the links of this enodes have changed due to the unioning operations. re-hash it.
                 if *prev_effective_enode != new_effective_enode {
+                    // the links of this enodes have changed due to the unioning operations. re-hash it.
                     bimap.remove_by_right(&enode_id);
                     match bimap.get_by_left(&new_effective_enode) {
                         Some(existing_enode_id) => {
                             // after converting the node back to an effecitve node, it now collides with another existing node.
                             // the union made them now point to the same eclasses, so they are the same node now.
                             //
-                            // so, we should union them.
+                            // so, first of all, we should union the two nodes that now collide, to combine their eclasses.
                             //
-                            // also, we can't add this node to the bimap anymore, since that will lead to duplicate values.
-                            // but, we don't even need to add it, since the bimap is only used for deduping, and a single entry
-                            // per node value is enough.
+                            // additionally, since they are exactly the same effective node, we need to get rid of one of them, since
+                            // we can't have 2 instances of the same effective enode in the bimap, since keys must be unique.
+                            //
+                            // so, we should convert one of them to a tombstone.
                             if self.union_find.union_enodes(*existing_enode_id, enode_id)
                                 == UnionRes::New
                             {
                                 did_anything = DidAnything::True;
                             }
+
+                            // convert the node that was just re-hashed into a tombstone.
+                            // the other node is already in the bimap, so it is cheaper to delete the one we just removed from the bimap.
+                            self.union_find[enode_id] = ENodesUnionFindItem::Tombstone;
                         }
                         None => {
+                            // no collision, just re-insert it with the new effective enode.
                             bimap.insert(new_effective_enode, enode_id);
                         }
                     }
@@ -555,6 +660,9 @@ impl EGraph {
 
     /// adds a graph to the egraph, converting each graph node to an enode.
     pub fn add_graph(&mut self, graph: &Graph) -> GraphToEgraphTranslationMap {
+        // cycles are not allowed in the egraph!
+        assert_eq!(graph.cyclicity(), Cyclicity::Acyclic);
+
         // first, represent each graph node as an internal var, and create a mapping from graph id to enode id.
         //
         // we do this since adding the graph nodes directly is not possible due to loops in the graph.
@@ -604,7 +712,9 @@ impl EGraph {
         enode_id: ENodeId,
         visited_eclasses: &HashSet<EffectiveEClassId>,
     ) -> RecNode {
-        self[enode_id].convert_links(|link_eclass_id| {
+        // the provided enode id may be dead, so we need to find a valid enode in its eclass
+        let enode = self.union_find.enodes_eq_to(enode_id).next().unwrap();
+        enode.convert_links(|link_eclass_id| {
             self.eclass_get_sample_rec_node_link_inner(*link_eclass_id, visited_eclasses)
         })
     }
@@ -624,13 +734,13 @@ impl EGraph {
 
         // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
         // any useful information.
-        let chosen_enode = self
+        let (enode_id, _) = self
             .union_find
-            .enodes_in_eclass(eclass_id)
-            .find(|&enode_id| !self[enode_id].is_internal_var())
+            .enumerate_enodes_in_eclass(eclass_id)
+            .find(|(_, enode)| !enode.is_internal_var())
             .unwrap();
 
-        self.enode_get_sample_rec_node_inner(chosen_enode, &new_visited_eclasses)
+        self.enode_get_sample_rec_node_inner(enode_id, &new_visited_eclasses)
             .into()
     }
 
@@ -654,10 +764,13 @@ impl EGraph {
     fn try_to_gexf(&self) -> gexf::Result<String> {
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
-        for enode_id in self.union_find.enode_ids() {
-            let enode = &self[enode_id];
-
-            let eclass_label = self.union_find.enodes_eq_to(enode_id).min().unwrap();
+        for (enode_id, enode) in self.union_find.enodes() {
+            let eclass_label = self
+                .union_find
+                .enumerate_enodes_eq_to(enode_id)
+                .map(|(enode_id, _)| enode_id)
+                .min()
+                .unwrap();
 
             let node_label = if enode.links().is_empty() {
                 enode.structural_display()
@@ -691,8 +804,13 @@ impl EGraph {
     pub fn to_dot(&self) -> String {
         let mut out = String::new();
 
-        let find_eclass_label_of_node =
-            |enode_id: ENodeId| self.union_find.enodes_eq_to(enode_id).min().unwrap();
+        let find_eclass_label_of_node = |enode_id: ENodeId| {
+            self.union_find
+                .enumerate_enodes_eq_to(enode_id)
+                .map(|(enode_id, _)| enode_id)
+                .min()
+                .unwrap()
+        };
 
         fn eclass_dot_id(eclass_label: ENodeId) -> String {
             format!("cluster_eclass_{}", eclass_label.0.0)
@@ -720,8 +838,8 @@ impl EGraph {
             .unwrap();
 
             // one node per enode in the class
-            for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
-                let label = self[enode_id].structural_display();
+            for (i, cur_enode) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
+                let label = cur_enode.structural_display();
                 writeln!(
                     &mut out,
                     "{} [label=\"{}\"];",
@@ -736,9 +854,8 @@ impl EGraph {
 
         // edges from each enode to target e-class clusters
         for &eclass_label in &eclass_labels {
-            for (i, enode_id) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
-                let enode = &self[enode_id];
-                for link in enode.links() {
+            for (i, cur_enode) in self.union_find.enodes_eq_to(eclass_label).enumerate() {
+                for link in cur_enode.links() {
                     // route to target cluster anchor; ltail/lhead draw the edge between clusters
                     let target_eclass_label = find_eclass_label_of_node(link.enode_id);
                     writeln!(
@@ -776,8 +893,8 @@ impl EGraph {
         );
     }
 
-    fn extract_enode<'a>(&self, enode_id: ENodeId, ctx: &'a ExtractCtx) -> ExtractENodeRes<'a> {
-        let enode = &self[enode_id];
+    /// extracts the given enode. this returns an option because if the enode is a tombstone it returns none.
+    fn extract_enode<'a>(&self, enode: &ENode, ctx: &'a ExtractCtx) -> Option<ExtractENodeRes<'a>> {
         let mut score = ExtractionScore {
             looping_score: 0,
             base_score: 1,
@@ -806,13 +923,13 @@ impl EGraph {
             extracted_link_graph_node_id
         });
 
-        ExtractENodeRes {
+        Some(ExtractENodeRes {
             res: ExtractRes {
                 ctx: cur_ctx,
                 score: score,
             },
             graph_node,
-        }
+        })
     }
 
     fn extract_eclass_inner<'a>(
@@ -853,11 +970,11 @@ impl EGraph {
         let best_enode_res = self
             .union_find
             .enodes_in_effective_eclass(effective_eclass_id)
-            .filter(|&enode_id| {
+            .filter(|enode| {
                 // skip internal var nodes, they are of no use to us here.
-                !self[enode_id].is_internal_var()
+                !enode.is_internal_var()
             })
-            .map(|enode_id| self.extract_enode(enode_id, &new_ctx))
+            .filter_map(|enode| self.extract_enode(enode, &new_ctx))
             .min_by_key(|extract_enode_res| extract_enode_res.res.score)
             .unwrap();
 
@@ -885,10 +1002,15 @@ impl EGraph {
     }
 }
 impl Index<ENodeId> for EGraph {
-    type Output = ENode;
+    type Output = ENodesUnionFindItem;
 
     fn index(&self, index: ENodeId) -> &Self::Output {
         &self.union_find[index]
+    }
+}
+impl IndexMut<ENodeId> for EGraph {
+    fn index_mut(&mut self, index: ENodeId) -> &mut Self::Output {
+        &mut self.union_find[index]
     }
 }
 
@@ -960,28 +1082,6 @@ pub struct SimpleRewriteMatch<C> {
 
     /// the effective eclass id that matched this rule.
     pub effective_eclass_id: EffectiveEClassId,
-}
-
-/// a list of eclasses that we have already recursed into their enodes.
-#[derive(Debug, Clone)]
-struct RecursedEClasses(Vec<EffectiveEClassId>);
-impl RecursedEClasses {
-    /// creates a new empty recursed classes object
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    /// checks if we have already recursed the given eclass.
-    pub fn has_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> bool {
-        self.0.contains(&effective_eclass_id)
-    }
-
-    /// creates a clone of this object but with an added recursed eclass id.
-    pub fn with_added_recursed_eclass(&self, effective_eclass_id: EffectiveEClassId) -> Self {
-        let mut res = self.clone();
-        res.0.push(effective_eclass_id);
-        res
-    }
 }
 
 #[cfg(test)]
