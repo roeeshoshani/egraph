@@ -108,6 +108,79 @@ impl Graph {
     pub fn nodes_mut(&mut self) -> &mut GraphNodes {
         &mut self.nodes
     }
+
+    /// an internal recursive version of the cyclicity calculation.
+    fn cyclicity_recursive(
+        &self,
+        node: GraphNodeId,
+        node_marks: &mut [CyclicityMark],
+    ) -> Cyclicity {
+        match node_marks[node.index()] {
+            CyclicityMark::Unexplored => {
+                // this node was unexplored, so we can just explore it now.
+            }
+            CyclicityMark::Acyclic => {
+                // we have already visited this node and didn't detect any cycles, so this-far we are acyclic.
+                return Cyclicity::Acyclic;
+            }
+            CyclicityMark::InRecursionStack => {
+                // this node is already in our recursion stack, and we are now about to traverse it again, so we have a cycle.
+                return Cyclicity::Cyclic;
+            }
+        }
+
+        node_marks[node.index()] = CyclicityMark::InRecursionStack;
+
+        for &link in self[node].links() {
+            match self.cyclicity_recursive(link, node_marks) {
+                Cyclicity::Cyclic => {
+                    // the linked node is cyclic, so this node is also cyclic.
+                    return Cyclicity::Cyclic;
+                }
+                Cyclicity::Acyclic => {
+                    // the linked node is acyclic. keep scanning the other links.
+                }
+            }
+        }
+
+        node_marks[node.index()] = CyclicityMark::Acyclic;
+
+        Cyclicity::Acyclic
+    }
+
+    /// returns the cyclicity of this graph. this basically tells us if the graph is cyclic or acyclic.
+    pub fn cyclicity(&self) -> Cyclicity {
+        let mut marks: Vec<CyclicityMark> =
+            vec![CyclicityMark::Unexplored; self.nodes.next_push_index()];
+
+        for id in self.valid_node_ids() {
+            match marks[id.index()] {
+                CyclicityMark::Unexplored => {
+                    match self.cyclicity_recursive(id, &mut marks) {
+                        Cyclicity::Cyclic => {
+                            // this node is cyclic, so the entire graph is cyclic
+                            return Cyclicity::Cyclic;
+                        }
+                        Cyclicity::Acyclic => {
+                            // this node is acyclic, continue scanning other nodes to try to find cycles.
+                        }
+                    }
+                }
+                CyclicityMark::InRecursionStack => {
+                    // we should never reach here, since we are not inside any recursion stack here
+                    unreachable!()
+                }
+                CyclicityMark::Acyclic => {
+                    // we already checked this node and found that it is acyclic, so we don't need to scan it again.
+                    // continue to the next node.
+                    continue;
+                }
+            }
+        }
+
+        // we checked all nodes, and didn't find any cyclic node, so the graph is acyclic.
+        Cyclicity::Acyclic
+    }
 }
 impl Index<GraphNodeId> for Graph {
     type Output = GraphNode;
@@ -120,4 +193,24 @@ impl IndexMut<GraphNodeId> for Graph {
     fn index_mut(&mut self, node_id: GraphNodeId) -> &mut Self::Output {
         &mut self.nodes[node_id.index()]
     }
+}
+
+/// the cyclicity of a graph. this basically tells us if the graph is cyclic or acyclic.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Cyclicity {
+    Cyclic,
+    Acyclic,
+}
+
+/// a mark of a graph node which calculating the cyclicity of the graph.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum CyclicityMark {
+    /// this node is unexplored, and was never previously encountered.
+    Unexplored,
+
+    /// this node is in our current recursion stack. we are currently in the process of traversing this node.
+    InRecursionStack,
+
+    /// we have already finished checking this node and found it to be acyclic.
+    Acyclic,
 }
