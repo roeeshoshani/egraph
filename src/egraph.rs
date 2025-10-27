@@ -1,4 +1,3 @@
-use bimap::BiHashMap;
 use derive_more::{Add, AddAssign};
 use duct::cmd;
 use enum_variant_accessors::EnumAsVariant;
@@ -227,7 +226,7 @@ impl ENodesUnionFind {
             }
         }
         for enode_id in looper_enode_ids {
-            // note that when we kill the nodes here, we only modify the union find tree, but not the bimap.
+            // note that when we kill the nodes here, we only modify the union find tree, but not the hashmap.
             //
             // this is important, since it means that we will still be able to de-dup this node if it ever gets re-created due to some
             // re-write rule.
@@ -541,7 +540,7 @@ pub struct EGraph {
 
     next_internal_var: InternalVar,
 
-    bimap: RefCell<BiHashMap<EffectiveENode, ENodeId>>,
+    hashmap: RefCell<HashMap<EffectiveENode, ENodeId>>,
 }
 impl EGraph {
     /// returns a new empty egraph.
@@ -549,7 +548,7 @@ impl EGraph {
         Self {
             union_find: ENodesUnionFind::new(),
             next_internal_var: InternalVar(0),
-            bimap: RefCell::new(BiHashMap::new()),
+            hashmap: RefCell::new(HashMap::new()),
         }
     }
 
@@ -579,9 +578,9 @@ impl EGraph {
     /// if the exact enode already exists in the egraph, returns the id of the existing enode.
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
         let effective_enode = self.enode_to_effective(&enode);
-        let mut bimap = self.bimap.borrow_mut();
+        let mut hashmap = self.hashmap.borrow_mut();
 
-        if let Some(existing_id) = bimap.get_by_left(&effective_enode) {
+        if let Some(existing_id) = hashmap.get(&effective_enode) {
             // the node already exists
             return AddENodeRes {
                 eclass_id: existing_id.eclass_id(),
@@ -590,7 +589,7 @@ impl EGraph {
         }
 
         let enode_id = self.union_find.create_new_enode(enode);
-        bimap.insert(effective_enode, enode_id);
+        hashmap.insert(effective_enode, enode_id);
         AddENodeRes {
             eclass_id: enode_id.eclass_id(),
             dedup_info: ENodeDedupInfo::New,
@@ -777,21 +776,23 @@ impl EGraph {
 
     /// propegate all unions such that if `a == b`, `f(a) == f(b)`, which makes us uphold the egraph's congruence invariant.
     pub fn propegate_unions(&mut self) {
-        let mut bimap = self.bimap.borrow_mut();
-        loop {
-            let mut did_anything = DidAnything::False;
-            for enode_id in self.union_find.enode_ids() {
-                let Some(prev_effective_enode) = bimap.get_by_right(&enode_id) else {
-                    // in this case, it is a tombstone node that was killed due to colliding with another enode during union propegation.
-                    // we can just ignore this node, it is no longer relevant.
-                    continue;
-                };
+        struct Rehash {
+            enode_id: ENodeId,
+            prev_effective_enode: EffectiveENode,
+            new_effective_enode: EffectiveENode,
+        }
 
-                // NOTE: we want to use the original effective enode from the bimap, and not use the enode value in the union find
+        let mut hashmap = self.hashmap.borrow_mut();
+
+        loop {
+            // first, collect all re-hashes that need to be performed
+            let mut rehashes = Vec::new();
+            for (prev_effective_enode, enode_id) in &*hashmap {
+                // NOTE: we want to use the original effective enode from the hashmap, and not use the enode value in the union find
                 // tree here.
                 //
                 // this is because the node may have became a tombstone due to loop prevention, in which case we still want to be able
-                // to dedup its creation in the future, so we want to keep it in the bimap.
+                // to dedup its creation in the future, so we want to keep it in the hashmap.
                 //
                 // if we try to use the value from the union find, we will get a tombstone, which we can't really use here.
                 //
@@ -800,36 +801,49 @@ impl EGraph {
                     .convert_links(|link| self.eclass_id_to_effective(link.to_eclass_id()));
 
                 if *prev_effective_enode != new_effective_enode {
-                    // the links of this enodes have changed due to the unioning operations. re-hash it.
-                    bimap.remove_by_right(&enode_id);
-                    match bimap.get_by_left(&new_effective_enode) {
-                        Some(existing_enode_id) => {
-                            // after converting the node back to an effecitve node, it now collides with another existing node.
-                            // the union made them now point to the same eclasses, so they are the same node now.
-                            //
-                            // so, first of all, we should union the two nodes that now collide, to combine their eclasses.
-                            //
-                            // additionally, since they are exactly the same effective node, we need to get rid of one of them, since
-                            // we can't have 2 instances of the same effective enode in the bimap, since keys must be unique.
-                            //
-                            // so, we should convert one of them to a tombstone.
-                            if self.union_find.union_enodes(*existing_enode_id, enode_id)
-                                == UnionRes::New
-                            {
-                                did_anything = DidAnything::True;
-                            }
+                    rehashes.push(Rehash {
+                        enode_id: *enode_id,
+                        prev_effective_enode: prev_effective_enode.clone(),
+                        new_effective_enode,
+                    });
+                }
+            }
 
-                            // convert the node that was just re-hashed into a tombstone.
-                            // the other node is already in the bimap, so it is cheaper to delete the one we just removed from the bimap.
-                            self.union_find[enode_id] = ENodesUnionFindItem::Tombstone;
+            let mut did_anything = DidAnything::False;
+
+            for rehash in rehashes {
+                // the links of this enode have changed due to the unioning operations. re-hash it.
+                hashmap.remove(&rehash.prev_effective_enode);
+                match hashmap.entry(rehash.new_effective_enode) {
+                    hashbrown::hash_map::Entry::Occupied(occupied_entry) => {
+                        // after converting the node back to an effecitve node, it now collides with another existing node.
+                        // the union made them now point to the same eclasses, so they are the same node now.
+                        //
+                        // so, first of all, we should union the two nodes that now collide, to combine their eclasses.
+                        //
+                        // additionally, since they are exactly the same effective node, we need to get rid of one of them, since
+                        // we can't have 2 instances of the same effective enode in the hashmap, since keys must be unique.
+                        //
+                        // so, we should convert one of them to a tombstone.
+                        let existing_enode_id = *occupied_entry.get();
+                        if self
+                            .union_find
+                            .union_enodes(existing_enode_id, rehash.enode_id)
+                            == UnionRes::New
+                        {
+                            did_anything = DidAnything::True;
                         }
-                        None => {
-                            // no collision, just re-insert it with the new effective enode.
-                            bimap.insert(new_effective_enode, enode_id);
-                        }
+
+                        // convert the node that was just re-hashed into a tombstone.
+                        // the other node is already in the hashmap, so it is cheaper to delete the one we just removed from the hashmap.
+                        self.union_find[rehash.enode_id] = ENodesUnionFindItem::Tombstone;
+                    }
+                    hashbrown::hash_map::Entry::Vacant(vacant_entry) => {
+                        vacant_entry.insert(rehash.enode_id);
                     }
                 }
             }
+
             if !did_anything.as_bool() {
                 break;
             }
