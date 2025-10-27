@@ -196,13 +196,89 @@ impl ENodesUnionFind {
         ENodeId(self.0.peek_next_item_id())
     }
 
+    /// checks if the given user enode uses the given used eclass.
+    fn does_enode_use_eclass(&self, enode: &ENode, used_eclass: EffectiveEClassId) -> bool {
+        enode.links().iter().any(|link| {
+            let link_effective_eclass_id = link.to_effective(self);
+            link_effective_eclass_id == used_eclass
+                || self.does_eclass_use_eclass(link_effective_eclass_id, used_eclass)
+        })
+    }
+
+    /// checks if the given user eclass uses the given used eclass.
+    fn does_eclass_use_eclass(
+        &self,
+        user_eclass: EffectiveEClassId,
+        used_eclass: EffectiveEClassId,
+    ) -> bool {
+        self.enodes_in_effective_eclass(user_eclass)
+            .any(|enode| self.does_enode_use_eclass(enode, used_eclass))
+    }
+
+    /// kill all enodes in the user eclass which use the used eclass, by converting them to tombstones.
+    fn kill_enodes_which_use_eclass(
+        &mut self,
+        user_eclass: EffectiveEClassId,
+        used_eclass: EffectiveEClassId,
+    ) {
+        let mut looper_enode_ids = Vec::new();
+        for (enode_id, enode) in self.enumerate_enodes_in_effective_eclass(user_eclass) {
+            if self.does_enode_use_eclass(enode, used_eclass) {
+                looper_enode_ids.push(enode_id);
+            }
+        }
+        for enode_id in looper_enode_ids {
+            self[enode_id] = ENodesUnionFindItem::Tombstone;
+        }
+    }
+
     /// union the given two enodes, merging their eclasses into a single eclass.
-    fn union_enodes(&self, a: ENodeId, b: ENodeId) -> UnionRes {
+    fn union_enodes(&mut self, a: ENodeId, b: ENodeId) -> UnionRes {
+        let eclass_a = a.eclass_id().to_effective(self);
+        let eclass_b = b.eclass_id().to_effective(self);
+        if eclass_a == eclass_b {
+            // the nodes are already unioned.
+            return UnionRes::Existing;
+        }
+
+        // before we go straight to unioning the nodes in the union find tree, let's talk about loop detection.
+        //
+        // if the eclass of one item uses the eclass of the other, unioning them will create a loop.
+        //
+        // for example, if we have the expression x*0, and we are unioning 0 with x*0, we will create a loop, since x*0 and 0
+        // will now be in the same eclass, and when x*0 points to its 0 child, it will now point to the eclass containing both 0 and x*0,
+        // essentially making x*0 point to itself.
+        //
+        // this is problematic, since the egraph is not allowed to have loops. this is one of our invariants.
+        //
+        // this case happens if some enodes in the parent eclass uses the child eclass. let's call such enodes "looper enodes".
+        //
+        // and, by unioning the parent eclass with the child eclass, we are basically saying that those looper enodes are each equal
+        // to the child eclass, which is used by those looper enodes.
+        //
+        // if a node is equal to an eclass which it uses, as is the case for our looper enodes, it means that this node is just overly
+        // complicated, and is just adding bloat to our egraph, since we can just replace it with the eclass which it uses, which
+        // by definition has a simpler structure than it, since this looper node just build more shit on top of that existing eclass.
+        //
+        // so, we can just get rid of such looper nodes altogether without losing any important information, and we can thus prevent the
+        // loop from being created in the first place.
+        //
+        // note that this may make one of the eclasses temporarily empty of enodes, which doesn't make any sense, but after unioning
+        // the enodes and merging the eclasses, it will no longer be empty, so we are fine.
+        if self.does_eclass_use_eclass(eclass_a, eclass_b) {
+            // eclass a uses eclass b. kill looper enodes in eclass a.
+            self.kill_enodes_which_use_eclass(eclass_a, eclass_b);
+        } else if self.does_eclass_use_eclass(eclass_b, eclass_a) {
+            // eclass b uses eclass a. kill looper enodes in eclass b.
+            self.kill_enodes_which_use_eclass(eclass_b, eclass_a);
+        }
+
+        // union the enodes in the union find tree.
         self.0.union(a.0, b.0)
     }
 
     /// union the given two eclasses, merging them into a single eclass.
-    pub fn union_eclasses(&self, a: EClassId, b: EClassId) -> UnionRes {
+    pub fn union_eclasses(&mut self, a: EClassId, b: EClassId) -> UnionRes {
         self.union_enodes(a.enode_id, b.enode_id)
     }
 
