@@ -297,25 +297,6 @@ impl ENodesUnionFind {
         self.are_eclasses_eq(a.eclass_id(), b.eclass_id())
     }
 
-    pub fn eclass_get_sample_rec_node(&self, eclass_id: EClassId) -> RecNode {
-        // avoid choosing internal var nodes in sample representations, since they are just internal data which doesn't provide
-        // any useful information.
-        let (enode_id, _) = self
-            .enumerate_enodes_in_eclass(eclass_id)
-            .find(|(_, enode)| !enode.is_internal_var())
-            .unwrap();
-
-        self.enode_get_sample_rec_node(enode_id)
-    }
-
-    pub fn enode_get_sample_rec_node(&self, enode_id: ENodeId) -> RecNode {
-        // the provided enode id may be dead, so we need to find a valid enode in its eclass
-        let enode = self.enodes_eq_to(enode_id).next().unwrap();
-        enode.convert_links(|link_eclass_id| {
-            RecNodeLink::from(self.eclass_get_sample_rec_node(*link_eclass_id))
-        })
-    }
-
     pub fn dump_dot_svg(&self, out_file_path: &str) {
         let dot = self.to_dot();
 
@@ -348,7 +329,7 @@ impl ENodesUnionFind {
                 format!(
                     "{}    {{ {} }}",
                     enode.structural_display(),
-                    self.enode_get_sample_rec_node(enode_id).to_string()
+                    self.extract_enode(enode).to_string()
                 )
             };
 
@@ -399,7 +380,7 @@ impl ENodesUnionFind {
             writeln!(
                 &mut out,
                 "color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
-                self.eclass_get_sample_rec_node(eclass_id)
+                self.extract_eclass(eclass_id)
             )
             .unwrap();
 
@@ -459,8 +440,7 @@ impl ENodesUnionFind {
         );
     }
 
-    /// extracts the given enode. this returns an option because it returns none for tombstone enodes.
-    fn extract_enode(&self, enode: &ENode, cache: &mut ExtractionCache) -> Option<ExtractRes> {
+    fn extract_enode_inner(&self, enode: &ENode, cache: &mut ExtractionCache) -> ExtractRes {
         // start with a base score of 1 for the node itself.
         // TODO: calculate a proper score based on the actual data of the node, not only the depth of the node.
         let mut score = ExtractionScore(1);
@@ -479,10 +459,10 @@ impl ENodesUnionFind {
             RecNodeLink::from(extract_link_res.node)
         });
 
-        Some(ExtractRes {
+        ExtractRes {
             node: rec_node,
             score: score,
-        })
+        }
     }
 
     fn extract_eclass_inner(
@@ -502,7 +482,7 @@ impl ENodesUnionFind {
                 // skip internal var nodes, they are of no use to us here.
                 !enode.is_internal_var()
             })
-            .filter_map(|enode| self.extract_enode(enode, cache))
+            .map(|enode| self.extract_enode_inner(enode, cache))
             .min_by_key(|extract_enode_res| extract_enode_res.score)
             .unwrap();
 
@@ -515,6 +495,12 @@ impl ENodesUnionFind {
         let effective_eclass_id = eclass_id.to_effective(self);
         let mut cache = ExtractionCache::new();
         let res = self.extract_eclass_inner(effective_eclass_id, &mut cache);
+        res.node
+    }
+
+    pub fn extract_enode(&self, enode: &ENode) -> RecNode {
+        let mut cache = ExtractionCache::new();
+        let res = self.extract_enode_inner(enode, &mut cache);
         res.node
     }
 }
