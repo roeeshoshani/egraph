@@ -193,7 +193,7 @@ impl ENodesUnionFind {
 
     pub fn check_cyclicity(&self) {
         if self.cyclicity() != Cyclicity::Acyclic {
-            println!("cycle detected!");
+            panic!("cycle detected!");
         }
     }
 
