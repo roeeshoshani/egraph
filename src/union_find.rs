@@ -228,7 +228,7 @@ impl<T> UnionFind<T> {
     }
 
     /// flattens all of the descendents of the given item to be direct children of it.
-    fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
+    pub fn flatten_descendents_of_item(&self, item: UnionFindItemId) {
         // we intentionally start with an immutable borrow instead of a mutable borrow, since in some cases we won't need to modify
         // the children array at all, for example when all of the descendents of this item are already direct children of it (the
         // item was already flattened).
@@ -308,6 +308,16 @@ impl<T> UnionFind<T> {
         // we need to reborrow children mutably since we previously only had an immutable borrow.
         let mut children = self.children_of_item[item.index()].borrow_mut();
         children.append(&mut new_children);
+    }
+
+    pub fn dump(&self) {
+        for item_id in self.item_ids() {
+            println!(
+                "parent of {} is {}",
+                item_id.0,
+                self.get_parent_of_item(item_id).0
+            )
+        }
     }
 
     /// returns an iterator over all items equal to the given item, including the item itself
@@ -391,10 +401,7 @@ impl<'a> Iterator for ItemsEqTo<'a> {
     type Item = UnionFindItemId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next_index >= self.items.len() {
-            return None;
-        }
-        let res = self.items[self.next_index];
+        let res = *self.items.get(self.next_index)?;
         self.next_index += 1;
         Some(res)
     }

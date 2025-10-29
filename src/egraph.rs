@@ -334,6 +334,16 @@ impl ENodesUnionFind {
                 )
             );
         }
+        println!("dumping union find:");
+        self.0.dump();
+        println!("done dumping union find!");
+
+        let a = {
+            let _guard = DontUpdateParentGuard::new();
+            self.enumerate_enodes_in_effective_eclass(user_eclass)
+                .map(|x| x.0)
+                .collect::<Vec<_>>()
+        };
         for (enode_id, enode) in self.enumerate_enodes_in_effective_eclass(user_eclass) {
             println!(
                 "checking enode id {:?} in user eclass {:?}",
@@ -344,6 +354,13 @@ impl ENodesUnionFind {
                 looper_enode_ids.push(enode_id);
             }
         }
+        let b = {
+            let _guard = DontUpdateParentGuard::new();
+            self.enumerate_enodes_in_effective_eclass(user_eclass)
+                .map(|x| x.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(a, b);
         for enode_id in looper_enode_ids {
             // note that when we kill the nodes here, we only modify the union find tree, but not the hashmap.
             //
