@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use arrayvec::ArrayVec;
 
 use crate::{egraph::*, node::*, rewrite::*, utils::CowBox};
@@ -44,14 +46,14 @@ impl SimpleRewrite for ConstFoldRewrite {
 
 struct RootLinkMatcher;
 impl QueryLinkMatcher<Ctx> for RootLinkMatcher {
-    fn match_link(
-        &self,
+    fn match_link<'a, 'c>(
+        &'a self,
         _link_effective_eclass_id: EffectiveEClassId,
         _egraph: &EGraph,
-        ctx: &Ctx,
-    ) -> QueryMatchLinkRes<'_, Ctx> {
+        ctx: Cow<'c, Ctx>,
+    ) -> QueryMatchLinkRes<'a, 'c, Ctx> {
         QueryMatchLinkRes::RecurseIntoENodes {
-            new_ctx: ctx.clone(),
+            new_ctx: ctx,
             enode_matcher: CowBox::Borrowed(&RootNodeMatcher),
         }
     }
@@ -59,29 +61,33 @@ impl QueryLinkMatcher<Ctx> for RootLinkMatcher {
 
 struct RootNodeMatcher;
 impl QueryENodeMatcher<Ctx> for RootNodeMatcher {
-    fn match_enode(
-        &self,
+    fn match_enode<'a, 'c>(
+        &'a self,
         _enode_id: ENodeId,
         enode: &ENode,
         _egraph: &EGraph,
-        ctx: &Ctx,
-    ) -> QueryMatchENodeRes<'_, Ctx> {
+        ctx: Cow<'c, Ctx>,
+    ) -> QueryMatchENodeRes<'a, 'c, Ctx> {
         let Some(bin_op) = enode.as_bin_op() else {
             return QueryMatchENodeRes::NoMatch;
         };
 
-        let mut new_ctx = ctx.clone();
+        let mut new_ctx = ctx.into_owned();
         new_ctx.bin_op_kind = Some(bin_op.kind);
 
         QueryMatchENodeRes::RecurseIntoLinks {
-            new_ctx,
+            new_ctx: Cow::Owned(new_ctx),
             links_matcher: CowBox::Borrowed(&LinksMatcher),
         }
     }
 }
 struct LinksMatcher;
 impl QueryLinksMatcher<Ctx> for LinksMatcher {
-    fn match_links_amount(&self, links_amount: usize, ctx: Ctx) -> Option<QueryMatch<Ctx>> {
+    fn match_links_amount<'c>(
+        &self,
+        links_amount: usize,
+        ctx: Cow<'c, Ctx>,
+    ) -> Option<QueryMatch<'c, Ctx>> {
         if links_amount != 2 {
             return None;
         }
@@ -98,12 +104,12 @@ impl QueryLinksMatcher<Ctx> for LinksMatcher {
 
 struct OperandMatcher;
 impl QueryLinkMatcher<Ctx> for OperandMatcher {
-    fn match_link(
-        &self,
+    fn match_link<'a, 'c>(
+        &'a self,
         link_effective_eclass_id: EffectiveEClassId,
         egraph: &EGraph,
-        ctx: &Ctx,
-    ) -> QueryMatchLinkRes<'_, Ctx> {
+        ctx: Cow<'c, Ctx>,
+    ) -> QueryMatchLinkRes<'a, 'c, Ctx> {
         let Some(imm) = egraph
             .union_find()
             .enodes_in_effective_eclass(link_effective_eclass_id)
@@ -112,9 +118,11 @@ impl QueryLinkMatcher<Ctx> for OperandMatcher {
             return QueryMatchLinkRes::NoMatch;
         };
 
-        let mut new_ctx = ctx.clone();
+        let mut new_ctx = ctx.into_owned();
         new_ctx.operands.push(*imm);
 
-        QueryMatchLinkRes::Match(QueryMatch { new_ctx })
+        QueryMatchLinkRes::Match(QueryMatch {
+            new_ctx: Cow::Owned(new_ctx),
+        })
     }
 }

@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use hashbrown::HashMap;
 
@@ -337,30 +337,30 @@ impl SimpleRewrite for TemplateRewrite {
 }
 
 impl QueryENodeMatcher<TemplateRewriteCtx> for TemplateNode {
-    fn match_enode(
-        &self,
+    fn match_enode<'a, 'c>(
+        &'a self,
         _enode_id: ENodeId,
         enode: &ENode,
         _egraph: &EGraph,
-        ctx: &TemplateRewriteCtx,
-    ) -> QueryMatchENodeRes<'_, TemplateRewriteCtx> {
+        ctx: Cow<'c, TemplateRewriteCtx>,
+    ) -> QueryMatchENodeRes<'a, 'c, TemplateRewriteCtx> {
         if enode.convert_links(|_| ()) != self.convert_links(|_| ()) {
             // no match
             return QueryMatchENodeRes::NoMatch;
         }
         QueryMatchENodeRes::RecurseIntoLinks {
-            new_ctx: ctx.clone(),
+            new_ctx: ctx,
             links_matcher: CowBox::Borrowed(self),
         }
     }
 }
 
 impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
-    fn match_links_amount(
+    fn match_links_amount<'c>(
         &self,
         links_amount: usize,
-        ctx: TemplateRewriteCtx,
-    ) -> Option<QueryMatch<TemplateRewriteCtx>> {
+        ctx: Cow<'c, TemplateRewriteCtx>,
+    ) -> Option<QueryMatch<'c, TemplateRewriteCtx>> {
         if links_amount != self.links().len() {
             return None;
         }
@@ -376,15 +376,15 @@ impl QueryLinksMatcher<TemplateRewriteCtx> for TemplateNode {
 }
 
 impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
-    fn match_link(
-        &self,
+    fn match_link<'a, 'c>(
+        &'a self,
         link_effective_eclass_id: EffectiveEClassId,
         _egraph: &EGraph,
-        ctx: &TemplateRewriteCtx,
-    ) -> QueryMatchLinkRes<'_, TemplateRewriteCtx> {
+        ctx: Cow<'c, TemplateRewriteCtx>,
+    ) -> QueryMatchLinkRes<'a, 'c, TemplateRewriteCtx> {
         match self {
             TemplateLink::Specific(enode_template) => QueryMatchLinkRes::RecurseIntoENodes {
-                new_ctx: ctx.clone(),
+                new_ctx: ctx,
                 enode_matcher: CowBox::Borrowed(&**enode_template),
             },
             TemplateLink::Var(template_var) => {
@@ -396,20 +396,20 @@ impl QueryLinkMatcher<TemplateRewriteCtx> for TemplateLink {
                         }
 
                         // we got a match, and we don't need to change the context at all since we didn't bind any new template vars.
-                        QueryMatchLinkRes::Match(QueryMatch {
-                            new_ctx: ctx.clone(),
-                        })
+                        QueryMatchLinkRes::Match(QueryMatch { new_ctx: ctx })
                     }
                     None => {
                         // the variable currently doesn't have any value, so we can bind it and consider it a match.
-                        let mut new_ctx = ctx.clone();
+                        let mut new_ctx = ctx.into_owned();
                         new_ctx.template_var_values.set(
                             *template_var,
                             TemplateVarValue {
                                 effective_eclass_id: link_effective_eclass_id,
                             },
                         );
-                        QueryMatchLinkRes::Match(QueryMatch { new_ctx })
+                        QueryMatchLinkRes::Match(QueryMatch {
+                            new_ctx: Cow::Owned(new_ctx),
+                        })
                     }
                 }
             }

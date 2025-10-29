@@ -3,6 +3,7 @@ use duct::cmd;
 use enum_variant_accessors::EnumAsVariant;
 use hashbrown::{HashMap, HashSet};
 use std::{
+    borrow::Cow,
     cell::RefCell,
     io::Write as _,
     ops::{Index, IndexMut},
@@ -646,7 +647,12 @@ impl EGraph {
             let mut match_ctxs = Vec::new();
 
             // match the current enode
-            self.match_enode_link(effective_eclass_id, &*query, &initial_ctx, &mut match_ctxs);
+            self.match_enode_link(
+                effective_eclass_id,
+                &*query,
+                Cow::Borrowed(&initial_ctx),
+                &mut match_ctxs,
+            );
 
             matches.extend(match_ctxs.into_iter().map(|ctx| SimpleRewriteMatch {
                 final_ctx: ctx,
@@ -657,11 +663,11 @@ impl EGraph {
         matches
     }
 
-    fn match_enode_link<C>(
+    fn match_enode_link<C: Clone>(
         &self,
         link_effective_eclass_id: EffectiveEClassId,
         link_matcher: &dyn QueryLinkMatcher<C>,
-        ctx: &C,
+        ctx: Cow<C>,
         match_ctxs: &mut Vec<C>,
     ) {
         match link_matcher.match_link(link_effective_eclass_id, self, ctx) {
@@ -669,27 +675,44 @@ impl EGraph {
                 return;
             }
             QueryMatchLinkRes::Match(QueryMatch { new_ctx }) => {
-                match_ctxs.push(new_ctx);
+                match_ctxs.push(new_ctx.into_owned());
             }
             QueryMatchLinkRes::RecurseIntoENodes {
                 new_ctx,
                 enode_matcher,
             } => {
+                // we want to pass the new ctx to each enode in the eclass.
+                //
+                // but, if the returned new ctx is owned, we don't want to clone it for each enode.
+                //
+                // so, we grab a reference to it here, and construct a borrowed cow for it in every iteration, for every enode, thus
+                // avoiding the clone, even in the case where the new ctx is owned.
+                let new_ctx_ref = match &new_ctx {
+                    Cow::Borrowed(borrowed) => *borrowed,
+                    Cow::Owned(owned_ctx) => owned_ctx,
+                };
                 for (enode_id, enode) in self
                     .union_find
                     .enumerate_enodes_in_effective_eclass(link_effective_eclass_id)
                 {
-                    self.match_enode(enode_id, enode, &*enode_matcher, &new_ctx, match_ctxs)
+                    self.match_enode(
+                        enode_id,
+                        enode,
+                        &*enode_matcher,
+                        // cloning this is zero cost since it is borrowed.
+                        Cow::Borrowed(new_ctx_ref),
+                        match_ctxs,
+                    )
                 }
             }
         }
     }
 
-    fn match_enode_links<C>(
+    fn match_enode_links<C: Clone>(
         &self,
         enode: &ENode,
         links_matcher: &dyn QueryLinksMatcher<C>,
-        ctx: C,
+        ctx: Cow<C>,
         match_ctxs: &mut Vec<C>,
     ) {
         let enode_links = enode.links();
@@ -703,12 +726,12 @@ impl EGraph {
 
         if links_amount == 0 {
             // no links, so we got a match
-            match_ctxs.push(new_ctx);
+            match_ctxs.push(new_ctx.into_owned());
             return;
         }
 
         // now match the links.
-        let mut cur_match_ctxs: Vec<C> = vec![new_ctx];
+        let mut cur_match_ctxs: Vec<C> = vec![new_ctx.into_owned()];
         let mut new_match_ctxs: Vec<C> = Vec::new();
         for cur_link_idx in 0..links_amount {
             let link_matcher = links_matcher.get_link_matcher(cur_link_idx);
@@ -722,7 +745,7 @@ impl EGraph {
                 self.match_enode_link(
                     effective_eclass_id,
                     &*link_matcher,
-                    cur_ctx,
+                    Cow::Borrowed(cur_ctx),
                     &mut new_match_ctxs,
                 );
             }
@@ -753,12 +776,12 @@ impl EGraph {
         match_ctxs.append(&mut cur_match_ctxs);
     }
 
-    fn match_enode<C>(
+    fn match_enode<C: Clone>(
         &self,
         enode_id: ENodeId,
         enode: &ENode,
         matcher: &dyn QueryENodeMatcher<C>,
-        ctx: &C,
+        ctx: Cow<C>,
         match_ctxs: &mut Vec<C>,
     ) {
         match matcher.match_enode(enode_id, enode, self, ctx) {
@@ -766,7 +789,7 @@ impl EGraph {
                 return;
             }
             QueryMatchENodeRes::Match(QueryMatch { new_ctx }) => {
-                match_ctxs.push(new_ctx);
+                match_ctxs.push(new_ctx.into_owned());
             }
             QueryMatchENodeRes::RecurseIntoLinks {
                 new_ctx,
