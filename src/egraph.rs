@@ -194,6 +194,9 @@ impl ENodesUnionFind {
     pub fn check_cyclicity(&self) {
         if self.cyclicity() != Cyclicity::Acyclic {
             panic!("cycle detected!");
+        } else {
+            std::fs::create_dir_all("./graphs").unwrap();
+            self.dump_dot_svg("./graphs/good.svg");
         }
     }
 
@@ -371,6 +374,14 @@ impl ENodesUnionFind {
         }
 
         self.check_cyclicity();
+
+        println!(
+            "unioning {} [{:?}] and {} [{:?}]",
+            self.extract_enode(self[a].as_e_node().unwrap()),
+            a,
+            self.extract_enode(self[b].as_e_node().unwrap()),
+            b
+        );
 
         // union the enodes in the union find tree.
         let res = self.0.union(a.0, b.0);
