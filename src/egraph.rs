@@ -4,6 +4,7 @@ use enum_variant_accessors::EnumAsVariant;
 use hashbrown::{HashMap, HashSet};
 use std::{
     cell::RefCell,
+    collections::BTreeMap,
     io::Write as _,
     ops::{Index, IndexMut},
 };
@@ -57,7 +58,7 @@ pub type ENode = GenericNode<EClassId>;
 ///
 /// this id is only true for a given snapshot of the union find tree. once the tree is modified, it is no longer up to date, since
 /// the root may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EffectiveEClassId {
     /// the root node of the eclass in the union find tree.
     pub eclass_root: ENodeId,
@@ -540,7 +541,7 @@ pub struct EGraph {
 
     next_internal_var: InternalVar,
 
-    hashmap: RefCell<HashMap<EffectiveENode, ENodeId>>,
+    hashmap: RefCell<BTreeMap<EffectiveENode, ENodeId>>,
 }
 impl EGraph {
     /// returns a new empty egraph.
@@ -548,7 +549,7 @@ impl EGraph {
         Self {
             union_find: ENodesUnionFind::new(),
             next_internal_var: InternalVar(0),
-            hashmap: RefCell::new(HashMap::new()),
+            hashmap: Default::default(),
         }
     }
 
@@ -815,7 +816,7 @@ impl EGraph {
                 // the links of this enode have changed due to the unioning operations. re-hash it.
                 hashmap.remove(&rehash.prev_effective_enode);
                 match hashmap.entry(rehash.new_effective_enode) {
-                    hashbrown::hash_map::Entry::Occupied(occupied_entry) => {
+                    std::collections::btree_map::Entry::Occupied(occupied_entry) => {
                         // after converting the node back to an effecitve node, it now collides with another existing node.
                         // the union made them now point to the same eclasses, so they are the same node now.
                         //
@@ -838,7 +839,7 @@ impl EGraph {
                         // the other node is already in the hashmap, so it is cheaper to delete the one we just removed from the hashmap.
                         self.union_find[rehash.enode_id] = ENodesUnionFindItem::Tombstone;
                     }
-                    hashbrown::hash_map::Entry::Vacant(vacant_entry) => {
+                    std::collections::btree_map::Entry::Vacant(vacant_entry) => {
                         vacant_entry.insert(rehash.enode_id);
                     }
                 }

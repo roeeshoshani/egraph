@@ -12,19 +12,19 @@ pub const NODE_MAX_LINKS: usize = 2;
 pub type NodeLinks<'a, L> = ArrayVec<&'a L, NODE_MAX_LINKS>;
 
 /// an immediate value.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Imm(pub u64);
 
 /// a variable.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Var(pub u64);
 
 /// an internal variable. exists to serve as placeholder for nodes who don't have a proper value.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InternalVar(pub u64);
 
 /// the kind of a binary operation.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay, PartialOrd, Ord)]
 pub enum BinOpKind {
     #[display("+")]
     Add,
@@ -51,7 +51,7 @@ impl BinOpKind {
 
 /// a binary operation. this is basically an operation with 2 operands, a lhs operand and a rhs operand.
 /// an example of a binary operation is an addition operation (`x + y`).
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BinOp<L> {
     /// the kind of the binary operation (e.g addition, multiplication, etc)
     pub kind: BinOpKind,
@@ -64,7 +64,7 @@ pub struct BinOp<L> {
 }
 
 /// the kind of a unary operation.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay, PartialOrd, Ord)]
 pub enum UnOpKind {
     /// integer arithmetic negation (as in `-x`). this is also called the 2s complement of the integer.
     #[display("-")]
@@ -87,7 +87,7 @@ impl UnOpKind {
 
 /// a unary operation. this is basically an operation with only a single operand.
 /// an example of a unary operation is a negation operation (`-x`).
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnOp<L> {
     /// the kind of the unary operation (e.g negation, bitwise not, etc)
     pub kind: UnOpKind,
@@ -97,7 +97,9 @@ pub struct UnOp<L> {
 }
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
+#[derive(
+    Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant, PartialOrd, Ord,
+)]
 pub enum GenericNode<L> {
     /// an immediate value.
     Imm(Imm),
