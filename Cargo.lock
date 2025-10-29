@@ -282,6 +282,7 @@ dependencies = [
  "derive-debug",
  "derive_more",
  "duct",
+ "either",
  "enum-display",
  "enum_variant_accessors",
  "gexf",

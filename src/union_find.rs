@@ -5,6 +5,8 @@ use std::{
     sync::atomic::AtomicUsize,
 };
 
+use either::Either;
+
 pub static AVOID_UPDATE_PARENT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub struct DontUpdateParentGuard(
@@ -309,14 +311,22 @@ impl<T> UnionFind<T> {
     }
 
     /// returns an iterator over all items equal to the given item, including the item itself
-    pub fn items_eq_to(&self, item: UnionFindItemId) -> ItemsEqTo<'_> {
+    pub fn items_eq_to(&self, item: UnionFindItemId) -> impl Iterator<Item = UnionFindItemId> {
         let root = self.root_of_item(item);
 
-        if root != item {
-            self.flatten_descendents_of_item(root);
-        }
+        if AVOID_UPDATE_PARENT_COUNT.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+            if root != item {
+                self.flatten_descendents_of_item(root);
+            }
 
-        ItemsEqTo::new(self.children_of_item[root.index()].borrow())
+            Either::Left(ItemsEqTo::new(self.children_of_item[root.index()].borrow()))
+        } else {
+            // do it without updating the tree.
+            Either::Right(
+                self.item_ids()
+                    .filter(move |item_id| self.root_of_item(*item_id) == root),
+            )
+        }
     }
 
     /// checks if the given two items are equal.
