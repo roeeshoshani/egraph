@@ -191,6 +191,12 @@ impl ENodesUnionFind {
         Cyclicity::Acyclic
     }
 
+    pub fn check_cyclicity(&self) {
+        if self.cyclicity() != Cyclicity::Acyclic {
+            println!("cycle detected!");
+        }
+    }
+
     /// returns the cyclicity of this graph. this basically tells us if the graph is cyclic or acyclic.
     pub fn cyclicity(&self) -> Cyclicity {
         let mut marks: Vec<CyclicityMark> = vec![CyclicityMark::Unexplored; self.len()];
@@ -323,6 +329,8 @@ impl ENodesUnionFind {
 
     /// union the given two enodes, merging their eclasses into a single eclass.
     fn union_enodes(&mut self, a: ENodeId, b: ENodeId) -> UnionRes {
+        self.check_cyclicity();
+
         let eclass_a = a.eclass_id().to_effective(self);
         let eclass_b = b.eclass_id().to_effective(self);
         if eclass_a == eclass_b {
@@ -362,8 +370,14 @@ impl ENodesUnionFind {
             self.kill_enodes_which_use_eclass(eclass_b, eclass_a);
         }
 
+        self.check_cyclicity();
+
         // union the enodes in the union find tree.
-        self.0.union(a.0, b.0)
+        let res = self.0.union(a.0, b.0);
+
+        self.check_cyclicity();
+
+        res
     }
 
     /// union the given two eclasses, merging them into a single eclass.
@@ -661,6 +675,8 @@ impl EGraph {
     ///
     /// if the exact enode already exists in the egraph, returns the id of the existing enode.
     pub fn add_enode(&mut self, enode: ENode) -> AddENodeRes {
+        self.union_find.check_cyclicity();
+
         let effective_enode = self.enode_to_effective(&enode);
         let mut hashmap = self.hashmap.borrow_mut();
 
@@ -674,6 +690,9 @@ impl EGraph {
 
         let enode_id = self.union_find.create_new_enode(enode);
         hashmap.insert(effective_enode, enode_id);
+
+        self.union_find.check_cyclicity();
+
         AddENodeRes {
             eclass_id: enode_id.eclass_id(),
             dedup_info: ENodeDedupInfo::New,
