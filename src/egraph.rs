@@ -141,6 +141,89 @@ impl ENodesUnionFind {
         self.enodes_eq_to(eclass_id.enode_id)
     }
 
+    /// an internal recursive version of the cyclicity calculation.
+    fn cyclicity_recursive(&self, node: ENodeId, node_marks: &mut [CyclicityMark]) -> Cyclicity {
+        match node_marks[node.0.index()] {
+            CyclicityMark::Unexplored => {
+                // this node was unexplored, so we can just explore it now.
+            }
+            CyclicityMark::Acyclic => {
+                // we have already visited this node and didn't detect any cycles, so this-far we are acyclic.
+                return Cyclicity::Acyclic;
+            }
+            CyclicityMark::InRecursionStack => {
+                // this node is already in our recursion stack, and we are now about to traverse it again, so we have a cycle.
+                return Cyclicity::Cyclic;
+            }
+        }
+
+        node_marks[node.0.index()] = CyclicityMark::InRecursionStack;
+
+        match &self[node] {
+            ENodesUnionFindItem::ENode(enode) => {
+                for &link_eclass_id in enode.links() {
+                    // poor man's enodes in eclass iteration, which avoids modifying the union find tree.
+                    let eclass_root = self.0.root_of_item_no_update(link_eclass_id.enode_id.0);
+                    for enode_id in self.enode_ids() {
+                        if self.0.root_of_item_no_update(enode_id.0) != eclass_root {
+                            // this enode is not part of the eclass
+                            continue;
+                        }
+                        match self.cyclicity_recursive(enode_id, node_marks) {
+                            Cyclicity::Cyclic => {
+                                // the linked node is cyclic, so this node is also cyclic.
+                                return Cyclicity::Cyclic;
+                            }
+                            Cyclicity::Acyclic => {
+                                // the linked node is acyclic. keep scanning the other links.
+                            }
+                        }
+                    }
+                }
+            }
+            ENodesUnionFindItem::Tombstone => {
+                // the node is a tombstone and doesn't have any links, so it can't cause a cycle.
+            }
+        }
+
+        node_marks[node.0.index()] = CyclicityMark::Acyclic;
+
+        Cyclicity::Acyclic
+    }
+
+    /// returns the cyclicity of this graph. this basically tells us if the graph is cyclic or acyclic.
+    pub fn cyclicity(&self) -> Cyclicity {
+        let mut marks: Vec<CyclicityMark> = vec![CyclicityMark::Unexplored; self.len()];
+
+        for enode_id in self.enode_ids() {
+            match marks[enode_id.0.index()] {
+                CyclicityMark::Unexplored => {
+                    match self.cyclicity_recursive(enode_id, &mut marks) {
+                        Cyclicity::Cyclic => {
+                            // this node is cyclic, so the entire graph is cyclic
+                            return Cyclicity::Cyclic;
+                        }
+                        Cyclicity::Acyclic => {
+                            // this node is acyclic, continue scanning other nodes to try to find cycles.
+                        }
+                    }
+                }
+                CyclicityMark::InRecursionStack => {
+                    // we should never reach here, since we are not inside any recursion stack here
+                    unreachable!()
+                }
+                CyclicityMark::Acyclic => {
+                    // we already checked this node and found that it is acyclic, so we don't need to scan it again.
+                    // continue to the next node.
+                    continue;
+                }
+            }
+        }
+
+        // we checked all nodes, and didn't find any cyclic node, so the graph is acyclic.
+        Cyclicity::Acyclic
+    }
+
     pub fn enumerate_enodes_in_eclass(
         &self,
         eclass_id: EClassId,
@@ -974,6 +1057,19 @@ pub struct SimpleRewriteMatch<C> {
 
     /// the effective eclass id that matched this rule.
     pub effective_eclass_id: EffectiveEClassId,
+}
+
+/// a mark of a graph node which calculating the cyclicity of the graph.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum CyclicityMark {
+    /// this node is unexplored, and was never previously encountered.
+    Unexplored,
+
+    /// this node is in our current recursion stack. we are currently in the process of traversing this node.
+    InRecursionStack,
+
+    /// we have already finished checking this node and found it to be acyclic.
+    Acyclic,
 }
 
 #[cfg(test)]

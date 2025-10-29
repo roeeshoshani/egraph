@@ -9,7 +9,7 @@ use std::{
 pub struct UnionFindItemId(pub NonZeroUsize);
 impl UnionFindItemId {
     /// the index of the item in the items array
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         self.0.get() - 1
     }
 }
