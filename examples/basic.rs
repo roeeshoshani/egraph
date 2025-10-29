@@ -73,5 +73,6 @@ fn main() {
 
     egraph.apply_rewrites(rewrites.as_slice(), None);
 
-    egraph.union_find().extract_eclass(root_eclass);
+    let res = egraph.union_find().extract_eclass(root_eclass);
+    println!("{}", res);
 }
