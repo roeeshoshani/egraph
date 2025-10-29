@@ -391,13 +391,16 @@ impl ENodesUnionFind {
             .unwrap();
 
             // one node per enode in the class
-            for (i, cur_enode) in self.enodes_eq_to(eclass_label).enumerate() {
+            for (i, (cur_enode_id, cur_enode)) in
+                self.enumerate_enodes_eq_to(eclass_label).enumerate()
+            {
                 let label = cur_enode.structural_display();
                 writeln!(
                     &mut out,
-                    "{} [label=\"{}\"];",
+                    "{} [label=\"{}\", tooltip=\"{}\"];",
                     enode_dot_id(eclass_label, i),
-                    label
+                    label,
+                    cur_enode_id.0.0
                 )
                 .unwrap();
             }
