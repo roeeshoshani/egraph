@@ -2,7 +2,26 @@ use std::{
     cell::{Cell, RefCell},
     num::NonZeroUsize,
     ops::{Index, IndexMut},
+    sync::atomic::AtomicUsize,
 };
+
+pub static AVOID_UPDATE_PARENT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub struct DontUpdateParentGuard(
+    // dummy internal field, just to disallow construction without using the constructor.
+    (),
+);
+impl DontUpdateParentGuard {
+    pub fn new() -> Self {
+        AVOID_UPDATE_PARENT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self(())
+    }
+}
+impl Drop for DontUpdateParentGuard {
+    fn drop(&mut self) {
+        AVOID_UPDATE_PARENT_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 /// the id of an item in the union find tree.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -179,7 +198,9 @@ impl<T> UnionFind<T> {
     pub fn root_of_item(&self, item: UnionFindItemId) -> UnionFindItemId {
         let root = self.root_of_item_no_update(item);
 
-        self.set_parent_of_item(item, root);
+        if AVOID_UPDATE_PARENT_COUNT.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+            self.set_parent_of_item(item, root);
+        }
 
         root
     }

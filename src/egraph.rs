@@ -162,13 +162,7 @@ impl ENodesUnionFind {
         match &self[node] {
             ENodesUnionFindItem::ENode(enode) => {
                 for &link_eclass_id in enode.links() {
-                    // poor man's enodes in eclass iteration, which avoids modifying the union find tree.
-                    let eclass_root = self.0.root_of_item_no_update(link_eclass_id.enode_id.0);
-                    for enode_id in self.enode_ids() {
-                        if self.0.root_of_item_no_update(enode_id.0) != eclass_root {
-                            // this enode is not part of the eclass
-                            continue;
-                        }
+                    for (enode_id, _) in self.enumerate_enodes_in_eclass(link_eclass_id) {
                         match self.cyclicity_recursive(enode_id, node_marks) {
                             Cyclicity::Cyclic => {
                                 // the linked node is cyclic, so this node is also cyclic.
