@@ -188,14 +188,12 @@ impl ENodesUnionFind {
     pub fn check_cyclicity(&self) {
         if self.cyclicity() != Cyclicity::Acyclic {
             panic!("cycle detected!");
-        } else {
-            std::fs::create_dir_all("./graphs").unwrap();
-            self.dump_dot_svg("./graphs/good.svg");
         }
     }
 
     /// returns the cyclicity of this graph. this basically tells us if the graph is cyclic or acyclic.
     pub fn cyclicity(&self) -> Cyclicity {
+        let _guard = DontUpdateParentGuard::new();
         let mut marks: Vec<CyclicityMark> = vec![CyclicityMark::Unexplored; self.len()];
 
         for enode_id in self.enode_ids() {
@@ -426,6 +424,7 @@ impl ENodesUnionFind {
     }
 
     fn try_to_gexf(&self) -> gexf::Result<String> {
+        let _guard = DontUpdateParentGuard::new();
         let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
             .meta("egraph", "a visualization of an egraph");
         for (enode_id, enode) in self.enodes() {
@@ -465,6 +464,7 @@ impl ENodesUnionFind {
     }
 
     pub fn to_dot(&self) -> String {
+        let _guard = DontUpdateParentGuard::new();
         let mut out = String::new();
 
         let find_eclass_label_of_node = |enode_id: ENodeId| {
