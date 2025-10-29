@@ -6,7 +6,9 @@ use std::{
     cell::RefCell,
     collections::BTreeMap,
     io::Write as _,
+    num::NonZeroUsize,
     ops::{Index, IndexMut},
+    sync::atomic::AtomicBool,
 };
 use tempfile::NamedTempFile;
 
@@ -22,6 +24,8 @@ impl ENodeId {
         EClassId { enode_id: *self }
     }
 }
+
+static LINK_DEBUGGING: AtomicBool = AtomicBool::new(true);
 
 /// the id of an eclass.
 ///
@@ -280,9 +284,23 @@ impl ENodesUnionFind {
     }
 
     /// checks if the given user enode uses the given used eclass.
-    fn does_enode_use_eclass(&self, enode: &ENode, used_eclass: EffectiveEClassId) -> bool {
+    fn does_enode_use_eclass(
+        &self,
+        enode_id: ENodeId,
+        enode: &ENode,
+        used_eclass: EffectiveEClassId,
+    ) -> bool {
+        let mut link_index = 0;
         enode.links().iter().any(|link| {
             let link_effective_eclass_id = link.to_effective(self);
+            if enode_id.0.0.get() == 19 && LINK_DEBUGGING.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                println!(
+                    "link index {} of enode 19 is {:?}, effective {:?}, used eclass id is {:?}",
+                    link_index, link, link_effective_eclass_id, used_eclass
+                );
+            }
+            link_index += 1;
             link_effective_eclass_id == used_eclass
                 || self.does_eclass_use_eclass(link_effective_eclass_id, used_eclass)
         })
@@ -294,8 +312,8 @@ impl ENodesUnionFind {
         user_eclass: EffectiveEClassId,
         used_eclass: EffectiveEClassId,
     ) -> bool {
-        self.enodes_in_effective_eclass(user_eclass)
-            .any(|enode| self.does_enode_use_eclass(enode, used_eclass))
+        self.enumerate_enodes_in_effective_eclass(user_eclass)
+            .any(|(enode_id, enode)| self.does_enode_use_eclass(enode_id, enode, used_eclass))
     }
 
     /// kill all enodes in the user eclass which use the used eclass, by converting them to tombstones.
@@ -305,8 +323,23 @@ impl ENodesUnionFind {
         used_eclass: EffectiveEClassId,
     ) {
         let mut looper_enode_ids = Vec::new();
+        {
+            let _guard = DontUpdateParentGuard::new();
+            println!(
+                "user eclass is {:?}, does it contain enode 19? {}",
+                user_eclass,
+                self.are_enodes_eq(
+                    user_eclass.eclass_root,
+                    ENodeId(UnionFindItemId(NonZeroUsize::new(19).unwrap()))
+                )
+            );
+        }
         for (enode_id, enode) in self.enumerate_enodes_in_effective_eclass(user_eclass) {
-            if self.does_enode_use_eclass(enode, used_eclass) {
+            println!(
+                "checking enode id {:?} in user eclass {:?}",
+                enode_id, user_eclass
+            );
+            if self.does_enode_use_eclass(enode_id, enode, used_eclass) {
                 println!("killing enode {}", enode_id.0.0);
                 looper_enode_ids.push(enode_id);
             }
