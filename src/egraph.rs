@@ -315,6 +315,7 @@ impl ENodesUnionFind {
         let mut looper_enode_ids = Vec::new();
         for (enode_id, enode) in self.enumerate_enodes_in_effective_eclass(user_eclass) {
             if self.does_enode_use_eclass(enode, used_eclass) {
+                println!("killing enode {}", enode_id.0.0);
                 looper_enode_ids.push(enode_id);
             }
         }
@@ -340,6 +341,16 @@ impl ENodesUnionFind {
             // the nodes are already unioned.
             return UnionRes::Existing;
         }
+
+        println!(
+            "unioning {} [{:?}] and {} [{:?}]",
+            self.extract_enode(self[a].as_e_node().unwrap()),
+            a,
+            self.extract_enode(self[b].as_e_node().unwrap()),
+            b
+        );
+
+        self.dump_dot_svg("./graphs/pre_kill.svg");
 
         // before we go straight to unioning the nodes in the union find tree, let's talk about loop detection.
         //
@@ -374,14 +385,6 @@ impl ENodesUnionFind {
         }
 
         self.check_cyclicity();
-
-        println!(
-            "unioning {} [{:?}] and {} [{:?}]",
-            self.extract_enode(self[a].as_e_node().unwrap()),
-            a,
-            self.extract_enode(self[b].as_e_node().unwrap()),
-            b
-        );
 
         // union the enodes in the union find tree.
         let res = self.0.union(a.0, b.0);
@@ -500,13 +503,15 @@ impl ENodesUnionFind {
             .unwrap();
 
             // one node per enode in the class
-            for (i, cur_enode) in self.enodes_eq_to(eclass_label).enumerate() {
+            for (i, (enode_id, cur_enode)) in self.enumerate_enodes_eq_to(eclass_label).enumerate()
+            {
                 let label = cur_enode.structural_display();
                 writeln!(
                     &mut out,
-                    "{} [label=\"{}\"];",
+                    "{} [label=\"{}\", tooltip=\"enode {}\"];",
                     enode_dot_id(eclass_label, i),
-                    label
+                    label,
+                    enode_id.0.0
                 )
                 .unwrap();
             }
