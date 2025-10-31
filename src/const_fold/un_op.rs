@@ -87,7 +87,7 @@ impl QueryLinksMatcher<Ctx> for LinksMatcher {
         links_amount: usize,
         ctx: Cow<'c, Ctx>,
     ) -> Option<QueryMatch<'c, Ctx>> {
-        if links_amount != 2 {
+        if links_amount != 1 {
             return None;
         }
         Some(QueryMatch { new_ctx: ctx })
@@ -95,7 +95,7 @@ impl QueryLinksMatcher<Ctx> for LinksMatcher {
 
     fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryLinkMatcher<Ctx>> {
         match link_index {
-            0 | 1 => CowBox::Borrowed(&OperandMatcher),
+            0 => CowBox::Borrowed(&OperandMatcher),
             _ => unreachable!(),
         }
     }
