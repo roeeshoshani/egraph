@@ -442,10 +442,12 @@ impl EGraph {
         }
     }
 
+    /// returns a reference to the union find tree of the egraph.
     pub fn union_find(&self) -> &ENodesUnionFind {
         &self.union_find
     }
 
+    /// returns a mutable reference to the union find tree of the egraph.
     pub fn union_find_mut(&mut self) -> &mut ENodesUnionFind {
         &mut self.union_find
     }
@@ -496,11 +498,13 @@ impl EGraph {
         self.add_enode(graph_node)
     }
 
+    /// applies the given simple re-write rule.
     pub fn apply_simple_rewrite<R: SimpleRewrite>(&mut self, rewrite: &R) -> DidAnything {
         let matches = self.match_simple_rewrite(rewrite);
         self.handle_simple_rewrite_matches(matches, rewrite)
     }
 
+    /// handles the given matches of a simple re-write rule.
     pub fn handle_simple_rewrite_matches<R: SimpleRewrite>(
         &mut self,
         matches: Vec<SimpleRewriteMatch<R::Ctx>>,
@@ -524,6 +528,7 @@ impl EGraph {
         did_anything
     }
 
+    /// matches the given simple re-write rule against all eclasses and enodes in the egraph, returning all matches.
     pub fn match_simple_rewrite<R: SimpleRewrite>(
         &self,
         rewrite: &R,
@@ -790,12 +795,16 @@ impl EGraph {
         }
     }
 
+    /// creates a new egraph from the given recursive node, returning the egraph and the eclass id which represents the root of the
+    /// rec node in the egraph.
     pub fn from_rec_node(rec_node: &RecNode) -> (Self, EClassId) {
         let mut egraph = Self::new();
         let add_node_res = egraph.add_rec_node(rec_node);
         (egraph, add_node_res.eclass_id)
     }
 
+    /// creates a new egraph from the given graph, returning the egraph, and a translation map for translating graph node ids to their
+    /// corresponding eclasses in the egraph.
     pub fn from_graph(graph: &Graph) -> (Self, GraphToEgraphTranslationMap) {
         let mut egraph = Self::new();
         let translation_map = egraph.add_graph(graph);
@@ -803,6 +812,8 @@ impl EGraph {
     }
 
     /// adds a graph to the egraph, converting each graph node to an enode.
+    ///
+    /// the graph must be acyclic.
     pub fn add_graph(&mut self, graph: &Graph) -> GraphToEgraphTranslationMap {
         // cycles are not allowed in the egraph!
         assert_eq!(graph.cyclicity(), Cyclicity::Acyclic);
@@ -851,6 +862,7 @@ impl IndexMut<ENodeId> for EGraph {
 /// a mapping from each graph node id to the eclass id of it in the egraph.
 pub struct GraphToEgraphTranslationMap(pub HashMap<GraphNodeId, EClassId>);
 impl GraphToEgraphTranslationMap {
+    /// creates a new empty translation map.
     pub fn new() -> Self {
         Self(HashMap::new())
     }
