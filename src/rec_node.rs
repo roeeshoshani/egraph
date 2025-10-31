@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::node::{BinOp, GenericNode, UnOp};
+use crate::node::{BinOp, BinOpKind, GenericNode, UnOp, UnOpKind};
 
 /// the link of a recursive node.
 ///
@@ -44,3 +44,54 @@ impl Display for RecNodeLink {
         write!(f, "{}", self.0)
     }
 }
+
+impl RecNodeLink {
+    /// applies the bin op with the given kind to this link as the lhs, and with the given rhs link as the rhs.
+    pub fn apply_bin_op(self, kind: BinOpKind, rhs: Self) -> Self {
+        Self(Box::new(GenericNode::BinOp(BinOp {
+            kind,
+            lhs: self,
+            rhs: rhs,
+        })))
+    }
+
+    /// applies the un op with the given kind to this link as the operand.
+    pub fn apply_un_op(self, kind: UnOpKind) -> Self {
+        Self(Box::new(GenericNode::UnOp(UnOp {
+            kind,
+            operand: self,
+        })))
+    }
+}
+
+macro_rules! impl_binop_for_rec_node_link {
+    ($trait: ty, $trait_fn_name: ident, $bin_op_kind: expr) => {
+        impl $trait for RecNodeLink {
+            type Output = Self;
+
+            fn $trait_fn_name(self, rhs: Self) -> Self::Output {
+                self.apply_bin_op($bin_op_kind, rhs)
+            }
+        }
+    };
+}
+
+impl_binop_for_rec_node_link! {std::ops::Add, add, BinOpKind::Add}
+impl_binop_for_rec_node_link! {std::ops::Mul, mul, BinOpKind::Mul}
+impl_binop_for_rec_node_link! {std::ops::BitAnd, bitand, BinOpKind::BitAnd}
+impl_binop_for_rec_node_link! {std::ops::BitOr, bitor, BinOpKind::BitOr}
+
+macro_rules! impl_unop_for_rec_node_link {
+    ($trait: ty, $trait_fn_name: ident, $un_op_kind: expr) => {
+        impl $trait for RecNodeLink {
+            type Output = Self;
+
+            fn $trait_fn_name(self) -> Self::Output {
+                self.apply_un_op($un_op_kind)
+            }
+        }
+    };
+}
+
+impl_unop_for_rec_node_link! {std::ops::Neg, neg,UnOpKind::Neg}
+impl_unop_for_rec_node_link! {std::ops::Not, not,UnOpKind::BitNot}
