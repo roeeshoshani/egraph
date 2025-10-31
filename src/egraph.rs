@@ -123,18 +123,22 @@ pub enum ENodesUnionFindItem {
 #[derive(Debug, Clone)]
 pub struct ENodesUnionFind(pub UnionFind<ENodesUnionFindItem>);
 impl ENodesUnionFind {
+    /// returns a new empty union find tree.
     pub fn new() -> Self {
         Self(UnionFind::new())
     }
 
+    /// returns the amount of enodes in the union find tree.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// finds the root enode of the given enode.
     pub fn root_of_enode(&self, enode_id: ENodeId) -> ENodeId {
         ENodeId(self.0.root_of_item(enode_id.0))
     }
 
+    /// returns an iterator over all enodes equal to the given enode.
     pub fn enodes_eq_to(&self, enode_id: ENodeId) -> impl Iterator<Item = &ENode> + '_ {
         self.0
             .items_eq_to(enode_id.0)
@@ -142,6 +146,7 @@ impl ENodesUnionFind {
             .filter_map(|enode_id| self[enode_id].as_e_node())
     }
 
+    /// returns an iterator over all enodes equal to the given enode, including enode ids.
     pub fn enumerate_enodes_eq_to(
         &self,
         enode_id: ENodeId,
@@ -155,10 +160,12 @@ impl ENodesUnionFind {
             })
     }
 
+    /// returns an iterator over all enodes in the given eclass.
     pub fn enodes_in_eclass(&self, eclass_id: EClassId) -> impl Iterator<Item = &ENode> + '_ {
         self.enodes_eq_to(eclass_id.enode_id)
     }
 
+    /// returns an iterator over all enodes in the given eclass, including enode ids.
     pub fn enumerate_enodes_in_eclass(
         &self,
         eclass_id: EClassId,
@@ -166,6 +173,7 @@ impl ENodesUnionFind {
         self.enumerate_enodes_eq_to(eclass_id.enode_id)
     }
 
+    /// returns an iterator over all enodes in the given effective eclass.
     pub fn enodes_in_effective_eclass(
         &self,
         effective_eclass_id: EffectiveEClassId,
@@ -173,6 +181,7 @@ impl ENodesUnionFind {
         self.enodes_eq_to(effective_eclass_id.eclass_root)
     }
 
+    /// returns an iterator over all enodes in the given effective eclass, including enode ids.
     pub fn enumerate_enodes_in_effective_eclass(
         &self,
         effective_eclass_id: EffectiveEClassId,
@@ -180,35 +189,42 @@ impl ENodesUnionFind {
         self.enumerate_enodes_eq_to(effective_eclass_id.eclass_root)
     }
 
+    /// returns an iterator over the enode ids of all enodes in the union find tree.
     pub fn enode_ids(&self) -> impl Iterator<Item = ENodeId> + use<> {
         self.0.item_ids().map(ENodeId)
     }
 
-    pub fn enode_entries(&self) -> impl Iterator<Item = (ENodeId, &ENodesUnionFindItem)> + use<'_> {
+    /// returns an iterator over all entries in the union find tree, including both enode entries and tombstone entries.
+    pub fn entries(&self) -> impl Iterator<Item = (ENodeId, &ENodesUnionFindItem)> + use<'_> {
         self.enode_ids().map(|enode_id| (enode_id, &self[enode_id]))
     }
 
+    /// returns an iterator over all enodes in the union find tree, excluding tombstone entries.
     pub fn enodes(&self) -> impl Iterator<Item = (ENodeId, &ENode)> + use<'_> {
-        self.enode_entries().filter_map(|(id, item)| {
+        self.entries().filter_map(|(id, item)| {
             let enode = item.as_e_node()?;
             Some((id, enode))
         })
     }
 
+    /// returns an iterator over the eclass ids of all eclasses in the union find tree.
     pub fn eclass_ids(&self) -> impl Iterator<Item = EClassId> + use<'_> {
         self.0.root_item_ids().map(|item| ENodeId(item).eclass_id())
     }
 
+    /// returns an iterator over the effective eclass ids of all eclasses in the union find tree.
     pub fn effective_eclass_ids(&self) -> impl Iterator<Item = EffectiveEClassId> + use<'_> {
         self.0.root_item_ids().map(|item| EffectiveEClassId {
             eclass_root: ENodeId(item),
         })
     }
 
+    /// creates a new enode in the union find tree. this must only be performed after properly deduping the enode in the egraph.
     fn create_new_enode(&mut self, enode: ENode) -> ENodeId {
         ENodeId(self.0.create_new_item(ENodesUnionFindItem::ENode(enode)))
     }
 
+    /// peeks the next enode id that will be returned for the next enode created in the union find tree.
     pub fn peek_next_enode_id(&self) -> ENodeId {
         ENodeId(self.0.peek_next_item_id())
     }
@@ -519,6 +535,7 @@ impl ENodesUnionFind {
         res
     }
 
+    /// extracts the given eclass.
     pub fn extract_eclass(&self, eclass_id: EClassId) -> RecNode {
         let effective_eclass_id = eclass_id.to_effective(self);
         let mut cache = ExtractionCache::new();
@@ -526,6 +543,7 @@ impl ENodesUnionFind {
         res.node
     }
 
+    /// extracts the given enode.
     pub fn extract_enode(&self, enode: &ENode) -> RecNode {
         let mut cache = ExtractionCache::new();
         let res = self.extract_enode_inner(enode, &mut cache);
