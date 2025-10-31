@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::{did_anything::DidAnything, egraph::*, utils::CowBox};
+use crate::{did_anything::DidAnything, egraph::*, union_find::UnionRes, utils::CowBox};
 
 /// a re-write rule.
 pub trait Rewrite {
@@ -126,4 +126,213 @@ macro_rules! rewrites_arr {
             ___result
         }
     );
+}
+
+impl EGraph {
+    /// applies the given simple re-write rule.
+    pub fn apply_simple_rewrite<R: SimpleRewrite>(&mut self, rewrite: &R) -> DidAnything {
+        let matches = self.match_simple_rewrite(rewrite);
+        self.handle_simple_rewrite_matches(matches, rewrite)
+    }
+
+    /// handles the given matches of a simple re-write rule.
+    pub fn handle_simple_rewrite_matches<R: SimpleRewrite>(
+        &mut self,
+        matches: Vec<SimpleRewriteMatch<R::Ctx>>,
+        rewrite: &R,
+    ) -> DidAnything {
+        let mut did_anything = DidAnything::False;
+
+        // for each match, add the rerwrite result to the egraph
+        for match_obj in matches {
+            let add_res = rewrite.build_rewrite(match_obj.final_ctx, self);
+
+            let union_res = self.union_find_mut().union_enodes(
+                add_res.eclass_id.enode_id,
+                match_obj.effective_eclass_id.eclass_root,
+            );
+            if add_res.dedup_info == ENodeDedupInfo::New || union_res == UnionRes::New {
+                did_anything = DidAnything::True;
+            }
+        }
+
+        did_anything
+    }
+
+    /// matches the given simple re-write rule against all eclasses and enodes in the egraph, returning all matches.
+    pub fn match_simple_rewrite<R: SimpleRewrite>(
+        &self,
+        rewrite: &R,
+    ) -> Vec<SimpleRewriteMatch<R::Ctx>> {
+        let mut matches = Vec::new();
+
+        let initial_ctx = rewrite.create_initial_ctx();
+        let query = rewrite.query();
+
+        for effective_eclass_id in self.union_find().effective_eclass_ids() {
+            let mut match_ctxs = Vec::new();
+
+            // match the current enode
+            self.match_enode_link(
+                effective_eclass_id,
+                &*query,
+                Cow::Borrowed(&initial_ctx),
+                &mut match_ctxs,
+            );
+
+            matches.extend(match_ctxs.into_iter().map(|ctx| SimpleRewriteMatch {
+                final_ctx: ctx,
+                effective_eclass_id,
+            }));
+        }
+
+        matches
+    }
+
+    fn match_enode_link<C: Clone>(
+        &self,
+        link_effective_eclass_id: EffectiveEClassId,
+        link_matcher: &dyn QueryLinkMatcher<C>,
+        ctx: Cow<C>,
+        match_ctxs: &mut Vec<C>,
+    ) {
+        match link_matcher.match_link(link_effective_eclass_id, self, ctx) {
+            QueryMatchLinkRes::NoMatch => {
+                return;
+            }
+            QueryMatchLinkRes::Match(QueryMatch { new_ctx }) => {
+                match_ctxs.push(new_ctx.into_owned());
+            }
+            QueryMatchLinkRes::RecurseIntoENodes {
+                new_ctx,
+                enode_matcher,
+            } => {
+                // we want to pass the new ctx to each enode in the eclass.
+                //
+                // but, if the returned new ctx is owned, we don't want to clone it for each enode.
+                //
+                // so, we grab a reference to it here, and construct a borrowed cow for it in every iteration, for every enode, thus
+                // avoiding the clone, even in the case where the new ctx is owned.
+                let new_ctx_ref = match &new_ctx {
+                    Cow::Borrowed(borrowed) => *borrowed,
+                    Cow::Owned(owned_ctx) => owned_ctx,
+                };
+                for (enode_id, enode) in self
+                    .union_find()
+                    .enumerate_enodes_in_effective_eclass(link_effective_eclass_id)
+                {
+                    self.match_enode(
+                        enode_id,
+                        enode,
+                        &*enode_matcher,
+                        // cloning this is zero cost since it is borrowed.
+                        Cow::Borrowed(new_ctx_ref),
+                        match_ctxs,
+                    )
+                }
+            }
+        }
+    }
+
+    fn match_enode_links<C: Clone>(
+        &self,
+        enode: &ENode,
+        links_matcher: &dyn QueryLinksMatcher<C>,
+        ctx: Cow<C>,
+        match_ctxs: &mut Vec<C>,
+    ) {
+        let enode_links = enode.links();
+        let links_amount = enode_links.len();
+
+        let Some(links_amount_match) = links_matcher.match_links_amount(links_amount, ctx) else {
+            // no match
+            return;
+        };
+        let QueryMatch { new_ctx } = links_amount_match;
+
+        if links_amount == 0 {
+            // no links, so we got a match
+            match_ctxs.push(new_ctx.into_owned());
+            return;
+        }
+
+        // now match the links.
+        let mut cur_match_ctxs: Vec<C> = vec![new_ctx.into_owned()];
+        let mut new_match_ctxs: Vec<C> = Vec::new();
+        for cur_link_idx in 0..links_amount {
+            let link_matcher = links_matcher.get_link_matcher(cur_link_idx);
+
+            // the eclass that the current enode link points to
+            let link_eclass_id = *enode_links[cur_link_idx];
+            let effective_eclass_id = self.eclass_id_to_effective(link_eclass_id);
+
+            // we want a cartesian product over match contexts from previous links, so try matching the link for each previous match
+            for cur_ctx in &cur_match_ctxs {
+                self.match_enode_link(
+                    effective_eclass_id,
+                    &*link_matcher,
+                    Cow::Borrowed(cur_ctx),
+                    &mut new_match_ctxs,
+                );
+            }
+
+            // new match contexts now contains the new cartesian product over the current link with all of its previous link.
+            //
+            // we want to use this new list of match contexts for matching the next link.
+            //
+            // so basically we want to set `cur_match_ctxs` to `new_match_ctxs`, and to clear `new_match_ctxs` in preparation for the
+            // next iteration.
+            //
+            // but, doing this will lose the storage that was already allocated in the `cur_match_ctxs` vector, which we will then have
+            // to re-allocate when re-building the `new_match_ctxs` list.
+            //
+            // so, instead, we perform a swap to keep both allocations.
+            std::mem::swap(&mut cur_match_ctxs, &mut new_match_ctxs);
+
+            // after the swap, `cur_match_ctxs` contains the value of `new_match_ctxs`, which is the list of match contexts that we
+            // just generated.
+            // and, `new_match_ctxs` now contains the value of `cur_match_ctxs`, which is the match contexts from the previous link.
+            // we no longer need the match contexts from the previous link, and each iteration assumes that `new_match_ctxs` is empty
+            // at the start of the iteration, so clear the vector.
+            new_match_ctxs.clear();
+        }
+
+        // the final value of `cur_match_ctxs` contains the final cartesian product of match contexts, which is what we want to return.
+        // so, copy it out.
+        match_ctxs.append(&mut cur_match_ctxs);
+    }
+
+    fn match_enode<C: Clone>(
+        &self,
+        enode_id: ENodeId,
+        enode: &ENode,
+        matcher: &dyn QueryENodeMatcher<C>,
+        ctx: Cow<C>,
+        match_ctxs: &mut Vec<C>,
+    ) {
+        match matcher.match_enode(enode_id, enode, self, ctx) {
+            QueryMatchENodeRes::NoMatch => {
+                return;
+            }
+            QueryMatchENodeRes::Match(QueryMatch { new_ctx }) => {
+                match_ctxs.push(new_ctx.into_owned());
+            }
+            QueryMatchENodeRes::RecurseIntoLinks {
+                new_ctx,
+                links_matcher,
+            } => {
+                self.match_enode_links(enode, &*links_matcher, new_ctx, match_ctxs);
+            }
+        }
+    }
+}
+
+/// a match of a simple re-write rule.
+#[derive(Debug, Clone)]
+pub struct SimpleRewriteMatch<C> {
+    /// the final ctx of this match.
+    pub final_ctx: C,
+
+    /// the effective eclass id that matched this rule.
+    pub effective_eclass_id: EffectiveEClassId,
 }
