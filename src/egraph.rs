@@ -1,17 +1,13 @@
 use derive_more::{Add, AddAssign};
-use duct::cmd;
 use enum_variant_accessors::EnumAsVariant;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use std::{
     borrow::Cow,
     cell::RefCell,
-    io::Write as _,
     ops::{Index, IndexMut},
 };
-use tempfile::NamedTempFile;
 
 use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
-use std::fmt::Write as _;
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -336,152 +332,6 @@ impl ENodesUnionFind {
     /// checks if the given two enodes are equal according to the current state of the egraph.
     pub fn are_enodes_eq(&self, a: ENodeId, b: ENodeId) -> bool {
         self.are_eclasses_eq(a.eclass_id(), b.eclass_id())
-    }
-
-    pub fn dump_dot_svg(&self, out_file_path: &str) {
-        let dot = self.to_dot();
-
-        std::fs::write(format!("{}.dot", out_file_path), &dot).unwrap();
-
-        let mut tmpfile = NamedTempFile::with_suffix(".dot").unwrap();
-        tmpfile.write_all(dot.as_bytes()).unwrap();
-        tmpfile.flush().unwrap();
-
-        let tmp_path = tmpfile.into_temp_path();
-
-        cmd!("fdp", "-Tsvg", &*tmp_path, "-o", out_file_path)
-            .run()
-            .unwrap();
-    }
-
-    fn try_to_gexf(&self) -> gexf::Result<String> {
-        let mut builder = gexf::GraphBuilder::new(gexf::EdgeType::Directed)
-            .meta("egraph", "a visualization of an egraph");
-        for (enode_id, enode) in self.enodes() {
-            let eclass_label = self
-                .enumerate_enodes_eq_to(enode_id)
-                .map(|(enode_id, _)| enode_id)
-                .min()
-                .unwrap();
-
-            let node_label = if enode.links().is_empty() {
-                enode.structural_display()
-            } else {
-                format!(
-                    "{}    {{ {} }}",
-                    enode.structural_display(),
-                    self.extract_enode(enode).to_string()
-                )
-            };
-
-            let node_id = enode_id.0.0.to_string();
-
-            let node = gexf::Node::new(&node_id)
-                .with_label(node_label)
-                .with_attr("eclass", eclass_label.0.0.to_string());
-            builder = builder.add_node(node)?;
-
-            // edges
-            for link in enode.links() {
-                builder = builder.add_edge(&node_id, link.enode_id.0.0.to_string())?;
-            }
-        }
-        builder.try_build()?.to_string()
-    }
-
-    pub fn to_gexf(&self) -> String {
-        self.try_to_gexf().unwrap()
-    }
-
-    pub fn to_dot(&self) -> String {
-        let mut out = String::new();
-
-        let find_eclass_label_of_node = |enode_id: ENodeId| {
-            self.enumerate_enodes_eq_to(enode_id)
-                .map(|(enode_id, _)| enode_id)
-                .min()
-                .unwrap()
-        };
-
-        fn eclass_dot_id(eclass_label: ENodeId) -> String {
-            format!("cluster_eclass_{}", eclass_label.0.0)
-        }
-        fn enode_dot_id(eclass_label: ENodeId, index_in_eclass: usize) -> String {
-            format!("eclass_{}_item_{}", eclass_label.0.0, index_in_eclass)
-        }
-
-        let eclass_labels: HashSet<ENodeId> =
-            self.enode_ids().map(find_eclass_label_of_node).collect();
-
-        for &eclass_label in &eclass_labels {
-            let eclass_id = eclass_label.eclass_id();
-
-            writeln!(&mut out, "subgraph {} {{", eclass_dot_id(eclass_label),).unwrap();
-
-            writeln!(
-                &mut out,
-                "color=gray60; style=\"rounded\"; fontcolor=\"white\"; label=\"{}\"",
-                self.extract_eclass(eclass_id)
-            )
-            .unwrap();
-
-            // one node per enode in the class
-            for (i, (cur_enode_id, cur_enode)) in
-                self.enumerate_enodes_eq_to(eclass_label).enumerate()
-            {
-                let label = cur_enode.structural_display();
-                writeln!(
-                    &mut out,
-                    "{} [label=\"{}\", tooltip=\"{}\"];",
-                    enode_dot_id(eclass_label, i),
-                    label,
-                    cur_enode_id.0.0
-                )
-                .unwrap();
-            }
-
-            out.push_str("}\n");
-        }
-
-        // edges from each enode to target e-class clusters
-        for &eclass_label in &eclass_labels {
-            for (i, cur_enode) in self.enodes_eq_to(eclass_label).enumerate() {
-                for link in cur_enode.links() {
-                    // route to target cluster anchor; ltail/lhead draw the edge between clusters
-                    let target_eclass_label = find_eclass_label_of_node(link.enode_id);
-                    writeln!(
-                        &mut out,
-                        "{} -> {} [lhead={}];",
-                        enode_dot_id(eclass_label, i),
-                        enode_dot_id(target_eclass_label, 0),
-                        eclass_dot_id(target_eclass_label)
-                    )
-                    .unwrap();
-                }
-            }
-        }
-
-        return format!(
-            r##"
-            digraph egraph {{
-                compound=true;
-                rankdir=TB;
-                bgcolor="#181818"
-                node [
-                    fontcolor = "#e6e6e6",
-                    style = filled,
-                    color = "#e6e6e6",
-                    fillcolor = "#333333"
-                ]
-                edge [
-                    color = "#e6e6e6",
-                    fontcolor = "#e6e6e6"
-                ]
-                {}
-            }}
-            "##,
-            out
-        );
     }
 
     fn extract_enode_inner(&self, enode: &ENode, cache: &mut ExtractionCache) -> ExtractRes {
