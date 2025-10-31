@@ -8,8 +8,16 @@ use std::{
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnionFindItemId(pub NonZeroUsize);
 impl UnionFindItemId {
+    /// creates a new item id from the index of the item in the items array
+    pub fn from_index(index: usize) -> Self {
+        Self(unsafe {
+            // SAFETY: we add 1, so it can't be 0
+            NonZeroUsize::new_unchecked(index + 1)
+        })
+    }
+
     /// the index of the item in the items array
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         self.0.get() - 1
     }
 }
@@ -78,10 +86,7 @@ impl<T> UnionFind<T> {
 
     /// peeks the next item id without allocating it.
     pub fn peek_next_item_id(&self) -> UnionFindItemId {
-        UnionFindItemId(
-            // SAFETY: we add 1 so it can't be 0
-            unsafe { NonZeroUsize::new_unchecked(self.items.len() + 1) },
-        )
+        UnionFindItemId::from_index(self.items.len())
     }
 
     /// adds the given child to the list of children of the given parent.
@@ -186,12 +191,7 @@ impl<T> UnionFind<T> {
 
     /// returns an iterator over all of the item ids in the tree.
     pub fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
-        (0..self.items.len()).map(|i| {
-            UnionFindItemId(
-                // SAFETY: we add 1 so it can't be 0
-                unsafe { NonZeroUsize::new_unchecked(i + 1) },
-            )
-        })
+        (0..self.items.len()).map(UnionFindItemId::from_index)
     }
 
     /// returns an iterator over all of the root item ids in the tree.

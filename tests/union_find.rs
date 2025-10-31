@@ -1,6 +1,10 @@
-use assert_unordered::assert_eq_unordered;
+use std::{num::NonZeroUsize, ops::Index};
 
-use egraph::union_find::*;
+use assert_unordered::assert_eq_unordered;
+use enum_all_values_const::AllValues;
+
+use egraph::{union_find::*, utils::index_mut_twice};
+use rand::{Rng, SeedableRng, rngs::SmallRng, seq::IndexedRandom};
 
 fn collect_to_vec<I, T>(iterator: I) -> Vec<T>
 where
@@ -447,4 +451,229 @@ fn test_items_eq_to_doesnt_break_anything() {
     );
 
     chk_groups(&union_find, &all_items, groups);
+}
+
+/// a different implementation of a union find tree which is MUCH simpler and thus probably doesn't have any bugs, so it is used as a
+/// reference correct implementation to compare our union find tree against.
+///
+/// this implementation it much slower, so it is not practical, but is very useful for finding bugs in our more performant version of
+/// the implementation.
+struct CorrectUnionFind<T> {
+    /// the item values themselves.
+    items: Vec<T>,
+
+    /// the different sets of the union find, where each set is an array of item ids contained in the set.
+    sets: Vec<Vec<UnionFindItemId>>,
+}
+impl<T> CorrectUnionFind<T> {
+    fn new() -> Self {
+        Self {
+            items: vec![],
+            sets: vec![],
+        }
+    }
+
+    #[must_use]
+    fn create_new_item(&mut self, item: T) -> UnionFindItemId {
+        self.items.push(item);
+
+        let id = UnionFindItemId(
+            // SAFETY: we just pushed to the vector so the length can't be 0.
+            unsafe { NonZeroUsize::new_unchecked(self.items.len()) },
+        );
+
+        // initially, the items is in a new set containing only itself.
+        self.sets.push(vec![id]);
+
+        id
+    }
+
+    /// returns the index of the set containing the given item.
+    fn find_set_of_item(&self, item: UnionFindItemId) -> usize {
+        self.sets
+            .iter()
+            .position(|set| set.contains(&item))
+            .unwrap()
+    }
+
+    fn items_eq_to(&self, item: UnionFindItemId) -> &[UnionFindItemId] {
+        let set_idx = self.find_set_of_item(item);
+        &self.sets[set_idx]
+    }
+
+    fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> UnionRes {
+        let set_a_idx = self.find_set_of_item(item_a);
+        let set_b_idx = self.find_set_of_item(item_b);
+        if set_a_idx == set_b_idx {
+            return UnionRes::Existing;
+        }
+
+        // merge both sets into set a
+        let (set_a, set_b) = index_mut_twice(&mut self.sets, set_a_idx, set_b_idx).unwrap();
+        set_a.append(set_b);
+
+        // remove set b now that it's empty
+        self.sets.swap_remove(set_b_idx);
+
+        UnionRes::New
+    }
+
+    fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) -> bool {
+        self.find_set_of_item(item_a) == self.find_set_of_item(item_b)
+    }
+
+    fn item_ids(&self) -> impl Iterator<Item = UnionFindItemId> + use<T> {
+        (0..self.items.len()).map(|i| {
+            UnionFindItemId(
+                // SAFETY: we add 1 so it can't be 0
+                unsafe { NonZeroUsize::new_unchecked(i + 1) },
+            )
+        })
+    }
+}
+impl<T> Index<UnionFindItemId> for CorrectUnionFind<T> {
+    type Output = T;
+
+    fn index(&self, id: UnionFindItemId) -> &Self::Output {
+        &self.items[id.index()]
+    }
+}
+
+/// a comparer which compares the performant union find implementation against the correct implementation.
+struct CorrectImplComparer<'a> {
+    correct: CorrectUnionFind<i32>,
+    performant: UnionFind<i32>,
+    rng: &'a mut SmallRng,
+}
+impl<'a> CorrectImplComparer<'a> {
+    fn new(rng: &'a mut SmallRng) -> Self {
+        Self {
+            correct: CorrectUnionFind::new(),
+            performant: UnionFind::new(),
+            rng,
+        }
+    }
+    fn len(&self) -> usize {
+        self.performant.len()
+    }
+    fn create_new_item(&mut self, item: i32) {
+        let a = self.correct.create_new_item(item);
+        let b = self.performant.create_new_item(item);
+        assert_eq!(a, b);
+    }
+
+    fn items_eq_to(&self, item: UnionFindItemId) {
+        let a = self.correct.items_eq_to(item).to_vec();
+        let b = self.performant.items_eq_to(item).collect();
+        assert_eq_unordered!(a, b);
+    }
+
+    fn union(&mut self, item_a: UnionFindItemId, item_b: UnionFindItemId) {
+        let a = self.correct.union(item_a, item_b);
+        let b = self.performant.union(item_a, item_b);
+        assert_eq!(a, b);
+    }
+
+    fn are_eq(&self, item_a: UnionFindItemId, item_b: UnionFindItemId) {
+        let a = self.correct.are_eq(item_a, item_b);
+        let b = self.performant.are_eq(item_a, item_b);
+        assert_eq!(a, b);
+    }
+
+    fn item_ids(&self) -> Vec<UnionFindItemId> {
+        let a: Vec<_> = self.correct.item_ids().collect();
+        let b: Vec<_> = self.performant.item_ids().collect();
+        assert_eq!(a, b);
+        a
+    }
+    fn random_item_id(&mut self) -> UnionFindItemId {
+        let index = self.rng.random_range(0..self.len());
+        UnionFindItemId::from_index(index)
+    }
+    fn random_item_ids_pair(&mut self) -> (UnionFindItemId, UnionFindItemId) {
+        (self.random_item_id(), self.random_item_id())
+    }
+    fn get_item_value(&self, item_id: UnionFindItemId) {
+        assert_eq!(self.correct[item_id], self.performant[item_id]);
+    }
+    fn full_check(&self) {
+        for item_a in self.item_ids() {
+            for item_b in self.item_ids() {
+                self.are_eq(item_a, item_b);
+            }
+        }
+        for item_id in self.item_ids() {
+            self.items_eq_to(item_id);
+        }
+    }
+
+    fn perform_action(&mut self, action: CorrectImplComparerAction) {
+        match action {
+            CorrectImplComparerAction::CreateItem => {
+                let value = self.rng.random();
+                self.create_new_item(value);
+            }
+            CorrectImplComparerAction::UnionItems => {
+                let (item_a, item_b) = self.random_item_ids_pair();
+                self.union(item_a, item_b);
+            }
+            CorrectImplComparerAction::ItemIds => {
+                let _ = self.item_ids();
+            }
+            CorrectImplComparerAction::GetItemValue => {
+                let item_id = self.random_item_id();
+                self.get_item_value(item_id);
+            }
+            CorrectImplComparerAction::ChkAreEq => {
+                let (item_a, item_b) = self.random_item_ids_pair();
+                self.are_eq(item_a, item_b);
+            }
+            CorrectImplComparerAction::ChkItemsEqTo => {
+                let item_id = self.random_item_id();
+                self.items_eq_to(item_id);
+            }
+            CorrectImplComparerAction::FullChk => self.full_check(),
+        }
+    }
+
+    fn perform_random_action(&mut self) {
+        let action = if self.len() == 0 {
+            CorrectImplComparerAction::CreateItem
+        } else {
+            *CorrectImplComparerAction::ALL_VALUES
+                .choose(&mut self.rng)
+                .unwrap()
+        };
+        self.perform_action(action);
+    }
+}
+
+#[derive(AllValues, Clone, Copy)]
+enum CorrectImplComparerAction {
+    CreateItem,
+    UnionItems,
+    ItemIds,
+    GetItemValue,
+    ChkAreEq,
+    ChkItemsEqTo,
+    FullChk,
+}
+
+#[test]
+fn test_compare_to_correct_impelemtation() {
+    /// the number of iterations of the test. in each iteration we start with a new tree and do a bunch of shit.
+    const NUM_ITERATIONS: usize = 150;
+
+    /// the number of actions per iteration.
+    const NUM_ACTIONS_PER_ITERATION: usize = 150;
+
+    // create an rng with a fixed seed to that the test is deterministic.
+    let mut rng = SmallRng::from_seed(Default::default());
+    for _ in 0..NUM_ITERATIONS {
+        let mut comparer = CorrectImplComparer::new(&mut rng);
+        for _ in 0..NUM_ACTIONS_PER_ITERATION {
+            comparer.perform_random_action();
+        }
+        comparer.full_check();
+    }
 }

@@ -283,6 +283,7 @@ dependencies = [
  "derive_more",
  "duct",
  "enum-display",
+ "enum_all_values_const",
  "enum_variant_accessors",
  "gexf",
  "hashbrown",
@@ -318,6 +319,17 @@ dependencies = [
  "quote",
  "regex",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "enum_all_values_const"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11cc44337e55367113fd34b00b361461317eb35859c5e08e473cb726884743d7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.107",
 ]
 
 [[package]]
