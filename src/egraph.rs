@@ -25,6 +25,8 @@ impl ENodeId {
 
 /// the id of an eclass.
 ///
+/// its internal representation it just an enode if of some enode in this eclass.
+///
 /// NOTE: this does not implement `Hash`, `PartialEq` and `Eq` due to how it is implemented.
 /// we can have 2 instances of this type which point to different enodes, so the derived `Eq` implementation will say that they are not
 /// equal, but in practice the 2 enodes that they point to are part of the same eclass, so the 2 eclass ids should be equal.
@@ -33,7 +35,6 @@ impl ENodeId {
 #[derive(Debug, Clone, Copy)]
 pub struct EClassId {
     /// an id of some enode which is part of this eclass.
-    /// this can be used to iterate over all enodes in the eclass.
     pub enode_id: ENodeId,
 }
 impl EClassId {
@@ -50,11 +51,12 @@ pub type ENode = GenericNode<EClassId>;
 
 /// an effective eclass id.
 ///
-/// usually, the eclass id is represented as an id to any enode in that eclass. this is problematic since it means that we can't
+/// usually, the eclass id is represented as an id to some enode in that eclass. this is problematic since it means that we can't
 /// compare eclass ids, which means that we can't compare enodes (since they contain eclass ids).
 ///
-/// this type represents an eclass id which can actually be compared to other eclass id. this is resolved by taking the root node
-/// of the enode id in the union find tree.
+/// this type represents an eclass id which can actually be compared to other eclass id. this is done by using the root node of the
+/// eclass.
+/// so, even eclass id object which point to different enodes will yield the same root, and thus the same effective eclass id object.
 ///
 /// this id is only true for a given snapshot of the union find tree. once the tree is modified, it is no longer up to date, since
 /// the root may no longer be the real root, it may now have an ancestor (or even multiple ancestors).
