@@ -74,10 +74,10 @@ fn test_dedup_nested() {
 }
 
 #[test]
-fn test_basic_rewrite() {
-    // 0xff & ((x & 0xff00) | (x & 0xff0000))
+fn test_basic() {
+    // 0xff & ((x & 0xff00) | (y & 0xff0000))
     let expr: RecLink = 0xff.to_rec_link()
-        & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(0).to_rec_link() & 0xff0000.into()));
+        & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(1).to_rec_link() & 0xff0000.into()));
 
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
 
@@ -103,17 +103,41 @@ fn test_basic_rewrite() {
 
     let zero_eclass = egraph.add_enode(0.into()).eclass_id;
 
+    // before applying re-write rules, the expression should not equal 0
     assert!(
         !egraph
             .union_find()
             .are_eclasses_eq(zero_eclass, root_eclass)
     );
+    assert_ne!(egraph.union_find().extract_eclass(root_eclass), 0.into());
+
+    // apply the rewrites
     egraph.apply_rewrites(rule_set.as_slice(), None);
+
+    // now it should equal 0
     assert!(
         egraph
             .union_find()
             .are_eclasses_eq(zero_eclass, root_eclass)
     );
+    assert_eq!(egraph.union_find().extract_eclass(root_eclass), 0.into());
+
+    // now do the same for a similar expression, but this time the expression shouldn't be simplified to 0
+
+    // 0xffff & ((x & 0xff00) | (y & 0xff0000))
+    let expr: RecLink = 0xffff.to_rec_link()
+        & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(1).to_rec_link() & 0xff0000.into()));
+    let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
+    let zero_eclass = egraph.add_enode(0.into()).eclass_id;
+    egraph.apply_rewrites(rule_set.as_slice(), None);
+
+    // it should not equal 0, even after applying rewrites
+    assert!(
+        !egraph
+            .union_find()
+            .are_eclasses_eq(zero_eclass, root_eclass)
+    );
+    assert_ne!(egraph.union_find().extract_eclass(root_eclass), 0.into());
 }
 
 #[test]
