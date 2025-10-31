@@ -1,3 +1,7 @@
+pub mod dot;
+pub mod extract;
+pub mod rewrite;
+
 use enum_variant_accessors::EnumAsVariant;
 use hashbrown::HashMap;
 use std::{
@@ -5,7 +9,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use crate::{did_anything::*, graph::*, node::*, rec_node::*, rewrite::*, union_find::*};
+use crate::{did_anything::*, egraph::rewrite::*, graph::*, node::*, rec_node::*, union_find::*};
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]

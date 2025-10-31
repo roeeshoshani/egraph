@@ -1,12 +1,7 @@
-pub mod const_fold;
 pub mod did_anything;
-pub mod dot;
 pub mod egraph;
-pub mod extract;
 pub mod graph;
 pub mod node;
 pub mod rec_node;
-pub mod rewrite;
-pub mod template_rewrite;
 pub mod union_find;
 pub mod utils;

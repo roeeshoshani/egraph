@@ -3,9 +3,9 @@ use std::{borrow::Cow, num::NonZeroUsize};
 use hashbrown::HashMap;
 
 use crate::{
+    egraph::rewrite::*,
     egraph::*,
     node::*,
-    rewrite::*,
     utils::{CowBox, NonZeroUsizeAllocator},
 };
 

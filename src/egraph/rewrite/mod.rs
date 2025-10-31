@@ -1,5 +1,8 @@
 use std::borrow::Cow;
 
+pub mod const_fold;
+pub mod template_rewrite;
+
 use crate::{did_anything::DidAnything, egraph::*, union_find::UnionRes, utils::CowBox};
 
 /// a re-write rule.
@@ -118,7 +121,7 @@ macro_rules! rewrites_arr {
     );
     ($($x:expr),+ $(,)?) => (
         {
-            let ___result: [Box<dyn $crate::rewrite::Rewrite>; _] = [
+            let ___result: [Box<dyn $crate::egraph::rewrite::Rewrite>; _] = [
                 $(
                     Box::new($x)
                 ),+

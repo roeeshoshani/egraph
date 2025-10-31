@@ -1,23 +1,25 @@
 use std::borrow::Cow;
 
-use crate::{egraph::*, node::*, rewrite::*, utils::CowBox};
+use arrayvec::ArrayVec;
 
-/// the context for the un op constant folding re-write.
+use crate::{egraph::rewrite::*, egraph::*, node::*, utils::CowBox};
+
+/// the context for the bin op constant folding re-write.
 #[derive(Debug, Clone)]
 pub struct Ctx {
-    un_op_kind: Option<UnOpKind>,
-    operand: Option<Imm>,
+    bin_op_kind: Option<BinOpKind>,
+    operands: ArrayVec<Imm, 2>,
 }
 impl Ctx {
     fn new() -> Self {
         Self {
-            un_op_kind: None,
-            operand: None,
+            bin_op_kind: None,
+            operands: ArrayVec::new(),
         }
     }
 }
 
-/// a unary operation constant folding re-write rule.
+/// a binary operation constant folding re-write rule.
 pub struct ConstFoldRewrite;
 impl SimpleRewrite for ConstFoldRewrite {
     type Ctx = Ctx;
@@ -31,13 +33,13 @@ impl SimpleRewrite for ConstFoldRewrite {
     }
 
     fn build_rewrite(&self, ctx: Self::Ctx, egraph: &mut EGraph) -> AddENodeRes {
-        let Some(kind) = ctx.un_op_kind else {
+        let Some(kind) = ctx.bin_op_kind else {
             unreachable!()
         };
-        let Some(operand) = ctx.operand else {
+        let [lhs, rhs] = &ctx.operands[..] else {
             unreachable!()
         };
-        let res = kind.apply_to_imm(operand);
+        let res = kind.apply_to_imms(*lhs, *rhs);
         egraph.add_enode(res.into())
     }
 }
@@ -66,12 +68,12 @@ impl QueryENodeMatcher<Ctx> for RootNodeMatcher {
         _egraph: &EGraph,
         ctx: Cow<'c, Ctx>,
     ) -> QueryMatchENodeRes<'a, 'c, Ctx> {
-        let Some(un_op) = enode.as_un_op() else {
+        let Some(bin_op) = enode.as_bin_op() else {
             return QueryMatchENodeRes::NoMatch;
         };
 
         let mut new_ctx = ctx.into_owned();
-        new_ctx.un_op_kind = Some(un_op.kind);
+        new_ctx.bin_op_kind = Some(bin_op.kind);
 
         QueryMatchENodeRes::RecurseIntoLinks {
             new_ctx: Cow::Owned(new_ctx),
@@ -79,7 +81,6 @@ impl QueryENodeMatcher<Ctx> for RootNodeMatcher {
         }
     }
 }
-
 struct LinksMatcher;
 impl QueryLinksMatcher<Ctx> for LinksMatcher {
     fn match_links_amount<'c>(
@@ -87,7 +88,7 @@ impl QueryLinksMatcher<Ctx> for LinksMatcher {
         links_amount: usize,
         ctx: Cow<'c, Ctx>,
     ) -> Option<QueryMatch<'c, Ctx>> {
-        if links_amount != 1 {
+        if links_amount != 2 {
             return None;
         }
         Some(QueryMatch { new_ctx: ctx })
@@ -95,7 +96,7 @@ impl QueryLinksMatcher<Ctx> for LinksMatcher {
 
     fn get_link_matcher(&self, link_index: usize) -> CowBox<'_, dyn QueryLinkMatcher<Ctx>> {
         match link_index {
-            0 => CowBox::Borrowed(&OperandMatcher),
+            0 | 1 => CowBox::Borrowed(&OperandMatcher),
             _ => unreachable!(),
         }
     }
@@ -118,7 +119,7 @@ impl QueryLinkMatcher<Ctx> for OperandMatcher {
         };
 
         let mut new_ctx = ctx.into_owned();
-        new_ctx.operand = Some(*imm);
+        new_ctx.operands.push(*imm);
 
         QueryMatchLinkRes::Match(QueryMatch {
             new_ctx: Cow::Owned(new_ctx),

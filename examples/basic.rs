@@ -1,6 +1,6 @@
 use egraph::{
-    const_fold::BinOpConstFoldRewrite, egraph::*, node::*, rec_node::*, rewrites_arr,
-    template_rewrite::*,
+    egraph::rewrite::const_fold::BinOpConstFoldRewrite, egraph::rewrite::template_rewrite::*,
+    egraph::*, node::*, rec_node::*, rewrites_arr,
 };
 
 fn main() {
