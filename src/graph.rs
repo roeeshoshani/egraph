@@ -351,25 +351,12 @@ mod tests {
 
     #[test]
     fn from_rec_node_builds_acyclic_graph() {
-        // Build a recursive expression: (-(x) + (x * 7))
-        let expr: RecNode = GenericNode::BinOp(RecBinOp {
-            kind: BinOpKind::Add,
-            lhs: RecNode::UnOp(RecUnOp {
-                kind: UnOpKind::Neg,
-                operand: RecNode::Var(Var(5)).into(),
-            })
-            .into(),
-            rhs: RecNode::BinOp(RecBinOp {
-                kind: BinOpKind::Mul,
-                lhs: RecNode::Var(Var(5)).into(),
-                rhs: RecNode::Imm(Imm(7)).into(),
-            })
-            .into(),
-        });
+        // -x + (x * 7)
+        let expr: RecLink = -Var(0).to_rec_link() + (Var(0).to_rec_link() * 7.into());
 
-        let (g, _root) = Graph::from_rec_node(&expr);
-        // Since RecNode can't encode cycles (and Graph deduplicates),
-        // the resulting graph must be a DAG.
+        let (g, _root) = Graph::from_rec_node(&expr.0);
+
+        // rec nodes are acyclic
         assert_eq!(g.cyclicity(), Cyclicity::Acyclic);
     }
 }

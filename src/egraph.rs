@@ -466,7 +466,7 @@ impl ENodesUnionFind {
             score += extract_link_res.score;
 
             // use the extracted node in our new rec node
-            RecNodeLink::from(extract_link_res.node)
+            RecLink::from(extract_link_res.node)
         });
 
         ExtractRes {
@@ -1080,29 +1080,10 @@ mod tests {
     #[test]
     fn test_basic_rewrite() {
         // 0xff & ((x & 0xff00) | (x & 0xff0000))
-        let rec_node: RecNode = RecBinOp {
-            kind: BinOpKind::BitAnd,
-            lhs: 0xff.into(),
-            rhs: RecBinOp {
-                kind: BinOpKind::BitOr,
-                lhs: RecBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: Var(0).into(),
-                    rhs: 0xff00.into(),
-                }
-                .into(),
-                rhs: RecBinOp {
-                    kind: BinOpKind::BitAnd,
-                    lhs: Var(0).into(),
-                    rhs: 0xff0000.into(),
-                }
-                .into(),
-            }
-            .into(),
-        }
-        .into();
+        let expr: RecLink = 0xff.to_rec_link()
+            & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(0).to_rec_link() & 0xff0000.into()));
 
-        let (mut egraph, root_eclass) = EGraph::from_rec_node(&rec_node);
+        let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
 
         let rule_set = rewrites_arr![
             // (x & 0) => 0

@@ -6,19 +6,19 @@ use crate::node::{BinOp, BinOpKind, GenericNode, UnOp, UnOpKind};
 ///
 /// we can't use a type alias here since type aliases can't be recursive, so we must create a new data type to break the recursion.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RecNodeLink(pub Box<RecNode>);
+pub struct RecLink(pub Box<RecNode>);
 
 /// a recursive node, which is a node whose link value directly owns the linked-to node.
-pub type RecNode = GenericNode<RecNodeLink>;
+pub type RecNode = GenericNode<RecLink>;
 
 /// a bin op which uses recursive nodes.
-pub type RecBinOp = BinOp<RecNodeLink>;
+pub type RecBinOp = BinOp<RecLink>;
 
 /// a un op which uses recursive nodes.
-pub type RecUnOp = UnOp<RecNodeLink>;
+pub type RecUnOp = UnOp<RecLink>;
 
 // convenience, convert a recursive node value directly to a recursive link value.
-impl<T> From<T> for RecNodeLink
+impl<T> From<T> for RecLink
 where
     RecNode: From<T>,
 {
@@ -26,6 +26,19 @@ where
         Self(Box::new(value.into()))
     }
 }
+
+pub trait ToRecLink {
+    fn to_rec_link(self) -> RecLink;
+}
+impl<T> ToRecLink for T
+where
+    RecNode: From<T>,
+{
+    fn to_rec_link(self) -> RecLink {
+        self.into()
+    }
+}
+
 impl Display for RecNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -39,13 +52,13 @@ impl Display for RecNode {
         }
     }
 }
-impl Display for RecNodeLink {
+impl Display for RecLink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl RecNodeLink {
+impl RecLink {
     /// applies the bin op with the given kind to this link as the lhs, and with the given rhs link as the rhs.
     pub fn apply_bin_op(self, kind: BinOpKind, rhs: Self) -> Self {
         Self(Box::new(GenericNode::BinOp(BinOp {
@@ -64,9 +77,9 @@ impl RecNodeLink {
     }
 }
 
-macro_rules! impl_binop_for_rec_node_link {
+macro_rules! impl_binop_for_rec_link {
     ($trait: ty, $trait_fn_name: ident, $bin_op_kind: expr) => {
-        impl $trait for RecNodeLink {
+        impl $trait for RecLink {
             type Output = Self;
 
             fn $trait_fn_name(self, rhs: Self) -> Self::Output {
@@ -76,14 +89,14 @@ macro_rules! impl_binop_for_rec_node_link {
     };
 }
 
-impl_binop_for_rec_node_link! {std::ops::Add, add, BinOpKind::Add}
-impl_binop_for_rec_node_link! {std::ops::Mul, mul, BinOpKind::Mul}
-impl_binop_for_rec_node_link! {std::ops::BitAnd, bitand, BinOpKind::BitAnd}
-impl_binop_for_rec_node_link! {std::ops::BitOr, bitor, BinOpKind::BitOr}
+impl_binop_for_rec_link! {std::ops::Add, add, BinOpKind::Add}
+impl_binop_for_rec_link! {std::ops::Mul, mul, BinOpKind::Mul}
+impl_binop_for_rec_link! {std::ops::BitAnd, bitand, BinOpKind::BitAnd}
+impl_binop_for_rec_link! {std::ops::BitOr, bitor, BinOpKind::BitOr}
 
-macro_rules! impl_unop_for_rec_node_link {
+macro_rules! impl_unop_for_rec_link {
     ($trait: ty, $trait_fn_name: ident, $un_op_kind: expr) => {
-        impl $trait for RecNodeLink {
+        impl $trait for RecLink {
             type Output = Self;
 
             fn $trait_fn_name(self) -> Self::Output {
@@ -93,5 +106,5 @@ macro_rules! impl_unop_for_rec_node_link {
     };
 }
 
-impl_unop_for_rec_node_link! {std::ops::Neg, neg,UnOpKind::Neg}
-impl_unop_for_rec_node_link! {std::ops::Not, not,UnOpKind::BitNot}
+impl_unop_for_rec_link! {std::ops::Neg, neg,UnOpKind::Neg}
+impl_unop_for_rec_link! {std::ops::Not, not,UnOpKind::BitNot}
