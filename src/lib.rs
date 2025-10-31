@@ -2,6 +2,7 @@ pub mod const_fold;
 pub mod did_anything;
 pub mod dot;
 pub mod egraph;
+pub mod extract;
 pub mod graph;
 pub mod node;
 pub mod rec_node;
