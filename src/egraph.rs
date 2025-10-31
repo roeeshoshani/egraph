@@ -100,6 +100,22 @@ pub enum ENodesUnionFindItem {
 
     /// a tombstone item. this is an item which represents an enode which was removed from the egraph, but we still want to keep
     /// its entry in the union find tree as a reference to the eclass from other enodes which point to it.
+    ///
+    /// there are 2 kinds of tombstone nodes: duplicate enodes, and looper enodes.
+    ///
+    /// a duplicate enode is an enode that was originally unique when added to the egraph, but became exactly equal to another
+    /// enode during union propegation and was thus eliminated. such an enode is not present in the egraph's deduplication hashmap,
+    /// and it is represented as a tombstone in the union find tree.
+    ///
+    /// for example, if we add the expressions `x * y` and `x * x` to the egraph, and then union `x` and `y`, the two expressions will
+    /// becaume equal, and one of them will be killed and become a duplicate enode tombstone.
+    ///
+    /// a looper enode is an enode which was detected to cause a loop during a union operation, and was killed to avoid the creation of
+    /// the loop, since the egraph is not allowed to have loops.
+    ///
+    /// for example, if we add the expression `x * 0` to the egraph, and then add the rewrite rule `x * 0 => 0`, it will cause a union
+    /// between `x * 0` and `0`, but this union will create a loop, unless we get rid of the `x * 0` enode. so, in that case, this
+    /// enode will be killed and become a looper enode tombstone.
     Tombstone,
 }
 
