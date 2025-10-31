@@ -1,6 +1,5 @@
 use egraph::{graph::*, node::*, rec_node::*};
 
-// Helper: make a fresh graph with no nodes.
 fn empty_graph() -> Graph {
     Graph::new()
 }
@@ -21,7 +20,7 @@ fn single_imm_is_acyclic() {
 
 #[test]
 fn linear_chain_unops_is_acyclic() {
-    // Build a chain: n2 -> n1 -> leaf
+    // build a chain: n2 -> n1 -> leaf
     let mut g = Graph::new();
     let leaf = g.add_node(GenericNode::Var(Var(1)));
 
@@ -60,7 +59,7 @@ fn diamond_dag_is_acyclic() {
         rhs: y,
     }));
 
-    // Because of de-duplication, m1 == m2 should point to the same node id.
+    // because of de-duplication, m1 == m2 should point to the same node id.
     assert_eq!(m1, m2);
 
     let _add = g.add_node(GenericNode::BinOp(BinOp {
@@ -74,11 +73,11 @@ fn diamond_dag_is_acyclic() {
 
 #[test]
 fn self_loop_is_cyclic() {
-    // Create a placeholder, then mutate it to point to itself.
+    // create a placeholder, then mutate it to point to itself.
     let mut g = Graph::new();
     let a = g.add_node(GenericNode::InternalVar(InternalVar(0)));
 
-    // Turn 'a' into an UnOp whose operand is itself.
+    // turn 'a' into an UnOp whose operand is itself.
     g[a] = GenericNode::UnOp(UnOp {
         kind: UnOpKind::Neg,
         operand: a,
@@ -92,11 +91,11 @@ fn two_node_cycle_is_cyclic() {
     // a -> b, b -> a
     let mut g = Graph::new();
 
-    // Placeholders so we can cross-link them afterwards.
+    // placeholders so we can cross-link them afterwards.
     let a = g.add_node(GenericNode::InternalVar(InternalVar(1)));
     let b = g.add_node(GenericNode::InternalVar(InternalVar(2)));
 
-    // Now wire the cycle.
+    // now wire the cycle.
     g[a] = GenericNode::UnOp(UnOp {
         kind: UnOpKind::Neg,
         operand: b,
@@ -111,7 +110,7 @@ fn two_node_cycle_is_cyclic() {
 
 #[test]
 fn disconnected_with_one_cycle_is_cyclic() {
-    // Component 1: chain (acyclic)
+    // component 1: chain (acyclic)
     let mut g = Graph::new();
     let v = g.add_node(GenericNode::Var(Var(1)));
     let u1 = g.add_node(GenericNode::UnOp(UnOp {
@@ -123,7 +122,7 @@ fn disconnected_with_one_cycle_is_cyclic() {
         operand: u1,
     }));
 
-    // Component 2: cycle
+    // component 2: cycle
     let c1 = g.add_node(GenericNode::InternalVar(InternalVar(10)));
     let c2 = g.add_node(GenericNode::InternalVar(InternalVar(11)));
     g[c1] = GenericNode::BinOp(BinOp {
