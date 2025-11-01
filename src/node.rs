@@ -218,6 +218,23 @@ mod new {
     #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
     pub struct FnParams;
 
+    /// a node which represents a tail controlled loop.
+    #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+    pub struct Loop<L> {
+        /// a tuple of inputs for the loop. has the same shape as the outputs tuple.
+        pub inputs: L,
+
+        /// a tuple of outputs for the loop. has the same shape as the inputs tuple.
+        ///
+        /// all values in this tuple may only depend on loop inputs, and must not depend on any nodes outside the loop.
+        pub outputs: L,
+
+        /// the condition of the loop.
+        ///
+        /// just like the output values, the condition must also only depend on loop inputs.
+        pub condition: L,
+    }
+
     /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
     #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
     pub enum GenericNode<L> {
@@ -232,5 +249,7 @@ mod new {
         FnParams(FnParams),
         Function(Function<L>),
         FnCall(FnCall<L>),
+
+        Loop(Loop<L>),
     }
 }
