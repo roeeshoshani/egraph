@@ -235,6 +235,21 @@ mod new {
         pub condition: L,
     }
 
+    /// a node which represents a switch on some value.
+    #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+    pub struct Switch<L> {
+        /// the value to switch on. this value will determine the chosen case.
+        pub switched_value: L,
+
+        /// a tuple of inputs for switch node.
+        pub inputs: L,
+
+        /// a tuple where each value is the output of each of the cases of the switch statement.
+        ///
+        /// all values in this tuple may only depend on the inputs to the switch node, and must not depend on any nodes outside the switch.
+        pub case_outputs: L,
+    }
+
     /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
     #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
     pub enum GenericNode<L> {
@@ -251,5 +266,7 @@ mod new {
         FnCall(FnCall<L>),
 
         Loop(Loop<L>),
+
+        Switch(Switch<L>),
     }
 }
