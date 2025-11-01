@@ -75,7 +75,7 @@ fn diamond_dag_is_acyclic() {
 fn self_loop_is_cyclic() {
     // create a placeholder, then mutate it to point to itself.
     let mut g = Graph::new();
-    let a = g.add_node(GenericNode::InternalVar(InternalVar(0)));
+    let a = g.add_node(GenericNode::Var(Var(0)));
 
     // turn 'a' into an UnOp whose operand is itself.
     g[a] = GenericNode::UnOp(UnOp {
@@ -92,8 +92,8 @@ fn two_node_cycle_is_cyclic() {
     let mut g = Graph::new();
 
     // placeholders so we can cross-link them afterwards.
-    let a = g.add_node(GenericNode::InternalVar(InternalVar(1)));
-    let b = g.add_node(GenericNode::InternalVar(InternalVar(2)));
+    let a = g.add_node(GenericNode::Var(Var(0)));
+    let b = g.add_node(GenericNode::Var(Var(1)));
 
     // now wire the cycle.
     g[a] = GenericNode::UnOp(UnOp {
@@ -123,8 +123,8 @@ fn disconnected_with_one_cycle_is_cyclic() {
     }));
 
     // component 2: cycle
-    let c1 = g.add_node(GenericNode::InternalVar(InternalVar(10)));
-    let c2 = g.add_node(GenericNode::InternalVar(InternalVar(11)));
+    let c1 = g.add_node(GenericNode::Var(Var(10)));
+    let c2 = g.add_node(GenericNode::Var(Var(11)));
     g[c1] = GenericNode::BinOp(BinOp {
         kind: BinOpKind::Add,
         lhs: c2,

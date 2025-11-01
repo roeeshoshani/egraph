@@ -42,10 +42,6 @@ impl ENodesUnionFind {
         // just choose the best result among the enodes in this eclass
         let res = self
             .enodes_in_effective_eclass(effective_eclass_id)
-            .filter(|enode| {
-                // skip internal var nodes, they are of no use to us here.
-                !enode.is_internal_var()
-            })
             .map(|enode| self.extract_enode_inner(enode, cache))
             .min_by_key(|extract_enode_res| extract_enode_res.score)
             .unwrap();

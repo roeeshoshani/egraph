@@ -364,8 +364,6 @@ pub struct AddENodeRes {
 pub struct EGraph {
     union_find: ENodesUnionFind,
 
-    next_internal_var: InternalVar,
-
     hashmap: RefCell<HashMap<EffectiveENode, ENodeId>>,
 }
 impl EGraph {
@@ -373,7 +371,6 @@ impl EGraph {
     pub fn new() -> Self {
         Self {
             union_find: ENodesUnionFind::new(),
-            next_internal_var: InternalVar(0),
             hashmap: RefCell::new(HashMap::new()),
         }
     }
@@ -397,12 +394,6 @@ impl EGraph {
     /// the graph.
     pub fn enode_to_effective(&self, enode: &ENode) -> EffectiveENode {
         enode.to_effective(&self.union_find)
-    }
-
-    fn alloc_internal_var(&mut self) -> InternalVar {
-        let res = self.next_internal_var;
-        self.next_internal_var.0 += 1;
-        res
     }
 
     /// adds an enode to the egraph, puts it in a new eclass which only contains that single enode, and returns the id of that eclass.
@@ -557,32 +548,22 @@ impl EGraph {
         // cycles are not allowed in the egraph!
         assert_eq!(graph.cyclicity(), Cyclicity::Acyclic);
 
-        // first, represent each graph node as an internal var, and create a mapping from graph id to enode id.
-        //
-        // we do this since adding the graph nodes directly is not possible due to loops in the graph.
         let mut translation_map = GraphToEgraphTranslationMap::new();
         for graph_node_id in graph.valid_node_ids() {
-            let internal_var = GenericNode::InternalVar(self.alloc_internal_var());
-            let add_res = self.add_enode(internal_var);
+            let node = &graph[graph_node_id];
+            let add_res = self.add_graph_node(node, graph);
             translation_map.0.insert(graph_node_id, add_res.eclass_id);
         }
 
-        // now add each graphs node as a real node value, and union it with the original internal var that we created for it.
-        for graph_node_id in graph.valid_node_ids() {
-            let node = &graph[graph_node_id];
-
-            // conver the graph node to an enode by converting the links according to the translation map
-            let enode = node.convert_links(|&link| translation_map[link]);
-
-            // add the converted enode
-            let add_res = self.add_enode(enode);
-
-            // union the converted enode with the original internal var that was created for this graph node.
-            self.union_find
-                .union_eclasses(add_res.eclass_id, translation_map[graph_node_id]);
-        }
-
         translation_map
+    }
+
+    /// adds a graph node to the egraph, recursively.
+    fn add_graph_node(&mut self, node: &GraphNode, graph: &Graph) -> AddENodeRes {
+        let enode = node.convert_links(|link_node_id| {
+            self.add_graph_node(&graph[*link_node_id], graph).eclass_id
+        });
+        self.add_enode(enode)
     }
 }
 impl Index<ENodeId> for EGraph {

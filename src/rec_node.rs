@@ -42,7 +42,7 @@ where
 impl Display for RecNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GenericNode::Imm(_) | GenericNode::Var(_) | GenericNode::InternalVar(_) => {
+            GenericNode::Imm(_) | GenericNode::Var(_) => {
                 write!(f, "{}", self.structural_display())
             }
             GenericNode::BinOp(bin_op) => {

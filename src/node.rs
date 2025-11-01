@@ -19,10 +19,6 @@ pub struct Imm(pub u64);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Var(pub u64);
 
-/// an internal variable. exists to serve as placeholder for nodes who don't have a proper value.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct InternalVar(pub u64);
-
 /// the kind of a binary operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, EnumDisplay)]
 pub enum BinOpKind {
@@ -105,9 +101,6 @@ pub enum GenericNode<L> {
     /// a variable
     Var(Var),
 
-    /// an internal variable. exists to serve as placeholder for nodes who don't have a proper value.
-    InternalVar(InternalVar),
-
     /// a binary operation.
     BinOp(BinOp<L>),
 
@@ -131,7 +124,6 @@ impl<L> GenericNode<L> {
         match self {
             GenericNode::Imm(imm) => GenericNode::Imm(*imm),
             GenericNode::Var(var) => GenericNode::Var(*var),
-            GenericNode::InternalVar(internal_var) => GenericNode::InternalVar(*internal_var),
             GenericNode::BinOp(BinOp { kind, lhs, rhs }) => GenericNode::BinOp(BinOp {
                 kind: *kind,
                 lhs: conversion(lhs),
@@ -159,7 +151,6 @@ impl<L> GenericNode<L> {
         match self {
             GenericNode::Imm(imm) => format!("0x{:x}", imm.0),
             GenericNode::Var(var) => format!("var{}", var.0),
-            GenericNode::InternalVar(internal_var) => format!("internal_var{}", internal_var.0),
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
         }
