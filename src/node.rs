@@ -156,3 +156,81 @@ impl<L> GenericNode<L> {
         }
     }
 }
+
+mod new {
+    use derive_more::From;
+    use enum_variant_accessors::{EnumAsVariant, EnumIsVariant};
+    use rsleigh::Vn;
+
+    use crate::node::{BinOp, UnOp};
+
+    /// the size of a value
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct ValueSize {
+        /// the size in bits
+        pub bits: u32,
+    }
+
+    /// an immediate value.
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct Imm {
+        pub value: u64,
+        pub size: ValueSize,
+    }
+
+    /// a function
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+    pub struct Function<L> {
+        /// a value which is a tuple which represents the list of outputs of this function.
+        pub outputs: L,
+    }
+
+    /// a function call
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+    pub struct FnCall<L> {
+        /// the function to call.
+        pub function: L,
+
+        /// a tuple of arguments to pass as inputs to the function call.
+        pub arguments: L,
+    }
+
+    /// get the value at the specified index from a tuple of values
+    #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+    pub struct TupleGet<L> {
+        /// the tuple of values to get the value from.
+        pub tuple: L,
+
+        /// the index of the value in the tuple.
+        pub index: u32,
+    }
+
+    /// build a tuple from a list of input values. the order of the values is important.
+    #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+    pub struct TupleBuild<L> {
+        /// the values of the tuple, in order.
+        pub values: Vec<L>,
+    }
+
+    /// a node which represents the parameters of a function as a tuple of values.
+    ///
+    /// this node does not refer to a specific function, but to the concept of using function arguments.
+    #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+    pub struct FnParams;
+
+    /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
+    #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
+    pub enum GenericNode<L> {
+        Imm(Imm),
+        BinOp(BinOp<L>),
+        UnOp(UnOp<L>),
+        VnInitialValue(Vn),
+
+        TupleGet(TupleGet<L>),
+        TupleBuild(TupleBuild<L>),
+
+        FnParams(FnParams),
+        Function(Function<L>),
+        FnCall(FnCall<L>),
+    }
+}
