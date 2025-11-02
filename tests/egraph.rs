@@ -1,12 +1,16 @@
+mod utils;
+
 use egraph::{
     egraph::rewrite::const_fold::BinOpConstFoldRewrite, egraph::rewrite::template_rewrite::*,
     egraph::*, node::*, rec_node::*, rewrites_arr, union_find::*,
 };
 
+use crate::utils::vn;
+
 #[test]
 fn test_dedup_basic() {
     let mut egraph = EGraph::new();
-    let enode = ENode::Var(Var(5));
+    let enode: ENode = vn(0).into();
     let res1 = egraph.add_enode(enode.clone());
     let res2 = egraph.add_enode(enode.clone());
     assert_eq!(res1.dedup_info, ENodeDedupInfo::New);
@@ -18,8 +22,8 @@ fn test_dedup_basic() {
 #[test]
 fn test_dedup_nested() {
     let mut egraph = EGraph::new();
-    let var1_res = egraph.add_enode(ENode::Var(Var(1)));
-    let var2_res = egraph.add_enode(ENode::Var(Var(2)));
+    let var1_res = egraph.add_enode(vn(0).into());
+    let var2_res = egraph.add_enode(vn(1).into());
 
     let enode = ENode::BinOp(BinOp {
         kind: BinOpKind::Add,
@@ -30,7 +34,7 @@ fn test_dedup_nested() {
     let res1 = egraph.add_enode(enode.clone());
 
     // add something in between just to add some noise
-    let var3_res = egraph.add_enode(ENode::Var(Var(3)));
+    let var3_res = egraph.add_enode(vn(3).into());
 
     // re-add the same enode
     let res2 = egraph.add_enode(enode.clone());
@@ -76,16 +80,17 @@ fn test_dedup_nested() {
 #[test]
 fn test_basic() {
     // 0xff & ((x & 0xff00) | (y & 0xff0000))
-    let expr: RecLink = 0xff.to_rec_link()
-        & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(1).to_rec_link() & 0xff0000.into()));
+    let expr: RecLink = Imm::u64(0xff).to_rec_link()
+        & ((vn(0).to_rec_link() & Imm::u64(0xff00).into())
+            | (vn(1).to_rec_link() & Imm::u64(0xff0000).into()));
 
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
 
     let rule_set = rewrites_arr![
         // (x & 0) => 0
         TemplateRewriteBuilder {
-            query: tv("x") & 0.into(),
-            rewrite: 0.into(),
+            query: tv("x") & Imm::u64(0).into(),
+            rewrite: Imm::u64(0).into(),
         }
         .build(),
         // a & (b | c) => (a & b) | (a & c)
@@ -101,7 +106,7 @@ fn test_basic() {
         BinOpConstFoldRewrite,
     ];
 
-    let zero_eclass = egraph.add_enode(0.into()).eclass_id;
+    let zero_eclass = egraph.add_enode(Imm::u64(0).into()).eclass_id;
 
     // before applying re-write rules, the expression should not equal 0
     assert!(
@@ -109,7 +114,10 @@ fn test_basic() {
             .union_find()
             .are_eclasses_eq(zero_eclass, root_eclass)
     );
-    assert_ne!(egraph.union_find().extract_eclass(root_eclass), 0.into());
+    assert_ne!(
+        egraph.union_find().extract_eclass(root_eclass),
+        Imm::u64(0).into()
+    );
 
     // apply the rewrites
     egraph.apply_rewrites(rule_set.as_slice(), None);
@@ -120,15 +128,19 @@ fn test_basic() {
             .union_find()
             .are_eclasses_eq(zero_eclass, root_eclass)
     );
-    assert_eq!(egraph.union_find().extract_eclass(root_eclass), 0.into());
+    assert_eq!(
+        egraph.union_find().extract_eclass(root_eclass),
+        Imm::u64(0).into()
+    );
 
     // now do the same for a similar expression, but this time the expression shouldn't be simplified to 0
 
     // 0xffff & ((x & 0xff00) | (y & 0xff0000))
-    let expr: RecLink = 0xffff.to_rec_link()
-        & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(1).to_rec_link() & 0xff0000.into()));
+    let expr: RecLink = Imm::u64(0xffff).to_rec_link()
+        & ((vn(0).to_rec_link() & Imm::u64(0xff00).into())
+            | (vn(1).to_rec_link() & Imm::u64(0xff0000).into()));
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
-    let zero_eclass = egraph.add_enode(0.into()).eclass_id;
+    let zero_eclass = egraph.add_enode(Imm::u64(0).into()).eclass_id;
     egraph.apply_rewrites(rule_set.as_slice(), None);
 
     // it should not equal 0, even after applying rewrites
@@ -137,14 +149,17 @@ fn test_basic() {
             .union_find()
             .are_eclasses_eq(zero_eclass, root_eclass)
     );
-    assert_ne!(egraph.union_find().extract_eclass(root_eclass), 0.into());
+    assert_ne!(
+        egraph.union_find().extract_eclass(root_eclass),
+        Imm::u64(0).into()
+    );
 }
 
 #[test]
 fn test_propegate_union() {
     let mut egraph = EGraph::new();
-    let var0 = egraph.add_enode(Var(0).into()).eclass_id;
-    let var1 = egraph.add_enode(Var(1).into()).eclass_id;
+    let var0 = egraph.add_enode(vn(0).into()).eclass_id;
+    let var1 = egraph.add_enode(vn(1).into()).eclass_id;
     let un_op_var0 = egraph
         .add_enode(
             UnOp {
@@ -176,8 +191,8 @@ fn test_propegate_union() {
 #[test]
 fn test_propegate_union_multi_level() {
     let mut egraph = EGraph::new();
-    let var0 = egraph.add_enode(Var(0).into()).eclass_id;
-    let var1 = egraph.add_enode(Var(1).into()).eclass_id;
+    let var0 = egraph.add_enode(vn(0).into()).eclass_id;
+    let var1 = egraph.add_enode(vn(1).into()).eclass_id;
     let un_op_var0 = egraph
         .add_enode(
             UnOp {

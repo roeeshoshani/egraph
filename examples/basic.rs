@@ -2,11 +2,29 @@ use egraph::{
     egraph::rewrite::const_fold::BinOpConstFoldRewrite, egraph::rewrite::template_rewrite::*,
     egraph::*, node::*, rec_node::*, rewrites_arr,
 };
+use rsleigh::{VnAddr, VnSpace};
 
 fn main() {
+    let x = Vn {
+        size: ValueSize::U64,
+        addr: VnAddr {
+            off: 0,
+            space: VnSpace::REGISTER,
+        },
+    }
+    .to_rec_link();
+    let y = Vn {
+        size: ValueSize::U64,
+        addr: VnAddr {
+            off: 8,
+            space: VnSpace::REGISTER,
+        },
+    }
+    .to_rec_link();
+
     // 0xff & ((x & 0xff00) | (y & 0xff0000))
-    let expr: RecLink = 0xff.to_rec_link()
-        & ((Var(0).to_rec_link() & 0xff00.into()) | (Var(1).to_rec_link() & 0xff0000.into()));
+    let expr: RecLink = Imm::u64(0xff).to_rec_link()
+        & ((x & Imm::u64(0xff00).into()) | (y & Imm::u64(0xff0000).into()));
 
     let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
 
@@ -21,13 +39,13 @@ fn main() {
         TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitOr).build(),
         // (a & 0) => 0
         TemplateRewriteBuilder {
-            query: tv("a") & 0.into(),
-            rewrite: 0.into(),
+            query: tv("a") & Imm::u64(0).into(),
+            rewrite: Imm::u64(0).into(),
         }
         .build(),
         // (a | 0) => a
         TemplateRewriteBuilder {
-            query: tv("a") | 0.into(),
+            query: tv("a") | Imm::u64(0).into(),
             rewrite: tv("a"),
         }
         .build(),

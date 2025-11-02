@@ -42,13 +42,21 @@ where
 impl Display for RecNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GenericNode::Imm(_) | GenericNode::Var(_) => {
+            GenericNode::Imm(_) => {
                 write!(f, "{}", self.structural_display())
             }
             GenericNode::BinOp(bin_op) => {
                 write!(f, "({}) {} ({})", bin_op.lhs, bin_op.kind, bin_op.rhs)
             }
             GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
+            GenericNode::VnInitialValue(vn) => todo!(),
+            GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::TupleBuild(tuple_build) => todo!(),
+            GenericNode::FnParams(fn_params) => todo!(),
+            GenericNode::Function(function) => todo!(),
+            GenericNode::FnCall(fn_call) => todo!(),
+            GenericNode::Loop(_) => todo!(),
+            GenericNode::Switch(switch) => todo!(),
         }
     }
 }
