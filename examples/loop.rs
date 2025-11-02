@@ -36,7 +36,7 @@ fn main() {
             ],
         }
         .into(),
-        condition: BinOp {
+        cond: BinOp {
             kind: BinOpKind::UnsignedLess,
             lhs: TupleGet {
                 tuple: LoopParams.into(),

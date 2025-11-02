@@ -49,15 +49,51 @@ impl Display for RecNode {
                 write!(f, "({}) {} ({})", bin_op.lhs, bin_op.kind, bin_op.rhs)
             }
             GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
-            GenericNode::VnInitialValue(vn) => todo!(),
-            GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::VnInitialValue(vn) => {
+                write!(
+                    f,
+                    "vn{{{}[{}]:u{}}}",
+                    vn.addr.space.shortcut(),
+                    vn.addr.off,
+                    vn.size.bytes * 8
+                )
+            }
+            GenericNode::TupleGet(tuple_get) => {
+                write!(f, "{}.{}", tuple_get.tuple, tuple_get.index)
+            }
             GenericNode::TupleChoose(tuple_choose) => todo!(),
-            GenericNode::TupleBuild(tuple_build) => todo!(),
+            GenericNode::TupleBuild(tuple_build) => match &tuple_build.values[..] {
+                [] => {
+                    write!(f, "(,)")
+                }
+                [value] => {
+                    write!(f, "({},)", value)
+                }
+                values => {
+                    write!(f, "(")?;
+                    for (i, value) in values.iter().enumerate() {
+                        if i == 0 {
+                            write!(f, "{}", value)?;
+                        } else {
+                            write!(f, ", {}", value)?;
+                        }
+                    }
+                    write!(f, ")")
+                }
+            },
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopParams(loop_params) => todo!(),
-            GenericNode::Loop(_) => todo!(),
+            GenericNode::LoopParams(loop_params) => {
+                write!(f, "loop_params")
+            }
+            GenericNode::Loop(loop_node) => {
+                write!(
+                    f,
+                    "loop{{inputs=({}), outputs=({}), cond=({})}}",
+                    loop_node.inputs, loop_node.outputs, loop_node.cond
+                )
+            }
         }
     }
 }

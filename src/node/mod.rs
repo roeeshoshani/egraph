@@ -190,7 +190,7 @@ pub struct Loop<L> {
     pub outputs: L,
 
     /// the condition of the loop.
-    pub condition: L,
+    pub cond: L,
 }
 
 /// a node which represents the params of a loop as a tuple of values.
@@ -237,14 +237,27 @@ impl<L> GenericNode<L> {
                 operand: conversion(operand),
             }),
             GenericNode::VnInitialValue(vn) => GenericNode::VnInitialValue(vn.clone()),
-            GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::TupleGet(TupleGet { tuple, index }) => GenericNode::TupleGet(TupleGet {
+                tuple: conversion(tuple),
+                index: *index,
+            }),
             GenericNode::TupleChoose(tuple_choose) => todo!(),
-            GenericNode::TupleBuild(tuple_build) => todo!(),
+            GenericNode::TupleBuild(TupleBuild { values }) => GenericNode::TupleBuild(TupleBuild {
+                values: values.iter().map(conversion).collect(),
+            }),
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopParams(loop_params) => todo!(),
-            GenericNode::Loop(_) => todo!(),
+            GenericNode::LoopParams(_) => GenericNode::LoopParams(LoopParams),
+            GenericNode::Loop(Loop {
+                inputs,
+                outputs,
+                cond: condition,
+            }) => GenericNode::Loop(Loop {
+                inputs: conversion(inputs),
+                outputs: conversion(outputs),
+                cond: conversion(condition),
+            }),
         }
     }
 
