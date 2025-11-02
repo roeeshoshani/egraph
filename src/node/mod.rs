@@ -51,6 +51,8 @@ pub enum BinOpKind {
     BitAnd,
     #[display("|")]
     BitOr,
+    #[display("u<")]
+    UnsignedLess,
 }
 
 impl BinOpKind {
@@ -191,11 +193,11 @@ pub struct Loop<L> {
     pub condition: L,
 }
 
-/// a node which represents the inputs of a loop as a tuple of values.
+/// a node which represents the params of a loop as a tuple of values.
 ///
-/// this node does not refer to a specific loop, but to the concept of using loop inputs.
+/// this node does not refer to a specific loop, but to the concept of using loop params.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct LoopInputs;
+pub struct LoopParams;
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
@@ -213,7 +215,7 @@ pub enum GenericNode<L> {
     Function(Function<L>),
     FnCall(FnCall<L>),
 
-    LoopInputs(LoopInputs),
+    LoopParams(LoopParams),
     Loop(Loop<L>),
 }
 
@@ -241,7 +243,7 @@ impl<L> GenericNode<L> {
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopInputs(loop_inputs) => todo!(),
+            GenericNode::LoopParams(loop_params) => todo!(),
             GenericNode::Loop(_) => todo!(),
         }
     }
@@ -269,7 +271,7 @@ impl<L> GenericNode<L> {
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopInputs(loop_inputs) => todo!(),
+            GenericNode::LoopParams(loop_params) => todo!(),
             GenericNode::Loop(_) => todo!(),
         }
     }

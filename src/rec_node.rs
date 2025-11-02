@@ -56,7 +56,7 @@ impl Display for RecNode {
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopInputs(loop_inputs) => todo!(),
+            GenericNode::LoopParams(loop_params) => todo!(),
             GenericNode::Loop(_) => todo!(),
         }
     }

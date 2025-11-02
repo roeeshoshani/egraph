@@ -72,6 +72,7 @@ impl Imm {
             BinOpKind::Mul => lhs * rhs,
             BinOpKind::BitAnd => lhs & rhs,
             BinOpKind::BitOr => lhs | rhs,
+            BinOpKind::UnsignedLess => T::from(lhs < rhs),
         };
         res_val.to_imm()
     }
