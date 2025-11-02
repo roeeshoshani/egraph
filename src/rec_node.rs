@@ -52,7 +52,7 @@ impl Display for RecNode {
             GenericNode::VnInitialValue(vn) => {
                 write!(
                     f,
-                    "vn{{{}[{}]:u{}}}",
+                    "vn {{ {}[{}]:u{} }}",
                     vn.addr.space.shortcut(),
                     vn.addr.off,
                     vn.size.bytes * 8
@@ -90,7 +90,7 @@ impl Display for RecNode {
             GenericNode::Loop(loop_node) => {
                 write!(
                     f,
-                    "loop{{inputs=({}), outputs=({}), cond=({})}}",
+                    "loop {{ inputs=({}), outputs=({}), cond=({}) }}",
                     loop_node.inputs, loop_node.outputs, loop_node.cond
                 )
             }
