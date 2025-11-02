@@ -51,13 +51,13 @@ impl Display for RecNode {
             GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
             GenericNode::VnInitialValue(vn) => todo!(),
             GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::TupleChoose(tuple_choose) => todo!(),
             GenericNode::TupleBuild(tuple_build) => todo!(),
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
             GenericNode::LoopInputs(loop_inputs) => todo!(),
             GenericNode::Loop(_) => todo!(),
-            GenericNode::Switch(switch) => todo!(),
         }
     }
 }

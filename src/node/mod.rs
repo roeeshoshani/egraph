@@ -155,6 +155,16 @@ pub struct TupleGet<L> {
     pub index: u32,
 }
 
+/// chooses the value at an index specified using a runtime value from a tuple of values
+#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+pub struct TupleChoose<L> {
+    /// the tuple of values to get the value from.
+    pub tuple: L,
+
+    /// the index of the value in the tuple, represented as a runtime value.
+    pub index: L,
+}
+
 /// build a tuple from a list of input values. the order of the values is important.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
 pub struct TupleBuild<L> {
@@ -175,29 +185,10 @@ pub struct Loop<L> {
     pub inputs: L,
 
     /// a tuple of outputs for the loop. has the same shape as the inputs tuple.
-    ///
-    /// all values in this tuple may only depend on loop inputs, and must not depend on any nodes outside the loop.
     pub outputs: L,
 
     /// the condition of the loop.
-    ///
-    /// just like the output values, the condition must also only depend on loop inputs.
     pub condition: L,
-}
-
-/// a node which represents a switch on some value.
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct Switch<L> {
-    /// the value to switch on. this value will determine the chosen case.
-    pub switched_value: L,
-
-    /// a tuple of inputs for switch node.
-    pub inputs: L,
-
-    /// a tuple where each value is the output of each of the cases of the switch statement.
-    ///
-    /// all values in this tuple may only depend on the inputs to the switch node, and must not depend on any nodes outside the switch.
-    pub case_outputs: L,
 }
 
 /// a node which represents the inputs of a loop as a tuple of values.
@@ -215,6 +206,7 @@ pub enum GenericNode<L> {
     VnInitialValue(Vn),
 
     TupleGet(TupleGet<L>),
+    TupleChoose(TupleChoose<L>),
     TupleBuild(TupleBuild<L>),
 
     FnParams(FnParams),
@@ -223,8 +215,6 @@ pub enum GenericNode<L> {
 
     LoopInputs(LoopInputs),
     Loop(Loop<L>),
-
-    Switch(Switch<L>),
 }
 
 impl<L> GenericNode<L> {
@@ -246,13 +236,13 @@ impl<L> GenericNode<L> {
             }),
             GenericNode::VnInitialValue(vn) => GenericNode::VnInitialValue(vn.clone()),
             GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::TupleChoose(tuple_choose) => todo!(),
             GenericNode::TupleBuild(tuple_build) => todo!(),
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
             GenericNode::LoopInputs(loop_inputs) => todo!(),
             GenericNode::Loop(_) => todo!(),
-            GenericNode::Switch(switch) => todo!(),
         }
     }
 
@@ -274,13 +264,13 @@ impl<L> GenericNode<L> {
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
             GenericNode::VnInitialValue(vn) => todo!(),
             GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::TupleChoose(tuple_choose) => todo!(),
             GenericNode::TupleBuild(tuple_build) => todo!(),
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
             GenericNode::LoopInputs(loop_inputs) => todo!(),
             GenericNode::Loop(_) => todo!(),
-            GenericNode::Switch(switch) => todo!(),
         }
     }
 }
