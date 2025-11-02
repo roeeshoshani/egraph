@@ -19,10 +19,10 @@ fn main() {
     }
     .to_rec_link();
 
-    // the below code calculates the sum of all values in the range 0..x
+    // the below code calculates `sum(2*i for i in 0..x)`
     let expr: RecLink = Loop {
         inputs: TupleBuild {
-            values: vec![Imm::u64(0).into()],
+            values: vec![Imm::u64(0).into(), Imm::u64(0).into()],
         }
         .into(),
         outputs: TupleBuild {
@@ -33,6 +33,17 @@ fn main() {
                 }
                 .to_rec_link()
                     + Imm::u64(1).into(),
+                TupleGet {
+                    tuple: LoopParams.into(),
+                    index: 1,
+                }
+                .to_rec_link()
+                    + Imm::u64(2).to_rec_link()
+                        * TupleGet {
+                            tuple: LoopParams.into(),
+                            index: 0,
+                        }
+                        .to_rec_link(),
             ],
         }
         .into(),

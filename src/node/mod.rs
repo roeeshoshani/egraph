@@ -128,6 +128,11 @@ impl ValueSize {
 
     /// an 8-bit size.
     pub const U8: Self = Self { bytes: 1 };
+
+    /// returns the size in bits.
+    pub fn bits(&self) -> u32 {
+        self.bytes * 8
+    }
 }
 
 /// a function
@@ -274,7 +279,7 @@ impl<L> GenericNode<L> {
     /// contains no information about the node's links, only the structure itself, which is everything other than the links.
     pub fn structural_display(&self) -> String {
         match self {
-            GenericNode::Imm(imm) => format!("0x{:x}:u{}", imm.val, imm.size.bytes),
+            GenericNode::Imm(imm) => format!("0x{:x}:u{}", imm.val, imm.size.bits()),
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
             GenericNode::VnInitialValue(vn) => todo!(),

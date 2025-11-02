@@ -55,22 +55,19 @@ impl Display for RecNode {
                     "vn {{ {}[{}]:u{} }}",
                     vn.addr.space.shortcut(),
                     vn.addr.off,
-                    vn.size.bytes * 8
+                    vn.size.bits()
                 )
             }
             GenericNode::TupleGet(tuple_get) => {
-                write!(f, "{}.{}", tuple_get.tuple, tuple_get.index)
+                write!(f, "({})[{}]", tuple_get.tuple, tuple_get.index)
             }
             GenericNode::TupleChoose(tuple_choose) => todo!(),
             GenericNode::TupleBuild(tuple_build) => match &tuple_build.values[..] {
                 [] => {
-                    write!(f, "(,)")
-                }
-                [value] => {
-                    write!(f, "({},)", value)
+                    write!(f, "[]")
                 }
                 values => {
-                    write!(f, "(")?;
+                    write!(f, "[")?;
                     for (i, value) in values.iter().enumerate() {
                         if i == 0 {
                             write!(f, "{}", value)?;
@@ -78,7 +75,7 @@ impl Display for RecNode {
                             write!(f, ", {}", value)?;
                         }
                     }
-                    write!(f, ")")
+                    write!(f, "]")
                 }
             },
             GenericNode::FnParams(fn_params) => todo!(),
