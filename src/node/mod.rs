@@ -4,7 +4,9 @@ use enum_display::EnumDisplay;
 use enum_variant_accessors::{EnumAsVariant, EnumIsVariant};
 use rsleigh::VnAddr;
 
-use crate::array_vec;
+pub mod imm;
+
+use crate::{array_vec, node::imm::Imm};
 
 /// the max amount of links in a node.
 pub const NODE_MAX_LINKS: usize = 2;
@@ -54,14 +56,7 @@ pub enum BinOpKind {
 impl BinOpKind {
     /// applies this binary operation to the given immediates.
     pub fn apply_to_imms(&self, lhs: Imm, rhs: Imm) -> Imm {
-        todo!()
-        // let res = match self {
-        //     BinOpKind::Add => lhs.0.wrapping_add(rhs.0),
-        //     BinOpKind::Mul => lhs.0.wrapping_mul(rhs.0),
-        //     BinOpKind::BitAnd => lhs.0 & rhs.0,
-        //     BinOpKind::BitOr => lhs.0 | rhs.0,
-        // };
-        // Imm(res)
+        Imm::apply_bin_op(lhs, *self, rhs)
     }
 }
 
@@ -131,39 +126,6 @@ impl ValueSize {
 
     /// an 8-bit size.
     pub const U8: Self = Self { bytes: 1 };
-}
-
-/// an immediate value.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Imm {
-    pub value: u64,
-    pub size: ValueSize,
-}
-impl Imm {
-    pub fn u64(x: u64) -> Self {
-        Self {
-            value: x,
-            size: ValueSize::U64,
-        }
-    }
-    pub fn u32(x: u32) -> Self {
-        Self {
-            value: x as u64,
-            size: ValueSize::U32,
-        }
-    }
-    pub fn u16(x: u16) -> Self {
-        Self {
-            value: x as u64,
-            size: ValueSize::U16,
-        }
-    }
-    pub fn u8(x: u8) -> Self {
-        Self {
-            value: x as u64,
-            size: ValueSize::U8,
-        }
-    }
 }
 
 /// a function
@@ -299,7 +261,7 @@ impl<L> GenericNode<L> {
     /// contains no information about the node's links, only the structure itself, which is everything other than the links.
     pub fn structural_display(&self) -> String {
         match self {
-            GenericNode::Imm(imm) => format!("0x{:x}:u{}", imm.value, imm.size.bytes),
+            GenericNode::Imm(imm) => format!("0x{:x}:u{}", imm.val, imm.size.bytes),
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
             GenericNode::VnInitialValue(vn) => todo!(),

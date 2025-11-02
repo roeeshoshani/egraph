@@ -1,6 +1,11 @@
 use egraph::{
-    egraph::rewrite::const_fold::BinOpConstFoldRewrite, egraph::rewrite::template_rewrite::*,
-    egraph::*, node::*, rec_node::*, rewrites_arr,
+    egraph::{
+        rewrite::{const_fold::BinOpConstFoldRewrite, template_rewrite::*},
+        *,
+    },
+    node::{imm::Imm, *},
+    rec_node::*,
+    rewrites_arr,
 };
 use rsleigh::{VnAddr, VnSpace};
 

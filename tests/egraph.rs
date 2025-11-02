@@ -1,8 +1,14 @@
 mod utils;
 
 use egraph::{
-    egraph::rewrite::const_fold::BinOpConstFoldRewrite, egraph::rewrite::template_rewrite::*,
-    egraph::*, node::*, rec_node::*, rewrites_arr, union_find::*,
+    egraph::{
+        rewrite::{const_fold::BinOpConstFoldRewrite, template_rewrite::*},
+        *,
+    },
+    node::{imm::Imm, *},
+    rec_node::*,
+    rewrites_arr,
+    union_find::*,
 };
 
 use crate::utils::vn;

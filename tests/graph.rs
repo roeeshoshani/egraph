@@ -1,6 +1,10 @@
 mod utils;
 
-use egraph::{graph::*, node::*, rec_node::*};
+use egraph::{
+    graph::*,
+    node::{imm::Imm, *},
+    rec_node::*,
+};
 use utils::vn;
 
 fn empty_graph() -> Graph {

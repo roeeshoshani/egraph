@@ -1,6 +1,10 @@
 use std::borrow::Cow;
 
-use crate::{egraph::rewrite::*, egraph::*, node::*, utils::CowBox};
+use crate::{
+    egraph::{rewrite::*, *},
+    node::{imm::Imm, *},
+    utils::CowBox,
+};
 
 /// the context for the un op constant folding re-write.
 #[derive(Debug, Clone)]
