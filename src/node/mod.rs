@@ -200,6 +200,12 @@ pub struct Switch<L> {
     pub case_outputs: L,
 }
 
+/// a node which represents the inputs of a loop as a tuple of values.
+///
+/// this node does not refer to a specific loop, but to the concept of using loop inputs.
+#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+pub struct LoopInputs;
+
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
 pub enum GenericNode<L> {
@@ -215,6 +221,7 @@ pub enum GenericNode<L> {
     Function(Function<L>),
     FnCall(FnCall<L>),
 
+    LoopInputs(LoopInputs),
     Loop(Loop<L>),
 
     Switch(Switch<L>),
@@ -243,6 +250,7 @@ impl<L> GenericNode<L> {
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
+            GenericNode::LoopInputs(loop_inputs) => todo!(),
             GenericNode::Loop(_) => todo!(),
             GenericNode::Switch(switch) => todo!(),
         }
@@ -270,6 +278,7 @@ impl<L> GenericNode<L> {
             GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
+            GenericNode::LoopInputs(loop_inputs) => todo!(),
             GenericNode::Loop(_) => todo!(),
             GenericNode::Switch(switch) => todo!(),
         }
