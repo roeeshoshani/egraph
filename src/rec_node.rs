@@ -102,6 +102,9 @@ impl Display for RecNode {
                     DisplayRecLinks(&loop_eval.inputs)
                 )
             }
+            GenericNode::InitialMemoryState(initial_memory_state) => {
+                write!(f, "initial_memory_state")
+            }
         }
     }
 }

@@ -192,6 +192,10 @@ pub struct LoopEval<L> {
     pub inputs: Vec<L>,
 }
 
+/// the initial state of the memory.
+#[derive(Debug, Clone, Copy, From, Hash, PartialEq, Eq)]
+pub struct InitialMemoryState;
+
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
 pub enum GenericNode<L> {
@@ -199,6 +203,7 @@ pub enum GenericNode<L> {
     BinOp(BinOp<L>),
     UnOp(UnOp<L>),
     VnInitialValue(Vn),
+    InitialMemoryState(InitialMemoryState),
 
     FnParam(FnParam),
     Function(Function<L>),
@@ -244,6 +249,9 @@ impl<L> GenericNode<L> {
                     inputs: inputs.iter().map(&mut conversion).collect(),
                 })
             }
+            GenericNode::InitialMemoryState(initial_memory_state) => {
+                GenericNode::InitialMemoryState(*initial_memory_state)
+            }
         }
     }
 
@@ -270,6 +278,7 @@ impl<L> GenericNode<L> {
             GenericNode::FnParam(fn_param) => todo!(),
             GenericNode::LoopParam(loop_param) => todo!(),
             GenericNode::LoopEval(loop_eval) => todo!(),
+            GenericNode::InitialMemoryState(initial_memory_state) => todo!(),
         }
     }
 }
