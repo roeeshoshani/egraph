@@ -196,6 +196,15 @@ pub struct LoopEval<L> {
 #[derive(Debug, Clone, Copy, From, Hash, PartialEq, Eq)]
 pub struct InitialMemoryState;
 
+/// get the value at the specified index from a tuple of values
+#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
+pub struct TupleGet<L> {
+    /// the tuple of values to get the value from.
+    pub tuple: L,
+
+    /// the index of the value in the tuple.
+    pub index: u32,
+}
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
 pub enum GenericNode<L> {
@@ -212,6 +221,8 @@ pub enum GenericNode<L> {
     LoopParam(LoopParam),
     Loop(Loop<L>),
     LoopEval(LoopEval<L>),
+
+    TupleGet(TupleGet<L>),
 }
 
 impl<L> GenericNode<L> {
@@ -252,6 +263,10 @@ impl<L> GenericNode<L> {
             GenericNode::InitialMemoryState(initial_memory_state) => {
                 GenericNode::InitialMemoryState(*initial_memory_state)
             }
+            GenericNode::TupleGet(TupleGet { tuple, index }) => GenericNode::TupleGet(TupleGet {
+                tuple: conversion(tuple),
+                index: *index,
+            }),
         }
     }
 
@@ -279,6 +294,7 @@ impl<L> GenericNode<L> {
             GenericNode::LoopParam(loop_param) => todo!(),
             GenericNode::LoopEval(loop_eval) => todo!(),
             GenericNode::InitialMemoryState(initial_memory_state) => todo!(),
+            GenericNode::TupleGet(tuple_get) => todo!(),
         }
     }
 }

@@ -105,6 +105,9 @@ impl Display for RecNode {
             GenericNode::InitialMemoryState(initial_memory_state) => {
                 write!(f, "initial_memory_state")
             }
+            GenericNode::TupleGet(tuple_get) => {
+                write!(f, "{}[{}]", tuple_get.tuple, tuple_get.index)
+            }
         }
     }
 }
