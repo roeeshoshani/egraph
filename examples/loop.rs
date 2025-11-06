@@ -19,17 +19,23 @@ fn main() {
     }
     .to_rec_link();
 
-    // the below code calculates `sum(2*i for i in 0..x)`
-    let expr: RecLink = LoopEval {
+    // the below code calculates `sum(i + 6 for i in 0..x)`
+    //
+    // should be equal to `sum(i for i in 6..x + 6)`
+    let expr1: RecLink = LoopEval {
         loop_node: Loop {
             outputs: vec![
                 LoopParam(0).to_rec_link() + Imm::u64(1).into(),
-                LoopParam(1).to_rec_link() + Imm::u64(2).to_rec_link() * LoopParam(0).to_rec_link(),
+                LoopParam(1).to_rec_link()
+                    + (
+                        // i + 6
+                        LoopParam(0).to_rec_link() + Imm::u64(6).into()
+                    ),
             ],
             cond: BinOp {
                 kind: BinOpKind::UnsignedLess,
                 lhs: LoopParam(0).into(),
-                rhs: x,
+                rhs: x.clone(),
             }
             .into(),
         }
@@ -38,52 +44,28 @@ fn main() {
     }
     .into();
 
-    let (mut egraph, root_eclass) = EGraph::from_rec_node(&expr.0);
-
-    let rewrites = rewrites_arr![
-        // a & (b & c) => (a & b) & c
-        TemplateRewriteBuilder::bin_op_associativity(BinOpKind::BitAnd).build(),
-        // a | (b | c) => (a | b) | c
-        TemplateRewriteBuilder::bin_op_associativity(BinOpKind::BitOr).build(),
-        // a & b => b & a
-        TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitAnd).build(),
-        // a | b => b | a
-        TemplateRewriteBuilder::bin_op_commutativity(BinOpKind::BitOr).build(),
-        // (a & 0) => 0
-        TemplateRewriteBuilder {
-            query: tv("a") & Imm::u64(0).into(),
-            rewrite: Imm::u64(0).into(),
+    // `sum(i for i in 6..x + 6)`
+    let expr2: RecLink = LoopEval {
+        loop_node: Loop {
+            outputs: vec![
+                LoopParam(0).to_rec_link() + Imm::u64(1).into(),
+                LoopParam(1).to_rec_link()
+                    + (
+                        // i + 6
+                        LoopParam(0).to_rec_link() + Imm::u64(6).into()
+                    ),
+            ],
+            cond: BinOp {
+                kind: BinOpKind::UnsignedLess,
+                lhs: LoopParam(0).into(),
+                rhs: x + Imm::u64(6).into(),
+            }
+            .into(),
         }
-        .build(),
-        // (a | 0) => a
-        TemplateRewriteBuilder {
-            query: tv("a") | Imm::u64(0).into(),
-            rewrite: tv("a"),
-        }
-        .build(),
-        // a & (b | c) => (a & b) | (a & c)
-        TemplateRewriteBuilder {
-            query: tv("a") & (tv("b") | tv("c")),
-            rewrite: (tv("a") & tv("b")) | (tv("a") & tv("c")),
-        }
-        .build(),
-        // a & a => a
-        TemplateRewriteBuilder {
-            query: tv("a") & tv("a"),
-            rewrite: tv("a"),
-        }
-        .build(),
-        // a | a => a
-        TemplateRewriteBuilder {
-            query: tv("a") | tv("a"),
-            rewrite: tv("a"),
-        }
-        .build(),
-        BinOpConstFoldRewrite
-    ];
-
-    egraph.apply_rewrites(rewrites.as_slice(), None);
-
-    let res = egraph.union_find().extract_eclass(root_eclass);
-    println!("{}", res);
+        .into(),
+        inputs: vec![Imm::u64(6).into(), Imm::u64(0).into()],
+    }
+    .into();
+    println!("{}", expr1);
+    println!("{}", expr2);
 }
