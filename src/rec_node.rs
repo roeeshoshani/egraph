@@ -39,6 +39,28 @@ where
     }
 }
 
+struct DisplayRecLinks<'a>(&'a [RecLink]);
+impl<'a> Display for DisplayRecLinks<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0[..] {
+            [] => {
+                write!(f, "[]")
+            }
+            values => {
+                write!(f, "[")?;
+                for (i, value) in values.iter().enumerate() {
+                    if i == 0 {
+                        write!(f, "{}", value)?;
+                    } else {
+                        write!(f, ", {}", value)?;
+                    }
+                }
+                write!(f, "]")
+            }
+        }
+    }
+}
+
 impl Display for RecNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -46,9 +68,9 @@ impl Display for RecNode {
                 write!(f, "{}", self.structural_display())
             }
             GenericNode::BinOp(bin_op) => {
-                write!(f, "({}) {} ({})", bin_op.lhs, bin_op.kind, bin_op.rhs)
+                write!(f, "({} {} {})", bin_op.lhs, bin_op.kind, bin_op.rhs)
             }
-            GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
+            GenericNode::UnOp(un_op) => write!(f, "({}{})", un_op.kind, un_op.operand),
             GenericNode::VnInitialValue(vn) => {
                 write!(
                     f,
@@ -58,37 +80,26 @@ impl Display for RecNode {
                     vn.size.bits()
                 )
             }
-            GenericNode::TupleGet(tuple_get) => {
-                write!(f, "({})[{}]", tuple_get.tuple, tuple_get.index)
-            }
-            GenericNode::TupleChoose(tuple_choose) => todo!(),
-            GenericNode::TupleBuild(tuple_build) => match &tuple_build.values[..] {
-                [] => {
-                    write!(f, "[]")
-                }
-                values => {
-                    write!(f, "[")?;
-                    for (i, value) in values.iter().enumerate() {
-                        if i == 0 {
-                            write!(f, "{}", value)?;
-                        } else {
-                            write!(f, ", {}", value)?;
-                        }
-                    }
-                    write!(f, "]")
-                }
-            },
-            GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopParams(loop_params) => {
-                write!(f, "loop_params")
-            }
             GenericNode::Loop(loop_node) => {
                 write!(
                     f,
-                    "loop {{ inputs=({}), outputs=({}), cond=({}) }}",
-                    loop_node.inputs, loop_node.outputs, loop_node.cond
+                    "loop {{ outputs={}, cond={} }}",
+                    DisplayRecLinks(&loop_node.outputs),
+                    loop_node.cond
+                )
+            }
+            GenericNode::FnParam(fn_param) => todo!(),
+            GenericNode::LoopParam(loop_param) => {
+                write!(f, "loop_param_{}", loop_param.0)
+            }
+            GenericNode::LoopEval(loop_eval) => {
+                write!(
+                    f,
+                    "loop_eval({}, {})",
+                    loop_eval.loop_node,
+                    DisplayRecLinks(&loop_eval.inputs)
                 )
             }
         }

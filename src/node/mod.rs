@@ -138,8 +138,8 @@ impl ValueSize {
 /// a function
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Function<L> {
-    /// a value which is a tuple which represents the list of outputs of this function.
-    pub outputs: L,
+    /// the list of output values of this function.
+    pub outputs: Vec<L>,
 }
 
 /// a function call
@@ -148,61 +148,49 @@ pub struct FnCall<L> {
     /// the function to call.
     pub function: L,
 
-    /// a tuple of arguments to pass as inputs to the function call.
-    pub arguments: L,
+    /// a list of arguments to pass as inputs to the function call.
+    pub arguments: Vec<L>,
 }
 
-/// get the value at the specified index from a tuple of values
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct TupleGet<L> {
-    /// the tuple of values to get the value from.
-    pub tuple: L,
-
-    /// the index of the value in the tuple.
-    pub index: u32,
-}
-
-/// chooses the value at an index specified using a runtime value from a tuple of values
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct TupleChoose<L> {
-    /// the tuple of values to get the value from.
-    pub tuple: L,
-
-    /// the index of the value in the tuple, represented as a runtime value.
-    pub index: L,
-}
-
-/// build a tuple from a list of input values. the order of the values is important.
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct TupleBuild<L> {
-    /// the values of the tuple, in order.
-    pub values: Vec<L>,
-}
-
-/// a node which represents the parameters of a function as a tuple of values.
+/// a node which represents a parameter of a function.
 ///
 /// this node does not refer to a specific function, but to the concept of using function arguments.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct FnParams;
+pub struct FnParam(
+    /// the index of the parameter in the list of parameters of the function.
+    pub u32,
+);
 
 /// a node which represents a tail controlled loop.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
 pub struct Loop<L> {
-    /// a tuple of inputs for the loop. has the same shape as the outputs tuple.
-    pub inputs: L,
-
-    /// a tuple of outputs for the loop. has the same shape as the inputs tuple.
-    pub outputs: L,
+    /// a list of outputs for the loop.
+    pub outputs: Vec<L>,
 
     /// the condition of the loop.
     pub cond: L,
 }
 
-/// a node which represents the params of a loop as a tuple of values.
+/// a node which represents a parameter of a loop.
 ///
 /// this node does not refer to a specific loop, but to the concept of using loop params.
-#[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
-pub struct LoopParams;
+#[derive(Debug, Clone, Copy, From, Hash, PartialEq, Eq)]
+pub struct LoopParam(
+    /// the index of the parameter in the list of parameters of the loop.
+    pub u32,
+);
+
+/// an evaluation of a loop with specific input values.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LoopEval<L> {
+    /// the loop to evaluate.
+    pub loop_node: L,
+
+    /// a list of inputs to to pass to the loop. the inputs will be used as the initial values for the loop parameters.
+    ///
+    /// must have the same shape as the loop's outputs.
+    pub inputs: Vec<L>,
+}
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
@@ -212,16 +200,13 @@ pub enum GenericNode<L> {
     UnOp(UnOp<L>),
     VnInitialValue(Vn),
 
-    TupleGet(TupleGet<L>),
-    TupleChoose(TupleChoose<L>),
-    TupleBuild(TupleBuild<L>),
-
-    FnParams(FnParams),
+    FnParam(FnParam),
     Function(Function<L>),
     FnCall(FnCall<L>),
 
-    LoopParams(LoopParams),
+    LoopParam(LoopParam),
     Loop(Loop<L>),
+    LoopEval(LoopEval<L>),
 }
 
 impl<L> GenericNode<L> {
@@ -242,27 +227,23 @@ impl<L> GenericNode<L> {
                 operand: conversion(operand),
             }),
             GenericNode::VnInitialValue(vn) => GenericNode::VnInitialValue(vn.clone()),
-            GenericNode::TupleGet(TupleGet { tuple, index }) => GenericNode::TupleGet(TupleGet {
-                tuple: conversion(tuple),
-                index: *index,
-            }),
-            GenericNode::TupleChoose(tuple_choose) => todo!(),
-            GenericNode::TupleBuild(TupleBuild { values }) => GenericNode::TupleBuild(TupleBuild {
-                values: values.iter().map(conversion).collect(),
-            }),
-            GenericNode::FnParams(fn_params) => todo!(),
+            GenericNode::FnParam(fn_param) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopParams(_) => GenericNode::LoopParams(LoopParams),
+            GenericNode::LoopParam(loop_param) => GenericNode::LoopParam(loop_param.clone()),
             GenericNode::Loop(Loop {
-                inputs,
                 outputs,
                 cond: condition,
             }) => GenericNode::Loop(Loop {
-                inputs: conversion(inputs),
-                outputs: conversion(outputs),
+                outputs: outputs.iter().map(&mut conversion).collect(),
                 cond: conversion(condition),
             }),
+            GenericNode::LoopEval(LoopEval { loop_node, inputs }) => {
+                GenericNode::LoopEval(LoopEval {
+                    loop_node: conversion(loop_node),
+                    inputs: inputs.iter().map(&mut conversion).collect(),
+                })
+            }
         }
     }
 
@@ -283,14 +264,12 @@ impl<L> GenericNode<L> {
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
             GenericNode::VnInitialValue(vn) => todo!(),
-            GenericNode::TupleGet(tuple_get) => todo!(),
-            GenericNode::TupleChoose(tuple_choose) => todo!(),
-            GenericNode::TupleBuild(tuple_build) => todo!(),
-            GenericNode::FnParams(fn_params) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopParams(loop_params) => todo!(),
             GenericNode::Loop(_) => todo!(),
+            GenericNode::FnParam(fn_param) => todo!(),
+            GenericNode::LoopParam(loop_param) => todo!(),
+            GenericNode::LoopEval(loop_eval) => todo!(),
         }
     }
 }

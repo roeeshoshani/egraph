@@ -20,43 +20,21 @@ fn main() {
     .to_rec_link();
 
     // the below code calculates `sum(2*i for i in 0..x)`
-    let expr: RecLink = Loop {
-        inputs: TupleBuild {
-            values: vec![Imm::u64(0).into(), Imm::u64(0).into()],
-        }
-        .into(),
-        outputs: TupleBuild {
-            values: vec![
-                TupleGet {
-                    tuple: LoopParams.into(),
-                    index: 0,
-                }
-                .to_rec_link()
-                    + Imm::u64(1).into(),
-                TupleGet {
-                    tuple: LoopParams.into(),
-                    index: 1,
-                }
-                .to_rec_link()
-                    + Imm::u64(2).to_rec_link()
-                        * TupleGet {
-                            tuple: LoopParams.into(),
-                            index: 0,
-                        }
-                        .to_rec_link(),
+    let expr: RecLink = LoopEval {
+        loop_node: Loop {
+            outputs: vec![
+                LoopParam(0).to_rec_link() + Imm::u64(1).into(),
+                LoopParam(1).to_rec_link() + Imm::u64(2).to_rec_link() * LoopParam(0).to_rec_link(),
             ],
-        }
-        .into(),
-        cond: BinOp {
-            kind: BinOpKind::UnsignedLess,
-            lhs: TupleGet {
-                tuple: LoopParams.into(),
-                index: 0,
+            cond: BinOp {
+                kind: BinOpKind::UnsignedLess,
+                lhs: LoopParam(0).into(),
+                rhs: x,
             }
             .into(),
-            rhs: x,
         }
         .into(),
+        inputs: vec![Imm::u64(0).into(), Imm::u64(0).into()],
     }
     .into();
 
