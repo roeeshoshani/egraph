@@ -164,19 +164,35 @@ pub struct FnParam(
 /// a node which represents a tail controlled loop.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq)]
 pub struct Loop<L> {
-    /// a list of outputs for the loop.
-    pub outputs: Vec<L>,
+    /// a list of inner variables of the loop.
+    /// these nodes express how the value of each iteration should be calculated based on the value from the previous iteration.
+    /// these are variables whose values can only be used inside the loop and are not produced as outputs of the loop.
+    pub inner_vars: Vec<L>,
+
+    /// a list of variables of the loop.
+    /// these nodes express how the value of each iteration should be calculated based on the value from the previous iteration.
+    /// these are variables whose values be used inside the loop and are also produced as outputs of the loop.
+    pub vars: Vec<L>,
 
     /// the condition of the loop.
     pub cond: L,
 }
 
-/// a node which represents a parameter of a loop.
+/// a node which represents the value of a loop variable.
 ///
-/// this node does not refer to a specific loop, but to the concept of using loop params.
+/// this node does not refer to a specific loop, but to the concept of using loop variables.
 #[derive(Debug, Clone, Copy, From, Hash, PartialEq, Eq)]
-pub struct LoopParam(
-    /// the index of the parameter in the list of parameters of the loop.
+pub struct LoopVar(
+    /// the index of the variable in the list of variables of the loop.
+    pub u32,
+);
+
+/// a node which represents the value of a loop inner variable.
+///
+/// this node does not refer to a specific loop, but to the concept of using loop variables.
+#[derive(Debug, Clone, Copy, From, Hash, PartialEq, Eq)]
+pub struct LoopInnerVar(
+    /// the index of the inner variable in the list of inner variables of the loop.
     pub u32,
 );
 
@@ -186,10 +202,11 @@ pub struct LoopEval<L> {
     /// the loop to evaluate.
     pub loop_node: L,
 
-    /// a list of inputs to to pass to the loop. the inputs will be used as the initial values for the loop parameters.
-    ///
-    /// must have the same shape as the loop's outputs.
-    pub inputs: Vec<L>,
+    /// a list of values to use as initial values for the loop inner variables.
+    pub inner_vars_initial_values: Vec<L>,
+
+    /// a list of values to use as initial values for the loop variables.
+    pub vars_initial_values: Vec<L>,
 }
 
 /// the initial state of the memory.
@@ -218,7 +235,8 @@ pub enum GenericNode<L> {
     Function(Function<L>),
     FnCall(FnCall<L>),
 
-    LoopParam(LoopParam),
+    LoopInnerVar(LoopInnerVar),
+    LoopVar(LoopVar),
     Loop(Loop<L>),
     LoopEval(LoopEval<L>),
 
@@ -246,20 +264,28 @@ impl<L> GenericNode<L> {
             GenericNode::FnParam(fn_param) => todo!(),
             GenericNode::Function(function) => todo!(),
             GenericNode::FnCall(fn_call) => todo!(),
-            GenericNode::LoopParam(loop_param) => GenericNode::LoopParam(loop_param.clone()),
+            GenericNode::LoopVar(loop_param) => GenericNode::LoopVar(loop_param.clone()),
             GenericNode::Loop(Loop {
-                outputs,
-                cond: condition,
+                inner_vars,
+                vars,
+                cond,
             }) => GenericNode::Loop(Loop {
-                outputs: outputs.iter().map(&mut conversion).collect(),
-                cond: conversion(condition),
+                inner_vars: inner_vars.iter().map(&mut conversion).collect(),
+                vars: vars.iter().map(&mut conversion).collect(),
+                cond: conversion(cond),
             }),
-            GenericNode::LoopEval(LoopEval { loop_node, inputs }) => {
-                GenericNode::LoopEval(LoopEval {
-                    loop_node: conversion(loop_node),
-                    inputs: inputs.iter().map(&mut conversion).collect(),
-                })
-            }
+            GenericNode::LoopEval(LoopEval {
+                loop_node,
+                inner_vars_initial_values,
+                vars_initial_values,
+            }) => GenericNode::LoopEval(LoopEval {
+                loop_node: conversion(loop_node),
+                vars_initial_values: vars_initial_values.iter().map(&mut conversion).collect(),
+                inner_vars_initial_values: inner_vars_initial_values
+                    .iter()
+                    .map(&mut conversion)
+                    .collect(),
+            }),
             GenericNode::InitialMemoryState(initial_memory_state) => {
                 GenericNode::InitialMemoryState(*initial_memory_state)
             }
@@ -267,6 +293,7 @@ impl<L> GenericNode<L> {
                 tuple: conversion(tuple),
                 index: *index,
             }),
+            GenericNode::LoopInnerVar(loop_inner_var) => GenericNode::LoopInnerVar(*loop_inner_var),
         }
     }
 
@@ -291,10 +318,11 @@ impl<L> GenericNode<L> {
             GenericNode::FnCall(fn_call) => todo!(),
             GenericNode::Loop(_) => todo!(),
             GenericNode::FnParam(fn_param) => todo!(),
-            GenericNode::LoopParam(loop_param) => todo!(),
+            GenericNode::LoopVar(loop_param) => todo!(),
             GenericNode::LoopEval(loop_eval) => todo!(),
             GenericNode::InitialMemoryState(initial_memory_state) => todo!(),
             GenericNode::TupleGet(tuple_get) => todo!(),
+            GenericNode::LoopInnerVar(loop_inner_var) => todo!(),
         }
     }
 }

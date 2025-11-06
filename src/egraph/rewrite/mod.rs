@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 pub mod const_fold;
 pub mod template_rewrite;
+pub mod tmp_attempt;
 
 use crate::{did_anything::DidAnything, egraph::*, union_find::UnionRes, utils::CowBox};
 

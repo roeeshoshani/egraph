@@ -24,46 +24,42 @@ fn main() {
     // should be equal to `sum(i for i in 6..x + 6)`
     let expr1: RecLink = LoopEval {
         loop_node: Loop {
-            outputs: vec![
-                LoopParam(0).to_rec_link() + Imm::u64(1).into(),
-                LoopParam(1).to_rec_link()
+            inner_vars: vec![LoopInnerVar(0).to_rec_link() + Imm::u64(1).into()],
+            vars: vec![
+                LoopVar(0).to_rec_link()
                     + (
                         // i + 6
-                        LoopParam(0).to_rec_link() + Imm::u64(6).into()
+                        LoopInnerVar(0).to_rec_link() + Imm::u64(6).into()
                     ),
             ],
             cond: BinOp {
                 kind: BinOpKind::UnsignedLess,
-                lhs: LoopParam(0).into(),
+                lhs: LoopInnerVar(0).into(),
                 rhs: x.clone(),
             }
             .into(),
         }
         .into(),
-        inputs: vec![Imm::u64(0).into(), Imm::u64(0).into()],
+        inner_vars_initial_values: vec![Imm::u64(0).into()],
+        vars_initial_values: vec![Imm::u64(0).into()],
     }
     .into();
 
     // `sum(i for i in 6..x + 6)`
     let expr2: RecLink = LoopEval {
         loop_node: Loop {
-            outputs: vec![
-                LoopParam(0).to_rec_link() + Imm::u64(1).into(),
-                LoopParam(1).to_rec_link()
-                    + (
-                        // i + 6
-                        LoopParam(0).to_rec_link() + Imm::u64(6).into()
-                    ),
-            ],
+            inner_vars: vec![LoopInnerVar(0).to_rec_link() + Imm::u64(1).into()],
+            vars: vec![LoopVar(0).to_rec_link() + LoopInnerVar(0).to_rec_link()],
             cond: BinOp {
                 kind: BinOpKind::UnsignedLess,
-                lhs: LoopParam(0).into(),
-                rhs: x + Imm::u64(6).into(),
+                lhs: LoopInnerVar(0).into(),
+                rhs: x.clone() + Imm::u64(6).into(),
             }
             .into(),
         }
         .into(),
-        inputs: vec![Imm::u64(6).into(), Imm::u64(0).into()],
+        inner_vars_initial_values: vec![Imm::u64(6).into()],
+        vars_initial_values: vec![Imm::u64(0).into()],
     }
     .into();
     println!("{}", expr1);
