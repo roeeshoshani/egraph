@@ -93,10 +93,13 @@ pub struct UnOp<L> {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Backlink<L>(pub L);
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LoopVar<L> {
     pub initial_value: L,
 
-    pub next_iteration_value: L,
+    pub next_iteration_value: Backlink<L>,
 }
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
@@ -147,7 +150,7 @@ impl<L> GenericNode<L> {
                 next_iteration_value,
             }) => GenericNode::LoopVar(LoopVar {
                 initial_value: conversion(initial_value),
-                next_iteration_value: conversion(next_iteration_value),
+                next_iteration_value: Backlink(conversion(&next_iteration_value.0)),
             }),
         }
     }
