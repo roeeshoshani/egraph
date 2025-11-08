@@ -92,6 +92,13 @@ pub struct UnOp<L> {
     pub operand: L,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LoopVar<L> {
+    pub initial_value: L,
+
+    pub next_iteration_value: L,
+}
+
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
 pub enum GenericNode<L> {
@@ -106,6 +113,8 @@ pub enum GenericNode<L> {
 
     /// a unary operation.
     UnOp(UnOp<L>),
+
+    LoopVar(LoopVar<L>),
 }
 
 // convert from an integer value to an immediate node.
@@ -133,6 +142,13 @@ impl<L> GenericNode<L> {
                 kind: *kind,
                 operand: conversion(operand),
             }),
+            GenericNode::LoopVar(LoopVar {
+                initial_value,
+                next_iteration_value,
+            }) => GenericNode::LoopVar(LoopVar {
+                initial_value: conversion(initial_value),
+                next_iteration_value: conversion(next_iteration_value),
+            }),
         }
     }
 
@@ -153,6 +169,7 @@ impl<L> GenericNode<L> {
             GenericNode::Var(var) => format!("var{}", var.0),
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
+            GenericNode::LoopVar(_) => format!("loopvar"),
         }
     }
 }

@@ -49,6 +49,7 @@ impl Display for RecNode {
                 write!(f, "({}) {} ({})", bin_op.lhs, bin_op.kind, bin_op.rhs)
             }
             GenericNode::UnOp(un_op) => write!(f, "{}({})", un_op.kind, un_op.operand),
+            GenericNode::LoopVar(loop_var) => unreachable!(),
         }
     }
 }
