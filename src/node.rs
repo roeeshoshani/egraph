@@ -93,18 +93,18 @@ pub struct UnOp<L> {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Backlink<L>(pub L);
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LoopVar<L> {
     pub initial_value: L,
 
-    pub next_iteration_value: Backlink<L>,
+    pub next_iteration_value: L,
 }
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct LoopVarPrevValue<BL>(BL);
 
 /// a node type that is generic over the link type. the link type determines how the node points to other nodes that it uses as inputs.
 #[derive(Debug, Clone, From, Hash, PartialEq, Eq, EnumIsVariant, EnumAsVariant)]
-pub enum GenericNode<L> {
+pub enum GenericNode<L, BL> {
     /// an immediate value.
     Imm(Imm),
 
@@ -118,40 +118,50 @@ pub enum GenericNode<L> {
     UnOp(UnOp<L>),
 
     LoopVar(LoopVar<L>),
+
+    LoopVarPrevValue(LoopVarPrevValue<BL>),
 }
 
 // convert from an integer value to an immediate node.
-impl<L> From<u64> for GenericNode<L> {
+impl<L, BL> From<u64> for GenericNode<L, BL> {
     fn from(value: u64) -> Self {
         Imm(value).into()
     }
 }
 
-impl<L> GenericNode<L> {
+impl<L, BL> GenericNode<L, BL> {
     /// converts the links of the given node using the given conversion function, generating a new node with the converted link values.
-    pub fn convert_links<L2, F>(&self, mut conversion: F) -> GenericNode<L2>
+    pub fn convert_links<L2, BL2, FL, FBL>(
+        &self,
+        mut link_conversion: FL,
+        mut backlink_conversion: FBL,
+    ) -> GenericNode<L2, BL2>
     where
-        F: FnMut(&L) -> L2,
+        FL: FnMut(&L) -> L2,
+        FBL: FnMut(&BL) -> BL2,
     {
         match self {
             GenericNode::Imm(imm) => GenericNode::Imm(*imm),
             GenericNode::Var(var) => GenericNode::Var(*var),
             GenericNode::BinOp(BinOp { kind, lhs, rhs }) => GenericNode::BinOp(BinOp {
                 kind: *kind,
-                lhs: conversion(lhs),
-                rhs: conversion(rhs),
+                lhs: link_conversion(lhs),
+                rhs: link_conversion(rhs),
             }),
             GenericNode::UnOp(UnOp { kind, operand }) => GenericNode::UnOp(UnOp {
                 kind: *kind,
-                operand: conversion(operand),
+                operand: link_conversion(operand),
             }),
             GenericNode::LoopVar(LoopVar {
                 initial_value,
                 next_iteration_value,
             }) => GenericNode::LoopVar(LoopVar {
-                initial_value: conversion(initial_value),
-                next_iteration_value: Backlink(conversion(&next_iteration_value.0)),
+                initial_value: link_conversion(initial_value),
+                next_iteration_value: link_conversion(next_iteration_value),
             }),
+            GenericNode::LoopVarPrevValue(LoopVarPrevValue(backlink)) => {
+                GenericNode::LoopVarPrevValue(LoopVarPrevValue(backlink_conversion(backlink)))
+            }
         }
     }
 
@@ -173,6 +183,7 @@ impl<L> GenericNode<L> {
             GenericNode::BinOp(bin_op) => bin_op.kind.to_string(),
             GenericNode::UnOp(un_op) => un_op.kind.to_string(),
             GenericNode::LoopVar(_) => format!("loopvar"),
+            GenericNode::LoopVarPrevValue(loop_var_prev_value) => todo!(),
         }
     }
 }
