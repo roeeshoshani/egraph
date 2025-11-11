@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use egraph::{
     node::{imm::Imm, *},
     rec_node::*,
@@ -15,46 +17,54 @@ fn main() {
     .to_rec_link();
 
     // the below code calculates `sum(i + 6 for i in 0..x)`
-    //
-    // should be equal to `sum(i for i in 6..x + 6)`
-    let expr1: RecLink = LoopEval {
-        loop_node: Loop {
-            inner_vars: vec![LoopInnerVar(0).to_rec_link() + Imm::u64(1).into()],
-            vars: vec![
-                LoopVar(0).to_rec_link()
-                    + (
-                        // i + 6
-                        LoopInnerVar(0).to_rec_link() + Imm::u64(6).into()
-                    ),
-            ],
-            cond: BinOp {
-                kind: BinOpKind::UnsignedLess,
-                lhs: LoopInnerVar(0).into(),
-                rhs: x.clone(),
+    let loop_id = LoopId(NonZeroUsize::new(1).unwrap());
+    let expr1: RecLink = Loop {
+        vars: vec![
+            // i
+            LoopVar {
+                initial_value: Imm::u64(0).into(),
             }
-            .into(),
+            .to_rec_link()
+                + Imm::u64(1).into(),
+            // accumulator var
+            LoopVar {
+                initial_value: Imm::u64(0).into(),
+            }
+            .to_rec_link()
+                + OtherLoopVar { loop_id, index: 0 }.into()
+                + Imm::u64(6).into(),
+        ],
+        cond: BinOp {
+            kind: BinOpKind::UnsignedLess,
+            lhs: OtherLoopVar { loop_id, index: 0 }.into(),
+            rhs: x.clone(),
         }
         .into(),
-        inner_vars_initial_values: vec![Imm::u64(0).into()],
-        vars_initial_values: vec![Imm::u64(0).into()],
+        id: loop_id,
     }
     .into();
 
     // `sum(i for i in 6..x + 6)`
-    let expr2: RecLink = LoopEval {
-        loop_node: Loop {
-            inner_vars: vec![LoopInnerVar(0).to_rec_link() + Imm::u64(1).into()],
-            vars: vec![LoopVar(0).to_rec_link() + LoopInnerVar(0).to_rec_link()],
-            cond: BinOp {
-                kind: BinOpKind::UnsignedLess,
-                lhs: LoopInnerVar(0).into(),
-                rhs: x.clone() + Imm::u64(6).into(),
+    let expr2: RecLink = Loop {
+        vars: vec![
+            LoopVar {
+                initial_value: Imm::u64(6).into(),
             }
-            .into(),
+            .to_rec_link()
+                + Imm::u64(1).into(),
+            LoopVar {
+                initial_value: Imm::u64(0).into(),
+            }
+            .to_rec_link()
+                + OtherLoopVar { loop_id, index: 0 }.into(),
+        ],
+        cond: BinOp {
+            kind: BinOpKind::UnsignedLess,
+            lhs: OtherLoopVar { loop_id, index: 0 }.into(),
+            rhs: x + Imm::u64(6).into(),
         }
         .into(),
-        inner_vars_initial_values: vec![Imm::u64(6).into()],
-        vars_initial_values: vec![Imm::u64(0).into()],
+        id: loop_id,
     }
     .into();
     println!("{}", expr1);

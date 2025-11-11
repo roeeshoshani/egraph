@@ -85,24 +85,15 @@ impl Display for RecNode {
             GenericNode::Loop(loop_node) => {
                 write!(
                     f,
-                    "loop {{ inner_vars={}, vars={}, cond={} }}",
-                    DisplayRecLinks(&loop_node.inner_vars),
+                    "loop {{ id={}, vars={}, cond={} }}",
+                    loop_node.id.0,
                     DisplayRecLinks(&loop_node.vars),
                     loop_node.cond
                 )
             }
             GenericNode::FnParam(fn_param) => todo!(),
             GenericNode::LoopVar(loop_var) => {
-                write!(f, "loop_var_{}", loop_var.0)
-            }
-            GenericNode::LoopEval(loop_eval) => {
-                write!(
-                    f,
-                    "loop_eval({}, inner_vars={}, vars={})",
-                    loop_eval.loop_node,
-                    DisplayRecLinks(&loop_eval.inner_vars_initial_values),
-                    DisplayRecLinks(&loop_eval.vars_initial_values),
-                )
+                write!(f, "loop_var {{ initial_value={} }}", loop_var.initial_value)
             }
             GenericNode::InitialMemoryState(initial_memory_state) => {
                 write!(f, "initial_memory_state")
@@ -110,8 +101,12 @@ impl Display for RecNode {
             GenericNode::TupleGet(tuple_get) => {
                 write!(f, "{}[{}]", tuple_get.tuple, tuple_get.index)
             }
-            GenericNode::LoopInnerVar(loop_inner_var) => {
-                write!(f, "loop_inner_var_{}", loop_inner_var.0)
+            GenericNode::OtherLoopVar(other_loop_var) => {
+                write!(
+                    f,
+                    "other_loop_var {{ loop_id={}, index = {} }}",
+                    other_loop_var.loop_id.0, other_loop_var.index
+                )
             }
         }
     }
