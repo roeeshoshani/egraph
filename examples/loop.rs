@@ -19,6 +19,7 @@ fn main() {
     // the below code calculates `sum(i + 6 for i in 0..x)`
     let loop_id = LoopId(NonZeroUsize::new(1).unwrap());
     let expr1: RecLink = Loop {
+        inner_vars: vec![],
         vars: vec![
             // i
             LoopVar {
@@ -46,6 +47,7 @@ fn main() {
 
     // `sum(i for i in 6..x + 6)`
     let expr2: RecLink = Loop {
+        inner_vars: vec![],
         vars: vec![
             LoopVar {
                 initial_value: Imm::u64(6).into(),

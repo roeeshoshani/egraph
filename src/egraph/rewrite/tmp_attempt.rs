@@ -40,6 +40,7 @@ impl QueryLinkMatcher<Ctx> for RootLinkMatcher {
         egraph: &EGraph,
         ctx: Cow<'c, Ctx>,
     ) -> QueryMatchLinkRes<'a, 'c, Ctx> {
+        // in the root, we want a loop node
         todo!()
     }
 }

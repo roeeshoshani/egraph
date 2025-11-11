@@ -170,6 +170,9 @@ pub struct LoopId(pub NonZeroUsize);
 /// a node which represents a tail controlled loop.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Loop<L> {
+    /// a list of inner variables of the loop.
+    pub inner_vars: Vec<L>,
+
     /// a list of variables of the loop.
     pub vars: Vec<L>,
 
@@ -254,7 +257,13 @@ impl<L> GenericNode<L> {
             GenericNode::LoopVar(LoopVar { initial_value }) => GenericNode::LoopVar(LoopVar {
                 initial_value: conversion(initial_value),
             }),
-            GenericNode::Loop(Loop { vars, cond, id }) => GenericNode::Loop(Loop {
+            GenericNode::Loop(Loop {
+                inner_vars,
+                vars,
+                cond,
+                id,
+            }) => GenericNode::Loop(Loop {
+                inner_vars: inner_vars.iter().map(&mut conversion).collect(),
                 vars: vars.iter().map(&mut conversion).collect(),
                 cond: conversion(cond),
                 id: *id,

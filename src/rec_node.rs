@@ -85,8 +85,9 @@ impl Display for RecNode {
             GenericNode::Loop(loop_node) => {
                 write!(
                     f,
-                    "loop {{ id={}, vars={}, cond={} }}",
+                    "loop {{ id={}, inner_vars={}, vars={}, cond={} }}",
                     loop_node.id.0,
+                    DisplayRecLinks(&loop_node.inner_vars),
                     DisplayRecLinks(&loop_node.vars),
                     loop_node.cond
                 )
