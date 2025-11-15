@@ -9,7 +9,10 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use crate::{did_anything::*, egraph::rewrite::*, graph::*, node::*, rec_node::*, union_find::*};
+use crate::{
+    did_anything::*, egraph::rewrite::*, graph::*, node::*, rec_node::*, union_find::*,
+    utils::NonZeroUsizeAllocator,
+};
 
 /// the id of an enode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -365,6 +368,8 @@ pub struct EGraph {
     union_find: ENodesUnionFind,
 
     hashmap: RefCell<HashMap<EffectiveENode, ENodeId>>,
+
+    loop_id_allocator: NonZeroUsizeAllocator,
 }
 impl EGraph {
     /// returns a new empty egraph.
@@ -372,7 +377,12 @@ impl EGraph {
         Self {
             union_find: ENodesUnionFind::new(),
             hashmap: RefCell::new(HashMap::new()),
+            loop_id_allocator: NonZeroUsizeAllocator::new(),
         }
+    }
+
+    pub fn alloc_loop_id(&self) -> LoopId {
+        LoopId(self.loop_id_allocator.alloc())
     }
 
     /// returns a reference to the union find tree of the egraph.

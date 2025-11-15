@@ -43,6 +43,7 @@ impl<'a, T: ?Sized> AsRef<T> for CowBox<'a, T> {
 }
 
 /// a non zero usize allocator. allocates incrementing non-zero usize values.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonZeroUsizeAllocator {
     next: Cell<NonZeroUsize>,
 }
